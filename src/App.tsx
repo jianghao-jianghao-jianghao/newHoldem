@@ -1,0 +1,625 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AchievementMedalIcon } from './components/AchievementBadge';
+import { AchievementsModal } from './components/AchievementsModal';
+import { HandRankingsModal } from './components/HandRankingsModal';
+import { type CameraPreset, PokerScene3D } from './components/PokerScene3D';
+import { PokerTable } from './components/PokerTable';
+import { TitleScreen } from './components/TitleScreen';
+import { useAuth } from './context/AuthContext';
+import {
+  ACHIEVEMENT_MAP,
+  sanitizeAchievementIds,
+  type AchievementDatesMap,
+  type AchievementId,
+} from './shared/achievements';
+import { sanitizeAvatar } from './shared/avatarUtils';
+import { appendChatHistory, MAX_CHAT_HISTORY } from './shared/chatUtils';
+import type {
+  ChatMessage,
+  ClientTableView,
+  ClientWsMessage,
+  LeaderboardEntry,
+  PlayerAction,
+  PlayerNudgeEvent,
+  RoomSummary,
+  ServerWsMessage,
+} from './shared/types';
+import { soundFx } from './utils/soundFx';
+
+const SERVER_BASE_URL = (
+  (import.meta.env.VITE_SERVER_URL as string | undefined) ?? ''
+)
+  .trim()
+  .replace(/\/+$/, '');
+
+function getApiUrl(path: string): string {
+  return SERVER_BASE_URL ? `${SERVER_BASE_URL}${path}` : path;
+}
+
+function getWsUrl(): string {
+  if (SERVER_BASE_URL) {
+    try {
+      const parsed = new URL(SERVER_BASE_URL);
+      const protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${parsed.host}/ws`;
+    } catch {
+      // Fall back to current origin if VITE_SERVER_URL is invalid
+    }
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws`;
+}
+
+function getOrCreatePlayerId(): string {
+  const key = 'velvet_holdem_player_id';
+  let id = sessionStorage.getItem(key);
+  if (!id) {
+    id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    sessionStorage.setItem(key, id);
+  }
+  return id;
+}
+
+export default function App() {
+  const [playerId] = useState<string>(() => getOrCreatePlayerId());
+  const [playerName, setPlayerName] = useState<string>(() => {
+    return localStorage.getItem('velvet_holdem_name') ?? '';
+  });
+  const [playerAvatar, setPlayerAvatar] = useState<string>(() => {
+    return sanitizeAvatar(localStorage.getItem('velvet_holdem_avatar') ?? 'default');
+  });
+  const [activeRoomId, setActiveRoomId] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return (params.get('room') || 'CLUB01').toUpperCase();
+  });
+  const [isDesktop, setIsDesktop] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return window.matchMedia('(min-width: 768px)').matches;
+  });
+
+  const [screen, setScreen] = useState<'title' | 'playing'>('title');
+  const [table, setTable] = useState<ClientTableView | null>(null);
+  const [rooms, setRooms] = useState<RoomSummary[]>([
+    {
+      roomId: 'CLUB01',
+      tableName: '俱乐部大厅桌',
+      playerCount: 0,
+      phase: 'waiting',
+      smallBlind: 10,
+      bigBlind: 20,
+      startingChips: 2000,
+      createdAt: Date.now(),
+    },
+  ]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [achievementsOpen, setAchievementsOpen] = useState(false);
+  const [rankingsOpen, setRankingsOpen] = useState(false);
+  const [rankingsTab, setRankingsTab] = useState<'rankings' | 'gallery'>('rankings');
+  const [unlockedToast, setUnlockedToast] = useState<AchievementId[]>([]);
+  const [muted, setMuted] = useState(false);
+  const [bgmEnabled, setBgmEnabled] = useState(true);
+  const [cameraPreset, setCameraPreset] = useState<CameraPreset>('classic');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [lastNudge, setLastNudge] = useState<PlayerNudgeEvent | null>(null);
+  const [nudgePulse, setNudgePulse] = useState<{ targetPlayerId: string; key: number } | null>(null);
+
+  const {
+    profile,
+    updatePreferences,
+    syncMatchOutcomeToCloud,
+  } = useAuth();
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const joinedRoomRef = useRef<{ roomId: string; name: string; avatar: string } | null>(null);
+  const prevPhaseRef = useRef<string>('waiting');
+  const toastTimerRef = useRef<number | null>(null);
+  const lastCloudSyncedStampRef = useRef<string>('');
+  const hydratedProfileUidRef = useRef<string | null>(null);
+
+  // Hydrate user profile preferences from verified email account
+  useEffect(() => {
+    if (!profile) {
+      hydratedProfileUidRef.current = null;
+      return;
+    }
+    if (hydratedProfileUidRef.current === profile.uid) return;
+    hydratedProfileUidRef.current = profile.uid;
+
+    if (!playerName.trim() && profile.displayName) {
+      setPlayerName(profile.displayName);
+      localStorage.setItem('velvet_holdem_name', profile.displayName);
+    }
+    if (profile.avatar && playerAvatar === 'default') {
+      const safe = sanitizeAvatar(profile.avatar);
+      setPlayerAvatar(safe);
+      localStorage.setItem('velvet_holdem_avatar', safe);
+    }
+    setBgmEnabled(profile.bgmEnabled);
+    soundFx.setBgmEnabled(profile.bgmEnabled);
+  }, [profile, playerName, playerAvatar]);
+
+  // Track desktop (>=768px) vs mobile (<768px) to keep mobile completely 2D
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  // Fade in Jazz Lounge ambient music cleanly on first user interaction
+  useEffect(() => {
+    const unlockAudio = () => {
+      soundFx.notifyUserInteraction();
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
+
+  // Mirror state machine to document.body.dataset.state
+  useEffect(() => {
+    document.body.dataset.state = screen;
+  }, [screen]);
+
+  const sendWs = useCallback((msg: ClientWsMessage) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  // Connect WebSocket with automatic reconnection
+  useEffect(() => {
+    let disposed = false;
+    let reconnectTimer: number | null = null;
+
+    const connect = () => {
+      if (disposed) return;
+      const ws = new WebSocket(getWsUrl());
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setErrorMsg(null);
+        if (joinedRoomRef.current) {
+          ws.send(
+            JSON.stringify({
+              type: 'join_room',
+              roomId: joinedRoomRef.current.roomId,
+              playerId,
+              playerName: joinedRoomRef.current.name,
+              avatar: joinedRoomRef.current.avatar,
+            } satisfies ClientWsMessage)
+          );
+        }
+      };
+
+      ws.onmessage = (event) => {
+        let msg: ServerWsMessage;
+        try {
+          msg = JSON.parse(event.data) as ServerWsMessage;
+        } catch {
+          return;
+        }
+
+        if (msg.type === 'rooms_update') {
+          setRooms(msg.rooms);
+        } else if (msg.type === 'leaderboard_update') {
+          setLeaderboard(msg.entries);
+        } else if (msg.type === 'table_state') {
+          setTable(msg.state);
+          setScreen('playing');
+          setErrorMsg(null);
+        } else if (msg.type === 'chat_history') {
+          setChatMessages(msg.messages);
+        } else if (msg.type === 'chat_message') {
+          setChatMessages((prev) =>
+            appendChatHistory(prev, msg.message, MAX_CHAT_HISTORY)
+          );
+        } else if (msg.type === 'player_nudged') {
+          setLastNudge(msg.nudge);
+          setNudgePulse({
+            targetPlayerId: msg.nudge.targetPlayerId,
+            key: msg.nudge.createdAt,
+          });
+          soundFx.playNudge();
+        } else if (msg.type === 'achievement_unlocked') {
+          setUnlockedToast(msg.achievementIds);
+          if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+          toastTimerRef.current = window.setTimeout(() => {
+            setUnlockedToast([]);
+          }, 4800);
+        } else if (msg.type === 'room_deleted') {
+          joinedRoomRef.current = null;
+          setTable(null);
+          setChatMessages([]);
+          setLastNudge(null);
+          setScreen('title');
+          setErrorMsg(msg.reason);
+        } else if (msg.type === 'error') {
+          setErrorMsg(msg.message);
+        }
+      };
+
+      ws.onclose = () => {
+        if (!disposed) {
+          reconnectTimer = window.setTimeout(connect, 1200);
+        }
+      };
+    };
+
+    connect();
+
+    fetch(getApiUrl('/api/leaderboard'))
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.entries)) setLeaderboard(d.entries);
+      })
+      .catch(() => {});
+
+    fetch(getApiUrl('/api/rooms'))
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.rooms)) setRooms(d.rooms);
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      wsRef.current?.close();
+    };
+  }, [playerId]);
+
+  // Support ?autostart=1 for instant entry into table
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('autostart') === '1' && !joinedRoomRef.current) {
+      const autoName =
+        playerName.trim() || `牌手${Math.floor(100 + Math.random() * 900)}`;
+      const room = (params.get('room') || 'CLUB01').toUpperCase();
+      setPlayerName(autoName);
+      setActiveRoomId(room);
+      joinedRoomRef.current = { roomId: room, name: autoName, avatar: playerAvatar };
+      sendWs({
+        type: 'join_room',
+        roomId: room,
+        playerId,
+        playerName: autoName,
+        avatar: playerAvatar,
+      });
+    }
+  }, [playerId, playerName, playerAvatar, sendWs]);
+
+  // Trigger win fanfare on showdown transition and sync cloud profile stats
+  useEffect(() => {
+    if (!table) return;
+    if (table.phase === 'showdown' && prevPhaseRef.current !== 'showdown') {
+      soundFx.playWin();
+      if (profile) {
+        const cleanName = playerName.trim() || profile.displayName;
+        const entry = leaderboard.find((e) => e.playerName === cleanName);
+        const stamp = `${table.roomId}:${table.handNumber}:${entry?.updatedAt ?? 0}`;
+        if (entry && lastCloudSyncedStampRef.current !== stamp) {
+          lastCloudSyncedStampRef.current = stamp;
+          void syncMatchOutcomeToCloud(entry, playerAvatar);
+        }
+      }
+    }
+    prevPhaseRef.current = table.phase;
+  }, [table, profile, playerName, playerAvatar, leaderboard, syncMatchOutcomeToCloud]);
+
+  // Global M shortcut to mute SFX audio
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (e.key.toLowerCase() === 'm') {
+        setMuted((prev) => {
+          const next = !prev;
+          soundFx.setMuted(next);
+          return next;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const handleEnterTable = useCallback(
+    (name: string, room: string, avatar: string) => {
+      soundFx.notifyUserInteraction();
+      const cleanName = name.trim();
+      const cleanRoom = room.trim().toUpperCase() || 'CLUB01';
+      const cleanAvatar = sanitizeAvatar(avatar);
+      localStorage.setItem('velvet_holdem_name', cleanName);
+      try {
+        localStorage.setItem('velvet_holdem_avatar', cleanAvatar);
+      } catch {
+        // Ignore storage quota errors for oversized custom avatars
+      }
+      setPlayerName(cleanName);
+      setPlayerAvatar(cleanAvatar);
+      setActiveRoomId(cleanRoom);
+      setChatMessages([]);
+      setLastNudge(null);
+      joinedRoomRef.current = { roomId: cleanRoom, name: cleanName, avatar: cleanAvatar };
+      if (profile) {
+        void updatePreferences({ displayName: cleanName, avatar: cleanAvatar });
+      }
+      sendWs({
+        type: 'join_room',
+        roomId: cleanRoom,
+        playerId,
+        playerName: cleanName,
+        avatar: cleanAvatar,
+        achievements: profile?.achievements,
+        achievementDates: profile?.achievementDates,
+      });
+    },
+    [playerId, sendWs, profile, updatePreferences]
+  );
+
+  const handleCreateRoom = useCallback(
+    async (params: {
+      tableName: string;
+      roomId?: string;
+      smallBlind: number;
+      bigBlind: number;
+      startingChips: number;
+    }): Promise<RoomSummary | null> => {
+      try {
+        const res = await fetch(getApiUrl('/api/rooms'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params),
+        });
+        const data = (await res.json()) as { room?: RoomSummary; error?: string };
+        if (!res.ok || !data.room) {
+          setErrorMsg(data.error ?? '创建牌桌失败');
+          return null;
+        }
+        const created = data.room;
+        setRooms((prev) => {
+          if (prev.some((r) => r.roomId === created.roomId)) return prev;
+          return [created, ...prev];
+        });
+        setActiveRoomId(created.roomId);
+        setErrorMsg(null);
+        return created;
+      } catch {
+        setErrorMsg('无法连接服务器，请检查网络或服务器地址');
+        return null;
+      }
+    },
+    []
+  );
+
+  const handleDeleteRoom = useCallback(async (roomId: string) => {
+    try {
+      const res = await fetch(getApiUrl(`/api/rooms/${encodeURIComponent(roomId)}`), {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setErrorMsg(data.error ?? '删除牌桌失败');
+        return;
+      }
+      setRooms((prev) => prev.filter((r) => r.roomId !== roomId));
+      setErrorMsg(null);
+    } catch {
+      setErrorMsg('删除牌桌失败，无法连接服务器');
+    }
+  }, []);
+
+  const handleLeaveRoom = useCallback(() => {
+    joinedRoomRef.current = null;
+    sendWs({ type: 'leave_room' });
+    setTable(null);
+    setChatMessages([]);
+    setLastNudge(null);
+    setScreen('title');
+  }, [sendWs]);
+
+  const handleAction = useCallback(
+    (action: PlayerAction) => {
+      if (action.type === 'fold') soundFx.playFold();
+      else if (action.type === 'check') soundFx.playCheck();
+      sendWs({ type: 'player_action', action });
+    },
+    [sendWs]
+  );
+
+  const handleRevealCards = useCallback(() => {
+    soundFx.playReveal();
+    sendWs({ type: 'reveal_cards' });
+  }, [sendWs]);
+
+  const handleToggleMute = useCallback(() => {
+    setMuted((prev) => {
+      const next = !prev;
+      soundFx.setMuted(next);
+      return next;
+    });
+  }, []);
+
+  const handleToggleBgm = useCallback(() => {
+    soundFx.notifyUserInteraction();
+    setBgmEnabled((prev) => {
+      const next = !prev;
+      soundFx.setBgmEnabled(next);
+      if (profile) {
+        void updatePreferences({ bgmEnabled: next });
+      }
+      return next;
+    });
+  }, [profile, updatePreferences]);
+
+  const handleToggleCameraPreset = useCallback(() => {
+    setCameraPreset((prev) => (prev === 'classic' ? 'overhead' : 'classic'));
+  }, []);
+
+  const isLobby = screen === 'title' || !table;
+  const selfTablePlayer = table?.players.find((p) => p.id === playerId) ?? null;
+
+  const matchedLeaderboardEntry =
+    leaderboard.find((e) => e.playerName === playerName.trim()) ?? null;
+  const currentAchievements = sanitizeAchievementIds([
+    ...(selfTablePlayer?.achievements ?? []),
+    ...(profile?.achievements ?? []),
+    ...(matchedLeaderboardEntry?.achievements ?? []),
+  ]);
+  const currentAchievementDates: AchievementDatesMap = {
+    ...(matchedLeaderboardEntry?.achievementDates ?? {}),
+    ...(profile?.achievementDates ?? {}),
+    ...(selfTablePlayer?.achievementDates ?? {}),
+  };
+  const currentWinStreak =
+    selfTablePlayer?.winStreak ??
+    profile?.currentWinStreak ??
+    matchedLeaderboardEntry?.currentWinStreak ??
+    0;
+
+  return (
+    <div className="relative min-h-dvh bg-[#090B0C]">
+      {/* Desktop (>=768px) Three.js 3D Poker Table; Mobile (<768px) stays pure lightweight 2D */}
+      {isDesktop && (
+        <div className="fixed inset-0 z-0">
+          <PokerScene3D
+            table={table}
+            myPlayerId={playerId}
+            cameraPreset={cameraPreset}
+            ambientOnly={isLobby}
+            nudgePulse={nudgePulse}
+          />
+        </div>
+      )}
+
+      {isLobby ? (
+        <TitleScreen
+          initialName={playerName}
+          initialRoom={activeRoomId}
+          initialAvatar={playerAvatar}
+          isDesktop={isDesktop}
+          rooms={rooms}
+          errorMessage={errorMsg}
+          onEnterTable={handleEnterTable}
+          onCreateRoom={handleCreateRoom}
+          onDeleteRoom={handleDeleteRoom}
+          onOpenAchievements={() => setAchievementsOpen(true)}
+          onOpenCardGallery={() => {
+            setRankingsTab('gallery');
+            setRankingsOpen(true);
+          }}
+        />
+      ) : (
+        <PokerTable
+          table={table}
+          myPlayerId={playerId}
+          chatMessages={chatMessages}
+          lastNudge={lastNudge}
+          muted={muted}
+          bgmEnabled={bgmEnabled}
+          isDesktop={isDesktop}
+          cameraPreset={cameraPreset}
+          onToggleCameraPreset={handleToggleCameraPreset}
+          onToggleMute={handleToggleMute}
+          onToggleBgm={handleToggleBgm}
+          onOpenAchievements={() => setAchievementsOpen(true)}
+          onOpenRankings={() => {
+            setRankingsTab('rankings');
+            setRankingsOpen(true);
+          }}
+          onLeaveRoom={handleLeaveRoom}
+          onStartHand={() => sendWs({ type: 'start_hand' })}
+          onRevealCards={handleRevealCards}
+          onToggleAutoNext={(enabled) => sendWs({ type: 'toggle_auto_next', enabled })}
+          onNudgePlayer={(targetPlayerId) => sendWs({ type: 'nudge_player', targetPlayerId })}
+          onAddBot={() => sendWs({ type: 'add_bot' })}
+          onRemoveBot={(botId) => sendWs({ type: 'remove_bot', botId })}
+          onRebuy={() => sendWs({ type: 'rebuy' })}
+          onUpdateBlindSettings={(params) =>
+            sendWs({
+              type: 'update_blind_settings',
+              smallBlind: params.smallBlind,
+              bigBlind: params.bigBlind,
+              manualBlindTarget: params.manualBlindTarget,
+            })
+          }
+          onAction={handleAction}
+          onSendChat={(text) => sendWs({ type: 'send_chat', text })}
+        />
+      )}
+
+      {/* Achievement Unlocked Celebration Toast */}
+      {unlockedToast.length > 0 && (
+        <div
+          role="status"
+          data-testid="achievement-toast"
+          className="fixed top-14 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2.5 rounded-md border border-[#D4A853]/65 bg-[#121614]/96 px-4 py-2.5 shadow-2xl animate-chip-impact"
+        >
+          <AchievementMedalIcon id={unlockedToast[0]} size="md" />
+          <div className="text-xs">
+            <div className="font-bold text-[#F5E4B8]">
+              解锁新成就 · {ACHIEVEMENT_MAP.get(unlockedToast[0])?.name}
+              {unlockedToast.length > 1 ? ` 等 ${unlockedToast.length} 项` : ''}
+            </div>
+            <div className="text-[11px] text-[#9EB0A6]">
+              {ACHIEVEMENT_MAP.get(unlockedToast[0])?.description}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setUnlockedToast([]);
+              setAchievementsOpen(true);
+            }}
+            className="ml-1 rounded border border-[#D4A853]/40 bg-[#D4A853]/15 px-2 py-1 text-[11px] font-semibold text-[#F5E4B8] hover:bg-[#D4A853]/25 transition-colors whitespace-nowrap"
+          >
+            查看
+          </button>
+        </div>
+      )}
+
+      {/* Subtle transient error/notice banner when inside table */}
+      {screen === 'playing' && errorMsg && (
+        <div
+          role="alert"
+          className="fixed bottom-4 right-4 z-40 flex items-center gap-3 rounded border border-[#DC2626]/40 bg-[#231214] px-4 py-2.5 text-sm text-[#FCA5A5] shadow-xl"
+        >
+          <span>{errorMsg}</span>
+          <button
+            type="button"
+            onClick={() => setErrorMsg(null)}
+            className="text-xs underline hover:text-white"
+          >
+            关闭
+          </button>
+        </div>
+      )}
+
+      <AchievementsModal
+        open={achievementsOpen}
+        playerName={playerName}
+        unlockedIds={currentAchievements}
+        achievementDates={currentAchievementDates}
+        winStreak={currentWinStreak}
+        stats={matchedLeaderboardEntry?.stats ?? null}
+        onClose={() => setAchievementsOpen(false)}
+      />
+
+      <HandRankingsModal
+        open={rankingsOpen}
+        initialTab={rankingsTab}
+        onClose={() => setRankingsOpen(false)}
+      />
+    </div>
+  );
+}

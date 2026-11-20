@@ -1,0 +1,974 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BarChart3,
+  Check,
+  Copy,
+  Eye,
+  HelpCircle,
+  LogOut,
+  MessageSquare,
+  Music,
+  Play,
+  RefreshCw,
+  SlidersHorizontal,
+  SmilePlus,
+  Trophy,
+  UserPlus,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
+import {
+  CHAT_BUBBLE_TTL_MS,
+  CHAT_WHISPER_TTL_MS,
+  getActiveBubbleMap,
+} from '../shared/chatUtils';
+import { getHandOverviewStats, PHASE_STAGE_LABELS } from '../shared/tableOverview';
+import type {
+  ChatMessage,
+  ClientPlayerView,
+  ClientTableView,
+  ManualBlindTarget,
+  PlayerAction,
+  PlayerNudgeEvent,
+} from '../shared/types';
+import { ActionDock } from './ActionDock';
+import { BlindSettingsModal } from './BlindSettingsModal';
+import { ChipStackVisual2D } from './ChipStack2D';
+import { PlayingCard } from './PlayingCard';
+import type { CameraPreset } from './PokerScene3D';
+import { type ActionFxTone, type SeatActionFx, type SeatNudgeFx, SeatNode } from './SeatNode';
+import { type AnalyticsTab, TableAnalyticsDrawer } from './TableAnalyticsDrawer';
+import { TableChatPanel } from './TableChatPanel';
+
+interface PokerTableProps {
+  table: ClientTableView;
+  myPlayerId: string;
+  chatMessages: ChatMessage[];
+  lastNudge: PlayerNudgeEvent | null;
+  muted: boolean;
+  bgmEnabled: boolean;
+  isDesktop?: boolean;
+  cameraPreset: CameraPreset;
+  onToggleCameraPreset: () => void;
+  onToggleMute: () => void;
+  onToggleBgm: () => void;
+  onOpenAchievements: () => void;
+  onOpenRankings: () => void;
+  onLeaveRoom: () => void;
+  onStartHand: () => void;
+  onRevealCards: () => void;
+  onToggleAutoNext: (enabled: boolean) => void;
+  onNudgePlayer: (targetPlayerId: string) => void;
+  onAddBot: () => void;
+  onRemoveBot: (botId: string) => void;
+  onRebuy: () => void;
+  onUpdateBlindSettings: (params: {
+    smallBlind: number;
+    bigBlind: number;
+    manualBlindTarget: ManualBlindTarget | null;
+  }) => void;
+  onAction: (action: PlayerAction) => void;
+  onSendChat: (text: string) => void;
+}
+
+const PHASE_LABELS = PHASE_STAGE_LABELS;
+
+function inferActionTone(label: string): ActionFxTone {
+  if (label.includes('全下')) return 'allin';
+  if (label.includes('加注') || label.includes('下注')) return 'raise';
+  if (label.includes('跟注')) return 'call';
+  if (label.includes('弃牌')) return 'fold';
+  if (label.includes('亮牌')) return 'reveal';
+  return 'check';
+}
+
+export function PokerTable({
+  table,
+  myPlayerId,
+  chatMessages,
+  lastNudge,
+  muted,
+  bgmEnabled,
+  isDesktop = true,
+  cameraPreset,
+  onToggleCameraPreset,
+  onToggleMute,
+  onToggleBgm,
+  onOpenAchievements,
+  onOpenRankings,
+  onLeaveRoom,
+  onStartHand,
+  onRevealCards,
+  onToggleAutoNext,
+  onNudgePlayer,
+  onAddBot,
+  onRemoveBot,
+  onRebuy,
+  onUpdateBlindSettings,
+  onAction,
+  onSendChat,
+}: PokerTableProps) {
+  const [now, setNow] = useState(() => Date.now());
+  const [chatNow, setChatNow] = useState(() => Date.now());
+  const [copied, setCopied] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [quickEmojiOpen, setQuickEmojiOpen] = useState(false);
+  const [blindModalOpen, setBlindModalOpen] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [requestedAnalyticsTab, setRequestedAnalyticsTab] = useState<{
+    tab: AnalyticsTab;
+    nonce: number;
+  } | null>(null);
+  const [lastSeenCount, setLastSeenCount] = useState(0);
+
+  const [actionFxMap, setActionFxMap] = useState<Record<string, SeatActionFx>>({});
+  const [nudgeFxMap, setNudgeFxMap] = useState<Record<string, SeatNudgeFx>>({});
+  const [newlyJoinedIds, setNewlyJoinedIds] = useState<Record<string, boolean>>({});
+
+  const prevPlayersRef = useRef<
+    Map<string, { label?: string; handNumber: number; revealed?: boolean }>
+  >(new Map());
+  const initializedPlayersRef = useRef(false);
+
+  // Tick timer for turn countdown AND next-hand countdown
+  useEffect(() => {
+    if (!table.turnDeadline && !table.nextHandAt) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [table.turnDeadline, table.nextHandAt]);
+
+  // Detect player join entrances & action transitions for floating text/particles
+  useEffect(() => {
+    const prevMap = prevPlayersRef.current;
+    const isInitial = !initializedPlayersRef.current;
+    initializedPlayersRef.current = true;
+
+    const joinedBatch: string[] = [];
+    const fxBatch: { id: string; fx: SeatActionFx }[] = [];
+
+    for (const p of table.players) {
+      const prev = prevMap.get(p.id);
+      if (!prev && !isInitial) {
+        joinedBatch.push(p.id);
+      }
+      const label = p.lastActionLabel;
+      const isBlind = label?.startsWith('小盲') || label?.startsWith('大盲');
+      if (
+        prev &&
+        label &&
+        !isBlind &&
+        (prev.label !== label || prev.handNumber !== table.handNumber)
+      ) {
+        fxBatch.push({
+          id: p.id,
+          fx: {
+            id: `${p.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            text: label,
+            tone: inferActionTone(label),
+          },
+        });
+      }
+    }
+
+    const nextSnapshot = new Map<
+      string,
+      { label?: string; handNumber: number; revealed?: boolean }
+    >();
+    for (const p of table.players) {
+      nextSnapshot.set(p.id, {
+        label: p.lastActionLabel,
+        handNumber: table.handNumber,
+        revealed: p.revealed,
+      });
+    }
+    prevPlayersRef.current = nextSnapshot;
+
+    const timers: number[] = [];
+
+    if (joinedBatch.length > 0) {
+      setNewlyJoinedIds((curr) => {
+        const next = { ...curr };
+        joinedBatch.forEach((id) => {
+          next[id] = true;
+        });
+        return next;
+      });
+      timers.push(
+        window.setTimeout(() => {
+          setNewlyJoinedIds((curr) => {
+            const next = { ...curr };
+            joinedBatch.forEach((id) => delete next[id]);
+            return next;
+          });
+        }, 700)
+      );
+    }
+
+    if (fxBatch.length > 0) {
+      setActionFxMap((curr) => {
+        const next = { ...curr };
+        fxBatch.forEach(({ id, fx }) => {
+          next[id] = fx;
+        });
+        return next;
+      });
+      timers.push(
+        window.setTimeout(() => {
+          setActionFxMap((curr) => {
+            const next = { ...curr };
+            fxBatch.forEach(({ id, fx }) => {
+              if (next[id]?.id === fx.id) delete next[id];
+            });
+            return next;
+          });
+        }, 1500)
+      );
+    }
+
+    return () => {
+      timers.forEach((t) => window.clearTimeout(t));
+    };
+  }, [table.players, table.handNumber]);
+
+  // Display synchronized nudge bubble & pulse on target seat
+  useEffect(() => {
+    if (!lastNudge) return;
+    const fxId = `${lastNudge.targetPlayerId}_${lastNudge.createdAt}`;
+    setNudgeFxMap((curr) => ({
+      ...curr,
+      [lastNudge.targetPlayerId]: {
+        id: fxId,
+        message: lastNudge.message,
+      },
+    }));
+    const timer = window.setTimeout(() => {
+      setNudgeFxMap((curr) => {
+        if (curr[lastNudge.targetPlayerId]?.id !== fxId) return curr;
+        const next = { ...curr };
+        delete next[lastNudge.targetPlayerId];
+        return next;
+      });
+    }, 3200);
+    return () => window.clearTimeout(timer);
+  }, [lastNudge]);
+
+  useEffect(() => {
+    if (chatOpen) {
+      setLastSeenCount(chatMessages.length);
+    }
+  }, [chatOpen, chatMessages.length]);
+
+  useEffect(() => {
+    setChatNow(Date.now());
+  }, [chatMessages]);
+
+  useEffect(() => {
+    const current = Date.now();
+    let nextExpiry = Infinity;
+    for (const msg of chatMessages) {
+      const bubbleExp = msg.createdAt + CHAT_BUBBLE_TTL_MS;
+      if (bubbleExp > current && bubbleExp < nextExpiry) {
+        nextExpiry = bubbleExp;
+      }
+      const whisperExp = msg.createdAt + CHAT_WHISPER_TTL_MS;
+      if (whisperExp > current && whisperExp < nextExpiry) {
+        nextExpiry = whisperExp;
+      }
+    }
+    if (!Number.isFinite(nextExpiry)) return;
+    const delay = Math.max(50, nextExpiry - current + 40);
+    const id = window.setTimeout(() => setChatNow(Date.now()), delay);
+    return () => window.clearTimeout(id);
+  }, [chatMessages, chatNow]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        setQuickEmojiOpen(false);
+        setChatOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const activeBubbles = useMemo(
+    () => getActiveBubbleMap(chatMessages, chatNow, CHAT_BUBBLE_TTL_MS),
+    [chatMessages, chatNow]
+  );
+
+  const unreadCount = chatOpen ? 0 : Math.max(0, chatMessages.length - lastSeenCount);
+
+  const { selfPlayer, opponents } = useMemo(() => {
+    const idx = table.players.findIndex((p) => p.id === myPlayerId);
+    if (idx === -1) {
+      return { selfPlayer: null, opponents: table.players };
+    }
+    const ordered: ClientPlayerView[] = [];
+    for (let i = 0; i < table.players.length; i++) {
+      ordered.push(table.players[(idx + i) % table.players.length]);
+    }
+    return { selfPlayer: ordered[0], opponents: ordered.slice(1) };
+  }, [table.players, myPlayerId]);
+
+  const winnerMap = useMemo(() => {
+    return new Map(table.winners.map((w) => [w.playerId, w]));
+  }, [table.winners]);
+
+  const highlightedCards = useMemo(() => {
+    if (table.phase !== 'showdown' || table.winners.length === 0) return [];
+    return table.winners.flatMap((w) => w.bestCards);
+  }, [table.phase, table.winners]);
+
+  const activeTurnPlayer = table.players.find(
+    (p) => p.id === table.currentTurnPlayerId
+  );
+
+  const canStart =
+    (table.phase === 'waiting' || table.phase === 'showdown') &&
+    table.players.filter((p) => p.chips > 0).length >= 2;
+
+  const canAddBot =
+    (table.phase === 'waiting' || table.phase === 'showdown') &&
+    table.players.length < 22;
+
+  const needsRebuy =
+    selfPlayer &&
+    selfPlayer.chips < table.bigBlind &&
+    (table.phase === 'waiting' || table.phase === 'showdown' || selfPlayer.folded);
+
+  const canRemoveBots = table.phase === 'waiting' || table.phase === 'showdown';
+  const compactOpponents = opponents.length >= 4;
+  const usePreviewBlinds = table.phase === 'waiting';
+  const displayDealerSeat = usePreviewBlinds
+    ? table.previewNextBlinds.dealerSeatIndex
+    : table.dealerSeatIndex;
+  const displaySbSeat = usePreviewBlinds
+    ? table.previewNextBlinds.smallBlindSeatIndex
+    : table.smallBlindSeatIndex;
+  const displayBbSeat = usePreviewBlinds
+    ? table.previewNextBlinds.bigBlindSeatIndex
+    : table.bigBlindSeatIndex;
+
+  const getNextBlindRole = (seatIndex: number): 'SB' | 'BB' | 'D' | null => {
+    if (table.phase !== 'showdown') return null;
+    if (table.previewNextBlinds.smallBlindSeatIndex === seatIndex) return 'SB';
+    if (table.previewNextBlinds.bigBlindSeatIndex === seatIndex) return 'BB';
+    if (table.previewNextBlinds.dealerSeatIndex === seatIndex) return 'D';
+    return null;
+  };
+
+  const nextHandSeconds =
+    table.phase === 'showdown' && table.autoNextHandEnabled && table.nextHandAt
+      ? Math.max(0, Math.ceil((table.nextHandAt - now) / 1000))
+      : null;
+
+  const handleCopyInvite = async () => {
+    const url = `${window.location.origin}/?room=${encodeURIComponent(table.roomId)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const getSecondsLeft = (playerId: string): number | null => {
+    if (table.currentTurnPlayerId !== playerId || !table.turnDeadline) return null;
+    return Math.max(0, Math.ceil((table.turnDeadline - now) / 1000));
+  };
+
+  const statusText = useMemo(() => {
+    if (table.allInRunout) {
+      return '全员全下 · 正在自动逐街翻牌决胜…';
+    }
+    if (table.phase === 'waiting') {
+      return table.players.length < 2
+        ? '当前需 2 人以上即可开局，可复制邀请或添加陪练'
+        : `牌桌已就绪（${table.players.length} 人），点击「开始发牌」`;
+    }
+    if (table.phase === 'showdown') {
+      if (table.winners.length > 0) {
+        const names = table.winners.map((w) => `${w.playerName} (+${w.amount})`).join('、');
+        return `本局结束：${names}`;
+      }
+      return '本局结算完成';
+    }
+    if (activeTurnPlayer) {
+      return `等待 ${activeTurnPlayer.name} 行动…`;
+    }
+    return '发牌中…';
+  }, [table.allInRunout, table.phase, table.players.length, table.winners, activeTurnPlayer]);
+
+  return (
+    <div className="pointer-events-none relative z-10 flex min-h-dvh flex-col justify-between text-[#F3F1EC]">
+      {/* Slim Perimeter Top Bar */}
+      <header className="pointer-events-auto flex items-center justify-between gap-1.5 border-b border-white/[0.06] bg-[#0A0C0E]/86 backdrop-blur-md px-2.5 py-2 sm:gap-4 sm:px-6">
+        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={onLeaveRoom}
+            aria-label="退出房间"
+            className="touch-manipulation flex h-8 items-center gap-1.5 rounded px-2 sm:px-2.5 text-xs font-medium text-[#A9B3AE] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0"
+          >
+            <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">退出</span>
+          </button>
+
+          <span aria-hidden="true" className="h-3.5 w-px bg-white/[0.09] hidden sm:inline-block" />
+
+          <div className="flex items-center gap-1.5 sm:gap-2.5 text-[11px] sm:text-sm min-w-0">
+            <span className="font-mono-num font-bold tracking-wide text-[#E5C989] whitespace-nowrap truncate max-w-[68px] sm:max-w-none">
+              {table.roomId}
+            </span>
+            <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
+            <button
+              type="button"
+              data-testid="open-blind-settings-btn"
+              onClick={() => setBlindModalOpen(true)}
+              title="设置大小盲注与盲位"
+              className="touch-manipulation inline-flex h-7 items-center gap-1.5 rounded bg-white/[0.04] px-2 font-mono-num text-[11px] sm:text-xs font-medium text-[#DCE2DF] hover:bg-white/[0.09] hover:text-[#F0DFB3] transition-colors whitespace-nowrap shrink-0"
+            >
+              <SlidersHorizontal className="h-3 w-3 text-[#C8A153] shrink-0" aria-hidden="true" />
+              <span>
+                <span className="hidden sm:inline text-[#9AA5A0]">盲注 </span>
+                {table.smallBlind}/{table.bigBlind}
+              </span>
+              {table.pendingBlinds && (
+                <span className="text-[10px] text-[#8CC9AA]">
+                  → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
+                </span>
+              )}
+            </button>
+            <span aria-hidden="true" className="text-white/15 hidden md:inline">·</span>
+            <span className="font-mono-num text-xs text-[#8A948F] whitespace-nowrap hidden md:inline">
+              初始 {table.startingChips.toLocaleString()}
+            </span>
+            {table.handNumber > 0 && (
+              <>
+                <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
+                <span className="font-mono-num text-xs text-[#8A948F] whitespace-nowrap hidden sm:inline">
+                  第 {table.handNumber} 局
+                </span>
+              </>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleCopyInvite}
+            aria-label="复制邀请链接"
+            className="touch-manipulation flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-[#A9B3AE] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0"
+          >
+            {copied ? (
+              <>
+                <Check className="h-3.5 w-3.5 text-[#34D399]" aria-hidden="true" />
+                <span className="text-[#34D399] hidden sm:inline">已复制</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline">邀请</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        <div className="hidden xl:block font-display text-xs tracking-[0.18em] text-[#7D8782]/85 uppercase select-none">
+          VELVET HOLD&apos;EM
+        </div>
+
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* Primary Panels Group */}
+          <div className="flex items-center divide-x divide-white/[0.06] rounded bg-white/[0.03] border border-white/[0.07]">
+            <button
+              type="button"
+              onClick={() => setAnalyticsOpen((prev) => !prev)}
+              aria-label={analyticsOpen ? '收起牌局数据' : '打开牌局数据'}
+              aria-expanded={analyticsOpen}
+              data-testid="toggle-analytics-btn"
+              className={`touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                analyticsOpen
+                  ? 'bg-[#D4A853]/14 text-[#F0DFB3]'
+                  : 'text-[#BFC7C3] hover:bg-white/[0.05] hover:text-white'
+              }`}
+            >
+              <BarChart3 className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
+              <span className="hidden md:inline">牌局数据</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setChatOpen(false);
+                setQuickEmojiOpen((prev) => !prev);
+              }}
+              aria-label={quickEmojiOpen ? '收起快捷表情' : '快捷表情与短语'}
+              aria-expanded={quickEmojiOpen}
+              data-testid="toggle-quick-emoji-btn"
+              className={`touch-manipulation flex xl:hidden h-8 items-center justify-center px-2 text-xs font-medium transition-colors whitespace-nowrap ${
+                quickEmojiOpen
+                  ? 'bg-[#D4A853]/15 text-[#E8CF96]'
+                  : 'text-[#C5CECA] hover:bg-white/[0.04] hover:text-white'
+              }`}
+            >
+              <SmilePlus className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setQuickEmojiOpen(false);
+                setChatOpen((prev) => !prev);
+              }}
+              aria-label={chatOpen ? '关闭牌桌对话' : '打开牌桌对话'}
+              aria-expanded={chatOpen}
+              data-testid="toggle-chat-btn"
+              className={`touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                chatOpen
+                  ? 'bg-[#D4A853]/15 text-[#E8CF96]'
+                  : 'text-[#C5CECA] hover:bg-white/[0.04] hover:text-white'
+              }`}
+            >
+              <MessageSquare className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
+              <span className="hidden lg:inline">对话</span>
+              {unreadCount > 0 && (
+                <span className="font-mono-num text-[11px] font-bold text-[#E8CF96]">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Audio & Camera Group */}
+          <div className="flex items-center divide-x divide-white/[0.08] rounded border border-white/[0.08] bg-[#101315]/90">
+            {isDesktop && (
+              <button
+                type="button"
+                onClick={onToggleCameraPreset}
+                aria-label={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
+                title={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
+                className="touch-manipulation flex h-8 items-center gap-1.5 px-2.5 text-xs font-medium text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors whitespace-nowrap"
+              >
+                <Eye className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
+                <span className="hidden lg:inline">
+                  {cameraPreset === 'classic' ? '视角' : '俯瞰'}
+                </span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onToggleBgm}
+              data-testid="toggle-bgm-btn"
+              aria-label={bgmEnabled ? '关闭爵士音乐' : '播放爵士音乐'}
+              title={bgmEnabled ? '关闭爵士酒吧环境音乐' : '播放爵士酒吧环境音乐'}
+              className={`touch-manipulation flex h-8 items-center gap-1 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                bgmEnabled
+                  ? 'text-[#E8CF96] hover:bg-white/[0.04]'
+                  : 'text-[#6F7873] hover:text-white'
+              }`}
+            >
+              <Music className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden xl:inline">{bgmEnabled ? '爵士' : '无声'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onToggleMute}
+              aria-label={muted ? '开启桌面音效' : '静音桌面音效'}
+              title={muted ? '开启桌面音效' : '静音桌面音效'}
+              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors"
+            >
+              {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+
+          {/* Reference & In-Table Standings Group */}
+          <div className="flex items-center divide-x divide-white/[0.08] rounded border border-white/[0.08] bg-[#101315]/90">
+            <button
+              type="button"
+              onClick={onOpenRankings}
+              aria-label="牌型大小说明"
+              title="牌型大小说明"
+              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+            </button>
+
+            <button
+              type="button"
+              data-testid="open-standings-btn"
+              onClick={() => {
+                setRequestedAnalyticsTab((prev) => ({
+                  tab: 'standings',
+                  nonce: (prev?.nonce ?? 0) + 1,
+                }));
+                setAnalyticsOpen(true);
+              }}
+              className="touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-3 text-xs font-semibold text-[#E8CF96] hover:bg-[#D4A853]/12 transition-colors whitespace-nowrap shrink-0"
+            >
+              <Trophy className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
+              <span className="hidden sm:inline">局内排行</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Spatial Overlay */}
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-between px-3 py-2 sm:px-6 sm:py-3">
+        {/* Top Perimeter: Whisper-Quiet Table Strip + Opponents */}
+        <div className="flex flex-col items-center gap-2">
+          {(() => {
+            const overview = getHandOverviewStats(table);
+            return (
+              <section
+                data-testid="hand-overview-panel"
+                aria-label="本局状态"
+                className="pointer-events-auto inline-flex items-center gap-3 sm:gap-4 rounded-full border border-white/[0.07] bg-[#0A0C0E]/74 backdrop-blur-md px-4 py-1 text-xs"
+              >
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[11px] text-[#85908B]">底池</span>
+                  <span
+                    data-testid="pot-amount"
+                    className="font-mono-num text-sm font-bold text-[#ECCF8E]"
+                  >
+                    {overview.pot.toLocaleString()}
+                  </span>
+                </div>
+
+                <span aria-hidden="true" className="h-3 w-px bg-white/[0.1]" />
+
+                <div
+                  data-testid="current-phase-label"
+                  className="text-xs font-medium text-[#E5E2D9] whitespace-nowrap"
+                >
+                  {table.allInRunout ? '全下翻牌' : overview.phaseLabel}
+                </div>
+
+                <span aria-hidden="true" className="h-3 w-px bg-white/[0.1]" />
+
+                <div
+                  data-testid="remaining-players"
+                  className="font-mono-num text-xs text-[#A5AFA9] whitespace-nowrap"
+                >
+                  {overview.remainingPlayers < overview.totalPlayers
+                    ? `${overview.remainingPlayers}/${overview.totalPlayers} 人`
+                    : `${overview.remainingPlayers} 人`}
+                </div>
+              </section>
+            );
+          })()}
+
+          <section
+            aria-label="对手座位"
+            className="pointer-events-auto flex flex-wrap items-start justify-center gap-2 sm:gap-3"
+          >
+            {opponents.length === 0 ? (
+              <div className="rounded border border-white/[0.08] bg-[#0B0D0E]/88 px-4 py-2 text-center text-xs text-[#9BA5A0]">
+                当前牌桌仅你 1 人 · 2 人以上即可开局，可复制邀请或添加陪练
+              </div>
+            ) : (
+              opponents.map((opp) => {
+                const win = winnerMap.get(opp.id);
+                return (
+                  <SeatNode
+                    key={opp.id}
+                    player={opp}
+                    isSelf={false}
+                    isTurn={table.currentTurnPlayerId === opp.id}
+                    isDealer={displayDealerSeat === opp.seatIndex}
+                    isSmallBlind={displaySbSeat === opp.seatIndex}
+                    isBigBlind={displayBbSeat === opp.seatIndex}
+                    nextBlindRole={getNextBlindRole(opp.seatIndex)}
+                    isWinner={Boolean(win)}
+                    winAmount={win?.amount}
+                    highlightedCards={highlightedCards}
+                    secondsRemaining={getSecondsLeft(opp.id)}
+                    chatBubble={activeBubbles.get(opp.id) ?? null}
+                    actionFx={actionFxMap[opp.id] ?? null}
+                    nudgeFx={nudgeFxMap[opp.id] ?? null}
+                    isNewlyJoined={Boolean(newlyJoinedIds[opp.id])}
+                    compact={compactOpponents}
+                    canRemoveBot={canRemoveBots}
+                    onRemoveBot={onRemoveBot}
+                    onNudgePlayer={onNudgePlayer}
+                  />
+                );
+              })
+            )}
+          </section>
+        </div>
+
+        {/* Center: Clean 2D Felt Board on Mobile (<768px) or Open 3D Arena on Desktop */}
+        <div className="flex flex-1 flex-col items-center justify-end gap-2 pb-2">
+          {!isDesktop && (
+            <section
+              data-testid="mobile-2d-board"
+              aria-label="移动端 2D 牌桌"
+              className="pointer-events-auto my-auto w-full rounded-2xl border border-[#D4A853]/35 bg-gradient-to-b from-[#134230] to-[#0A251B] px-3 py-3 shadow-[inset_0_0_24px_rgba(0,0,0,0.45)]"
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-2.5 mb-3.5">
+                <div className="flex items-center gap-2.5">
+                  <ChipStackVisual2D amount={Math.max(5, table.pot)} maxLayers={7} />
+                  <div>
+                    <div className="text-[11px] text-[#9BC4B2]">
+                      {table.allInRunout ? 'All-in 自动逐街发牌' : PHASE_LABELS[table.phase]}
+                    </div>
+                    <div className="font-mono-num text-sm font-bold text-[#F5E4B8]">
+                      底池 {table.pot.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right font-mono-num text-[11px] text-[#9BC4B2]">
+                  <div>盲注 {table.smallBlind}/{table.bigBlind}</div>
+                  {(() => {
+                    const activeSb =
+                      table.phase === 'waiting'
+                        ? table.previewNextBlinds.smallBlindSeatIndex
+                        : table.smallBlindSeatIndex;
+                    const activeBb =
+                      table.phase === 'waiting'
+                        ? table.previewNextBlinds.bigBlindSeatIndex
+                        : table.bigBlindSeatIndex;
+                    const sbName = table.players.find((p) => p.seatIndex === activeSb)?.name;
+                    const bbName = table.players.find((p) => p.seatIndex === activeBb)?.name;
+                    if (!sbName && !bbName) {
+                      return table.handNumber > 0 ? <div>第 {table.handNumber} 局</div> : null;
+                    }
+                    return (
+                      <div className="mt-0.5 flex items-center justify-end gap-1.5 text-[10px]">
+                        {sbName && <span className="text-[#9ED7E6]">小盲 {sbName}</span>}
+                        {bbName && <span className="text-[#F5DA9A]">大盲 {bbName}</span>}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-1.5">
+                {Array.from({ length: 5 }).map((_, idx) => {
+                  const card = table.communityCards[idx];
+                  if (!card) {
+                    return (
+                      <div
+                        key={`empty-${idx}`}
+                        className="h-[68px] w-12 rounded-md border border-dashed border-[#D4A853]/25 bg-[#081D15]/55"
+                        aria-hidden="true"
+                      />
+                    );
+                  }
+                  const isHighlighted =
+                    highlightedCards.length > 0 &&
+                    highlightedCards.some(
+                      (hc) => hc.rank === card.rank && hc.suit === card.suit
+                    );
+                  return (
+                    <PlayingCard
+                      key={`${card.suit}-${card.rank}-${idx}`}
+                      card={card}
+                      size="md"
+                      highlighted={isHighlighted}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* All-in Runout Indicator */}
+          {table.allInRunout && (
+            <div
+              data-testid="allin-runout-banner"
+              className="pointer-events-auto flex items-center gap-2 rounded border border-[#D4A853]/45 bg-[#0C0E10]/94 px-4 py-1.5 text-xs sm:text-sm font-medium text-[#E8CF96] shadow-lg animate-chip-impact"
+            >
+              <span className="text-[#D4A853]" aria-hidden="true">◆</span>
+              <span>全员全下 · 正在逐街自动翻牌决胜</span>
+            </div>
+          )}
+
+          {/* Showdown Winner Banner */}
+          {table.phase === 'showdown' && table.winners.length > 0 && (
+            <div
+              data-testid="winner-banner"
+              className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded border border-[#D4A853]/45 bg-[#0B0D0E]/94 px-4 py-1.5 text-xs sm:text-sm animate-chip-impact"
+            >
+              {table.winners.map((w, idx) => (
+                <span key={w.playerId} className="flex items-center gap-1.5">
+                  {idx > 0 && <span className="text-white/25">·</span>}
+                  <strong className="text-[#F3F1EC]">{w.playerName}</strong>
+                  <span className="text-[#D4A853] font-medium">{w.handName}</span>
+                  <span className="font-mono-num font-bold text-[#8CC9AA]">
+                    +{w.amount}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Pre-hand / Between-hands Controls */}
+          {(table.phase === 'waiting' || table.phase === 'showdown') && (
+            <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
+              {canStart && (
+                <button
+                  type="button"
+                  data-testid="start-hand-btn"
+                  onClick={onStartHand}
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs sm:text-sm font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+                  <span>
+                    {table.phase === 'showdown'
+                      ? nextHandSeconds !== null
+                        ? `立即下一局 (${nextHandSeconds}s)`
+                        : '下一局'
+                      : '开始发牌'}
+                  </span>
+                </button>
+              )}
+
+              {table.canRevealMyCards && (
+                <button
+                  type="button"
+                  data-testid="reveal-cards-btn"
+                  onClick={onRevealCards}
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#D4A853]/50 bg-[#0D1012]/94 px-3.5 text-xs sm:text-sm font-semibold text-[#E8CF96] hover:bg-[#171C1F] transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Eye className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
+                  <span>亮牌</span>
+                </button>
+              )}
+
+              {table.phase === 'showdown' && canStart && (
+                <button
+                  type="button"
+                  data-testid="toggle-auto-next-btn"
+                  onClick={() => onToggleAutoNext(!table.autoNextHandEnabled)}
+                  className={`touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border px-3 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    table.autoNextHandEnabled
+                      ? 'border-[#5E9E82]/45 bg-[#0D1713]/92 text-[#9AD4B8]'
+                      : 'border-white/[0.14] bg-[#0D1012]/92 text-[#9AA5A0]'
+                  }`}
+                >
+                  <span>
+                    自动开局: {table.autoNextHandEnabled ? '开' : '关'}
+                  </span>
+                </button>
+              )}
+
+              {canAddBot && (
+                <button
+                  type="button"
+                  data-testid="add-bot-btn"
+                  onClick={onAddBot}
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-white/[0.1] bg-[#0B0E10]/88 backdrop-blur-sm px-3.5 text-xs sm:text-sm font-medium text-[#D6DDD9] hover:bg-[#151A1D] hover:text-white transition-colors whitespace-nowrap shrink-0"
+                >
+                  <UserPlus className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
+                  <span>添加陪练</span>
+                </button>
+              )}
+
+              {needsRebuy && (
+                <button
+                  type="button"
+                  onClick={onRebuy}
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#34D399]/40 bg-[#0F2119]/92 px-3.5 text-xs sm:text-sm font-semibold text-[#6EE7B7] hover:bg-[#152E23] transition-colors whitespace-nowrap shrink-0"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>补充筹码 ({table.startingChips.toLocaleString()})</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {table.actionLog.length > 0 && (
+            <div className="rounded bg-[#0B0D0E]/82 px-3 py-0.5 text-[11px] text-[#98A49F] truncate max-w-full sm:max-w-md md:hidden">
+              {table.actionLog[0]}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Zone: Local Player Seat + Quick Interaction Bar + Action Dock */}
+        <section
+          aria-label="我的手牌与操作区"
+          className="pointer-events-auto mx-auto flex w-full max-w-3xl flex-col gap-2"
+        >
+          {selfPlayer && (
+            <SeatNode
+              player={selfPlayer}
+              isSelf
+              isTurn={table.currentTurnPlayerId === selfPlayer.id}
+              isDealer={displayDealerSeat === selfPlayer.seatIndex}
+              isSmallBlind={displaySbSeat === selfPlayer.seatIndex}
+              isBigBlind={displayBbSeat === selfPlayer.seatIndex}
+              nextBlindRole={getNextBlindRole(selfPlayer.seatIndex)}
+              isWinner={winnerMap.has(selfPlayer.id)}
+              winAmount={winnerMap.get(selfPlayer.id)?.amount}
+              highlightedCards={highlightedCards}
+              secondsRemaining={getSecondsLeft(selfPlayer.id)}
+              chatBubble={activeBubbles.get(selfPlayer.id) ?? null}
+              actionFx={actionFxMap[selfPlayer.id] ?? null}
+              nudgeFx={nudgeFxMap[selfPlayer.id] ?? null}
+              isNewlyJoined={Boolean(newlyJoinedIds[selfPlayer.id])}
+              onOpenAchievements={onOpenAchievements}
+            />
+          )}
+
+          <ActionDock
+            available={table.myAvailableActions}
+            pot={table.pot}
+            bigBlind={table.bigBlind}
+            handEvaluationName={table.myHandEvaluation?.categoryName ?? null}
+            statusMessage={statusText}
+            onAction={onAction}
+          />
+        </section>
+      </main>
+
+      <TableChatPanel
+        open={chatOpen}
+        quickPickerOpen={quickEmojiOpen}
+        messages={chatMessages}
+        myPlayerId={myPlayerId}
+        unreadCount={unreadCount}
+        nowMs={chatNow}
+        onOpenChange={(next) => {
+          if (next) setQuickEmojiOpen(false);
+          setChatOpen(next);
+        }}
+        onQuickPickerChange={(next) => {
+          if (next) setChatOpen(false);
+          setQuickEmojiOpen(next);
+        }}
+        onSendChat={onSendChat}
+      />
+
+      <TableAnalyticsDrawer
+        open={analyticsOpen}
+        table={table}
+        myPlayerId={myPlayerId}
+        requestedTab={requestedAnalyticsTab}
+        onClose={() => setAnalyticsOpen(false)}
+      />
+
+      <BlindSettingsModal
+        open={blindModalOpen}
+        table={table}
+        onSave={onUpdateBlindSettings}
+        onClose={() => setBlindModalOpen(false)}
+      />
+    </div>
+  );
+}

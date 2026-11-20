@@ -1,0 +1,299 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Cormorant Garamond', 'Noto Sans SC', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #090B0C;
+    color: #F3F1EC;
+    margin: 0;
+    overflow-x: hidden;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Precision brushed-brass range slider */
+input[type='range'].poker-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range'].poker-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+input[type='range'].poker-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #D4A853;
+  border: 2px solid #090B0C;
+  margin-top: -6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+  transition: transform 0.12s ease;
+}
+
+input[type='range'].poker-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.14);
+}
+
+@keyframes dealCard {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chipImpact {
+  0% {
+    transform: scale(1) translateY(0);
+  }
+  32% {
+    transform: scale(1.1, 0.9) translateY(2px);
+  }
+  66% {
+    transform: scale(0.97, 1.03) translateY(-1px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes chatBubbleFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.94);
+  }
+  5% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  84% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+}
+
+@keyframes seatEnterGlide {
+  0% {
+    opacity: 0;
+    transform: translateY(-22px) scale(0.84);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes actionTextFloat {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.86);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -2px) scale(1.06);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -18px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -28px) scale(0.96);
+  }
+}
+
+@keyframes particleBurst {
+  0% {
+    opacity: 0.95;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--tx, 0px), var(--ty, -22px)) scale(0.25);
+  }
+}
+
+@keyframes nudgePulseRing {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.92);
+  }
+  70% {
+    opacity: 0.35;
+    transform: scale(1.22);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.36);
+  }
+}
+
+@keyframes turnBorderGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 1px rgba(212, 168, 83, 0.72), 0 0 16px rgba(212, 168, 83, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(232, 207, 150, 0.95), 0 0 24px rgba(212, 168, 83, 0.48);
+  }
+}
+
+@keyframes emotePopFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.42);
+  }
+  8% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.18);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  82% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.02);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.92);
+  }
+}
+
+@keyframes chatDrawerIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes whisperFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-deal {
+  animation: dealCard 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-chip-impact {
+  animation: chipImpact 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-chat-bubble {
+  animation: chatBubbleFloat 4500ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-emote-pop {
+  animation: emotePopFloat 4300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-chat-drawer {
+  animation: chatDrawerIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-whisper-in {
+  animation: whisperFadeIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-seat-enter {
+  animation: seatEnterGlide 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-action-float {
+  animation: actionTextFloat 1450ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-particle-burst {
+  animation: particleBurst 720ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-nudge-pulse {
+  animation: nudgePulseRing 900ms cubic-bezier(0.16, 1, 0.3, 1) 2;
+}
+
+.animate-turn-glow {
+  animation: turnBorderGlow 1800ms ease-in-out infinite;
+}
+
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 168, 83, 0.38);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-deal,
+  .animate-chip-impact,
+  .animate-chat-bubble,
+  .animate-emote-pop,
+  .animate-chat-drawer,
+  .animate-whisper-in,
+  .animate-seat-enter,
+  .animate-action-float,
+  .animate-particle-burst,
+  .animate-nudge-pulse,
+  .animate-turn-glow {
+    animation: none;
+  }
+}

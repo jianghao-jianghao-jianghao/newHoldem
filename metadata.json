@@ -1,0 +1,6 @@
+{
+  "name": "Velvet Hold'em · 德州扑克",
+  "description": "简约流畅的实时多人德州扑克对战与积分排名系统",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

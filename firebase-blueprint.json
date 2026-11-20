@@ -1,0 +1,225 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated poker club player profile with private account info, preferences, stats, and achievement unlock timestamps.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the player.",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Preferred display nickname in the poker club.",
+          "maxLength": 32
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified player account email (owner-private).",
+          "maxLength": 160
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Optional player profile photo URL.",
+          "maxLength": 512
+        },
+        "avatar": {
+          "type": "string",
+          "description": "Selected preset avatar id or bounded data URL.",
+          "maxLength": 32768
+        },
+        "points": {
+          "type": "number",
+          "description": "Club leaderboard points."
+        },
+        "netChips": {
+          "type": "number",
+          "description": "Cumulative net chips won/lost."
+        },
+        "handsPlayed": {
+          "type": "number",
+          "description": "Total hands played."
+        },
+        "handsWon": {
+          "type": "number",
+          "description": "Total hands won."
+        },
+        "bestHandName": {
+          "type": "string",
+          "description": "Highest hand category achieved.",
+          "maxLength": 32
+        },
+        "bestHandScore": {
+          "type": "number",
+          "description": "Numeric evaluation score of the best hand."
+        },
+        "achievements": {
+          "type": "array",
+          "description": "Unlocked achievement IDs."
+        },
+        "achievementDates": {
+          "type": "object",
+          "description": "Map of AchievementId to epoch millisecond unlock timestamp."
+        },
+        "currentWinStreak": {
+          "type": "number",
+          "description": "Current consecutive wins."
+        },
+        "maxWinStreak": {
+          "type": "number",
+          "description": "Maximum consecutive wins."
+        },
+        "hideOnboarding": {
+          "type": "boolean",
+          "description": "Whether the player dismissed the onboarding modal."
+        },
+        "bgmEnabled": {
+          "type": "boolean",
+          "description": "Jazz lounge background music preference."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "avatar",
+        "points",
+        "netChips",
+        "handsPlayed",
+        "handsWon",
+        "bestHandName",
+        "bestHandScore",
+        "achievements",
+        "achievementDates",
+        "currentWinStreak",
+        "maxWinStreak",
+        "hideOnboarding",
+        "bgmEnabled",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LeaderboardProfile": {
+      "title": "LeaderboardProfile",
+      "description": "Public club standing summary synced from verified player profiles.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the player.",
+          "maxLength": 128
+        },
+        "playerName": {
+          "type": "string",
+          "description": "Display name on the club leaderboard.",
+          "maxLength": 32
+        },
+        "avatar": {
+          "type": "string",
+          "description": "Preset avatar id or bounded data URL.",
+          "maxLength": 32768
+        },
+        "points": {
+          "type": "number",
+          "description": "Leaderboard points."
+        },
+        "netChips": {
+          "type": "number",
+          "description": "Cumulative net chips."
+        },
+        "handsPlayed": {
+          "type": "number",
+          "description": "Total hands played."
+        },
+        "handsWon": {
+          "type": "number",
+          "description": "Total hands won."
+        },
+        "bestHandName": {
+          "type": "string",
+          "description": "Best hand name.",
+          "maxLength": 32
+        },
+        "bestHandScore": {
+          "type": "number",
+          "description": "Best hand score."
+        },
+        "achievements": {
+          "type": "array",
+          "description": "Unlocked achievement IDs."
+        },
+        "achievementDates": {
+          "type": "object",
+          "description": "Map of AchievementId to epoch millisecond unlock timestamp."
+        },
+        "currentWinStreak": {
+          "type": "number",
+          "description": "Current win streak."
+        },
+        "maxWinStreak": {
+          "type": "number",
+          "description": "Max win streak."
+        },
+        "isPublic": {
+          "type": "boolean",
+          "description": "Visibility flag for authenticated club standings."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "playerName",
+        "avatar",
+        "points",
+        "netChips",
+        "handsPlayed",
+        "handsWon",
+        "bestHandName",
+        "bestHandScore",
+        "achievements",
+        "achievementDates",
+        "currentWinStreak",
+        "maxWinStreak",
+        "isPublic",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Owner-private player profile including verified email, preferences, stats, and achievement unlock dates."
+    },
+    "/leaderboard/{userId}": {
+      "schema": {
+        "$ref": "#/entities/LeaderboardProfile"
+      },
+      "description": "Club standings document readable by signed-in members and writable strictly by the owning verified player."
+    }
+  }
+}

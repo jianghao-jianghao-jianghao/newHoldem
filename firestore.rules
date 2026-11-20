@@ -1,0 +1,188 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function allowedAchievementIds() {
+      return [
+        'first_blood',
+        'streak_3',
+        'streak_5',
+        'allin_winner',
+        'allin_jackpot',
+        'mega_pot',
+        'bluff_king',
+        'trips_master',
+        'flush_full',
+        'royal_legend',
+        'chip_doubler',
+        'club_tycoon'
+      ];
+    }
+
+    function isValidAchievementList(listVal) {
+      return listVal is list
+        && listVal.size() <= 12
+        && listVal.hasOnly(allowedAchievementIds());
+    }
+
+    function isValidAchievementDates(mapVal) {
+      return mapVal is map
+        && mapVal.size() <= 12
+        && mapVal.keys().hasOnly(allowedAchievementIds());
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'email', 'avatar', 'points', 'netChips',
+          'handsPlayed', 'handsWon', 'bestHandName', 'bestHandScore',
+          'achievements', 'achievementDates', 'currentWinStreak', 'maxWinStreak',
+          'hideOnboarding', 'bgmEnabled', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'photoURL', 'avatar', 'points', 'netChips',
+          'handsPlayed', 'handsWon', 'bestHandName', 'bestHandScore',
+          'achievements', 'achievementDates', 'currentWinStreak', 'maxWinStreak',
+          'hideOnboarding', 'bgmEnabled', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 32
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.email == request.auth.token.email
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 512))
+        && data.avatar is string && data.avatar.size() >= 1 && data.avatar.size() <= 32768
+        && data.points is number && data.points >= 0 && data.points <= 100000000
+        && data.netChips is number && data.netChips >= -10000000 && data.netChips <= 100000000
+        && data.handsPlayed is int && data.handsPlayed >= 0 && data.handsPlayed <= 1000000
+        && data.handsWon is int && data.handsWon >= 0 && data.handsWon <= data.handsPlayed
+        && data.bestHandName is string && data.bestHandName.size() >= 1 && data.bestHandName.size() <= 32
+        && data.bestHandScore is number && data.bestHandScore >= 0
+        && isValidAchievementList(data.achievements)
+        && isValidAchievementDates(data.achievementDates)
+        && data.currentWinStreak is int && data.currentWinStreak >= 0 && data.currentWinStreak <= 100000
+        && data.maxWinStreak is int && data.maxWinStreak >= data.currentWinStreak && data.maxWinStreak <= 100000
+        && data.hideOnboarding is bool
+        && data.bgmEnabled is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLeaderboardProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'playerName', 'avatar', 'points', 'netChips',
+          'handsPlayed', 'handsWon', 'bestHandName', 'bestHandScore',
+          'achievements', 'achievementDates', 'currentWinStreak', 'maxWinStreak',
+          'isPublic', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'playerName', 'avatar', 'points', 'netChips',
+          'handsPlayed', 'handsWon', 'bestHandName', 'bestHandScore',
+          'achievements', 'achievementDates', 'currentWinStreak', 'maxWinStreak',
+          'isPublic', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 32
+        && data.avatar is string && data.avatar.size() >= 1 && data.avatar.size() <= 32768
+        && data.points is number && data.points >= 0 && data.points <= 100000000
+        && data.netChips is number && data.netChips >= -10000000 && data.netChips <= 100000000
+        && data.handsPlayed is int && data.handsPlayed >= 0 && data.handsPlayed <= 1000000
+        && data.handsWon is int && data.handsWon >= 0 && data.handsWon <= data.handsPlayed
+        && data.bestHandName is string && data.bestHandName.size() >= 1 && data.bestHandName.size() <= 32
+        && data.bestHandScore is number && data.bestHandScore >= 0
+        && isValidAchievementList(data.achievements)
+        && isValidAchievementDates(data.achievementDates)
+        && data.currentWinStreak is int && data.currentWinStreak >= 0 && data.currentWinStreak <= 100000
+        && data.maxWinStreak is int && data.maxWinStreak >= data.currentWinStreak && data.maxWinStreak <= 100000
+        && data.isPublic is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName', 'avatar', 'photoURL', 'hideOnboarding', 'bgmEnabled', 'updatedAt'
+          ])
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName', 'avatar', 'points', 'netChips', 'handsPlayed', 'handsWon',
+            'bestHandName', 'bestHandScore', 'achievements', 'achievementDates',
+            'currentWinStreak', 'maxWinStreak', 'updatedAt'
+          ])
+        );
+
+      allow delete: if false;
+    }
+
+    match /leaderboard/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && existing().isPublic == true;
+      allow list: if isSignedIn() && existing().isPublic == true;
+
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidLeaderboardProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidLeaderboardProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'playerName', 'avatar', 'points', 'netChips', 'handsPlayed', 'handsWon',
+          'bestHandName', 'bestHandScore', 'achievements', 'achievementDates',
+          'currentWinStreak', 'maxWinStreak', 'isPublic', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+  }
+}
