@@ -24,7 +24,7 @@ import type {
   RoomSummary,
   ServerWsMessage,
 } from './shared/types';
-import { soundFx } from './utils/soundFx';
+import { type ChipActionKind, soundFx } from './utils/soundFx';
 
 const SERVER_BASE_URL = (
   (import.meta.env.VITE_SERVER_URL as string | undefined) ?? ''
@@ -97,8 +97,9 @@ export default function App() {
   const [rankingsOpen, setRankingsOpen] = useState(false);
   const [rankingsTab, setRankingsTab] = useState<'rankings' | 'gallery'>('rankings');
   const [unlockedToast, setUnlockedToast] = useState<AchievementId[]>([]);
-  const [muted, setMuted] = useState(false);
-  const [bgmEnabled, setBgmEnabled] = useState(true);
+  const [muted, setMuted] = useState(() => soundFx.isMuted());
+  const [bgmEnabled, setBgmEnabled] = useState(() => soundFx.isBgmEnabled());
+  const [webglFailed, setWebglFailed] = useState(false);
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('classic');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [lastNudge, setLastNudge] = useState<PlayerNudgeEvent | null>(null);
@@ -113,6 +114,12 @@ export default function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const joinedRoomRef = useRef<{ roomId: string; name: string; avatar: string } | null>(null);
   const prevPhaseRef = useRef<string>('waiting');
+  const prev2dDealRef = useRef<{ roomId: string; handNumber: number; communityCount: number } | null>(null);
+  const lastAudioPotStepRef = useRef<{
+    roomId: string;
+    handNumber: number;
+    step: number;
+  } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const lastCloudSyncedStampRef = useRef<string>('');
   const hydratedProfileUidRef = useRef<string | null>(null);
@@ -316,11 +323,112 @@ export default function App() {
     prevPhaseRef.current = table.phase;
   }, [table, profile, playerName, playerAvatar, leaderboard, syncMatchOutcomeToCloud]);
 
-  // Global M shortcut to mute SFX audio
+  // Trigger denomination-weighted physical chip collision audio on every Call, Raise/Bet, and All-in
+  useEffect(() => {
+    if (!table) {
+      lastAudioPotStepRef.current = null;
+      return;
+    }
+
+    const timeline = table.analytics?.currentPotTimeline ?? [];
+    const latestStep = timeline.length > 0 ? timeline[timeline.length - 1].step : 0;
+    const prev = lastAudioPotStepRef.current;
+
+    // First snapshot on room join/switch: establish baseline without replaying past audio
+    if (!prev || prev.roomId !== table.roomId) {
+      lastAudioPotStepRef.current = {
+        roomId: table.roomId,
+        handNumber: table.handNumber,
+        step: latestStep,
+      };
+      return;
+    }
+
+    const isNewHand = prev.handNumber !== table.handNumber;
+    const baselineStep = isNewHand ? 0 : prev.step;
+    const newEvents = timeline.filter(
+      (pt) => pt.step > baselineStep && pt.amountAdded > 0
+    );
+
+    lastAudioPotStepRef.current = {
+      roomId: table.roomId,
+      handNumber: table.handNumber,
+      step: latestStep,
+    };
+
+    if (newEvents.length === 0) return;
+
+    // Prioritize player actions (call / bet / raise / allin); blinds play softly when starting a hand
+    const actionable = newEvents.filter((ev) => ev.actionType !== 'blind');
+    const eventsToPlay = actionable.length > 0 ? actionable : newEvents.slice(-1);
+    const use3DTable = isDesktop && !webglFailed;
+    const baseDelay = use3DTable ? 190 : 25;
+
+    eventsToPlay.forEach((ev, idx) => {
+      let actionKind: ChipActionKind = 'call';
+      if (ev.actionType === 'allin') actionKind = 'allin';
+      else if (ev.actionType === 'raise' || ev.actionType === 'bet') actionKind = 'raise';
+      else if (ev.actionType === 'blind') actionKind = 'blind';
+
+      soundFx.playChipAction({
+        amount: ev.amountAdded,
+        actionKind,
+        bigBlind: table.bigBlind,
+        pot: Math.max(0, ev.potAfter - ev.amountAdded),
+        delayMs: baseDelay + idx * 95,
+      });
+    });
+  }, [table, isDesktop, webglFailed]);
+
+  // Play shuffle and community-card snap audio in 2D / mobile / WebGL-fallback mode
+  useEffect(() => {
+    const use3DTable = isDesktop && !webglFailed;
+    if (!table || use3DTable) {
+      prev2dDealRef.current = table
+        ? {
+            roomId: table.roomId,
+            handNumber: table.handNumber,
+            communityCount: table.communityCards.length,
+          }
+        : null;
+      return;
+    }
+
+    const prev = prev2dDealRef.current;
+    const commCount = table.communityCards.length;
+    prev2dDealRef.current = {
+      roomId: table.roomId,
+      handNumber: table.handNumber,
+      communityCount: commCount,
+    };
+
+    if (!prev || prev.roomId !== table.roomId) return;
+    if (table.handNumber > prev.handNumber && table.phase !== 'waiting') {
+      soundFx.playShuffle();
+      soundFx.playCardSnap(120, 'hole');
+      soundFx.playCardSnap(210, 'hole');
+    } else if (table.handNumber === prev.handNumber && commCount > prev.communityCount) {
+      for (let i = prev.communityCount; i < commCount; i++) {
+        const stage = i < 3 ? 'flop' : i === 3 ? 'turn' : 'river';
+        soundFx.playCardSnap((i - prev.communityCount) * 70, stage);
+      }
+    }
+  }, [table, isDesktop, webglFailed]);
+
+  // Global M shortcut to mute SFX/BGM audio (ignores Ctrl/Meta/Alt combos and editable elements)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
       if (e.key.toLowerCase() === 'm') {
         setMuted((prev) => {
           const next = !prev;
@@ -430,6 +538,7 @@ export default function App() {
 
   const handleAction = useCallback(
     (action: PlayerAction) => {
+      soundFx.notifyUserInteraction();
       if (action.type === 'fold') soundFx.playFold();
       else if (action.type === 'check') soundFx.playCheck();
       sendWs({ type: 'player_action', action });
@@ -487,10 +596,12 @@ export default function App() {
     matchedLeaderboardEntry?.currentWinStreak ??
     0;
 
+  const use3D = isDesktop && !webglFailed;
+
   return (
     <div className="relative min-h-dvh bg-[#090B0C]">
-      {/* Desktop (>=768px) Three.js 3D Poker Table; Mobile (<768px) stays pure lightweight 2D */}
-      {isDesktop && (
+      {/* Desktop (>=768px) Three.js 3D Poker Table; falls back cleanly to 2D if WebGL is unavailable */}
+      {use3D && (
         <div className="fixed inset-0 z-0">
           <PokerScene3D
             table={table}
@@ -498,6 +609,7 @@ export default function App() {
             cameraPreset={cameraPreset}
             ambientOnly={isLobby}
             nudgePulse={nudgePulse}
+            onWebGlUnavailable={() => setWebglFailed(true)}
           />
         </div>
       )}
@@ -507,7 +619,7 @@ export default function App() {
           initialName={playerName}
           initialRoom={activeRoomId}
           initialAvatar={playerAvatar}
-          isDesktop={isDesktop}
+          isDesktop={use3D}
           rooms={rooms}
           errorMessage={errorMsg}
           onEnterTable={handleEnterTable}
@@ -527,7 +639,7 @@ export default function App() {
           lastNudge={lastNudge}
           muted={muted}
           bgmEnabled={bgmEnabled}
-          isDesktop={isDesktop}
+          isDesktop={use3D}
           cameraPreset={cameraPreset}
           onToggleCameraPreset={handleToggleCameraPreset}
           onToggleMute={handleToggleMute}

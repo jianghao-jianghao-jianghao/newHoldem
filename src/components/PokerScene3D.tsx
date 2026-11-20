@@ -41,6 +41,7 @@ interface PokerScene3DProps {
   cameraPreset?: CameraPreset;
   ambientOnly?: boolean;
   nudgePulse?: { targetPlayerId: string; key: number } | null;
+  onWebGlUnavailable?: () => void;
 }
 
 interface SeatAnchors3D {
@@ -214,12 +215,27 @@ export function PokerScene3D({
   cameraPreset = 'classic',
   ambientOnly = false,
   nudgePulse = null,
+  onWebGlUnavailable,
 }: PokerScene3DProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [contextLost, setContextLost] = useState(false);
+  const [webglUnavailable, setWebglUnavailable] = useState(false);
+  const contextLostRef = useRef(false);
 
-  const propsRef = useRef({ table, myPlayerId, cameraPreset, ambientOnly });
-  propsRef.current = { table, myPlayerId, cameraPreset, ambientOnly };
+  const propsRef = useRef({
+    table,
+    myPlayerId,
+    cameraPreset,
+    ambientOnly,
+    onWebGlUnavailable,
+  });
+  propsRef.current = {
+    table,
+    myPlayerId,
+    cameraPreset,
+    ambientOnly,
+    onWebGlUnavailable,
+  };
 
   const syncTableFnRef = useRef<(() => void) | null>(null);
   const cameraGoalFnRef = useRef<(() => void) | null>(null);
@@ -248,10 +264,18 @@ export function PokerScene3D({
     const height = container.clientHeight || window.innerHeight;
     const aspect = width / Math.max(1, height);
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: !isSoftwareGl,
-      powerPreference: 'high-performance',
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: !isSoftwareGl,
+        powerPreference: 'high-performance',
+      });
+    } catch {
+      setWebglUnavailable(true);
+      propsRef.current.onWebGlUnavailable?.();
+      return;
+    }
+
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;
@@ -259,18 +283,25 @@ export function PokerScene3D({
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
     renderer.domElement.style.display = 'block';
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
 
     container.appendChild(renderer.domElement);
 
+    let resumeLoopFn: (() => void) | null = null;
     const onContextLost = (e: Event) => {
       e.preventDefault();
+      contextLostRef.current = true;
       setContextLost(true);
     };
     const onContextRestored = () => {
+      contextLostRef.current = false;
       setContextLost(false);
+      renderer.shadowMap.needsUpdate = true;
+      resumeLoopFn?.();
     };
     renderer.domElement.addEventListener('webglcontextlost', onContextLost);
     renderer.domElement.addEventListener('webglcontextrestored', onContextRestored);
@@ -280,7 +311,9 @@ export function PokerScene3D({
     scene.fog = new THREE.FogExp2(0x090b0c, 0.042);
 
     const pmrem = new THREE.PMREMGenerator(renderer);
-    const envTarget = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    const roomEnv = new RoomEnvironment();
+    const envTarget = pmrem.fromScene(roomEnv, 0.04);
+    roomEnv.dispose();
     scene.environment = envTarget.texture;
     pmrem.dispose();
 
@@ -837,7 +870,6 @@ export function PokerScene3D({
       }
 
       // 2. Sync each player's personal chip stack & bet chip stack
-      let betAudioQueued = false;
       const hasInitializedRoom = knownPlayerIds.size > 0;
       const anyAllInInHand = t.players.some((p) => p.allIn && p.inHand && !p.folded);
 
@@ -894,11 +926,6 @@ export function PokerScene3D({
             isPushBet ? 'push' : 'throw',
             p.allIn
           );
-          if (!betAudioQueued) {
-            betAudioQueued = true;
-            soundFx.playChipBet(added, 260);
-            soundFx.playChipStackTap(340);
-          }
         }
         const betDisplayAmount = t.phase === 'showdown' ? 0 : p.currentBet;
         rebuildStackSlot(betSlot, betDisplayAmount, betDisplayAmount > oldBet, {
@@ -938,7 +965,7 @@ export function PokerScene3D({
           }
         });
         if (anySwept) {
-          soundFx.playPotSweep();
+          soundFx.playPotSweep(t.pot);
         }
       }
 
@@ -999,6 +1026,17 @@ export function PokerScene3D({
         soundFx.playShuffle();
       }
 
+      const winningCardKeys = new Set<string>();
+      if (t.phase === 'showdown' && t.winners.length > 0) {
+        for (const w of t.winners) {
+          for (const bc of w.bestCards) {
+            winningCardKeys.add(`${bc.suit}:${bc.rank}`);
+          }
+        }
+      }
+      const isWinningCard = (card: Card | null | undefined): boolean =>
+        Boolean(card && winningCardKeys.has(`${card.suit}:${card.rank}`));
+
       if (t.phase !== 'waiting') {
         let dealOrder = 0;
         for (const p of t.players) {
@@ -1028,14 +1066,19 @@ export function PokerScene3D({
             for (let c = 0; c < p.cardCount; c++) {
               const cardData = p.holeCards?.[c] ?? null;
               const isFaceUp = Boolean(
-                cardData && (p.id === selfId || p.revealed || t.phase === 'showdown')
+                cardData &&
+                  (p.id === selfId || p.revealed || t.phase === 'showdown' || t.allInRunout)
               );
-              const cardScale = isSelfCard || isFaceUp ? 1.0 : 0.84;
+              const isWinnerHighlight = isFaceUp && isWinningCard(cardData);
+              const cardScale = (isSelfCard || isFaceUp ? 1.0 : 0.84) * (isWinnerHighlight ? 1.06 : 1);
               const cardSpacing = isSelfCard || isFaceUp ? 0.48 : 0.39;
               const offset = (c - (p.cardCount - 1) / 2) * cardSpacing;
               const tiltX = isSelfCard && isFaceUp ? 0.11 : 0;
               const targetY =
-                CARD_HEIGHT / 2 + (isSelfCard && isFaceUp ? 0.024 : 0.006) + c * 0.002;
+                CARD_HEIGHT / 2 +
+                (isSelfCard && isFaceUp ? 0.024 : 0.006) +
+                (isWinnerHighlight ? 0.032 : 0) +
+                c * 0.002;
               const target = new THREE.Vector3(
                 a.cardPos.x + rightX * offset,
                 targetY,
@@ -1078,14 +1121,19 @@ export function PokerScene3D({
             existingCards.forEach((m, c) => {
               const cardData = p.holeCards?.[c] ?? null;
               const isFaceUp = Boolean(
-                cardData && (p.id === selfId || p.revealed || t.phase === 'showdown')
+                cardData &&
+                  (p.id === selfId || p.revealed || t.phase === 'showdown' || t.allInRunout)
               );
-              const cardScale = isSelfCard || isFaceUp ? 1.0 : 0.84;
+              const isWinnerHighlight = isFaceUp && isWinningCard(cardData);
+              const cardScale = (isSelfCard || isFaceUp ? 1.0 : 0.84) * (isWinnerHighlight ? 1.06 : 1);
               const cardSpacing = isSelfCard || isFaceUp ? 0.48 : 0.39;
               const offset = (c - (existingCards.length - 1) / 2) * cardSpacing;
               const tiltX = isSelfCard && isFaceUp ? 0.11 : 0;
               const targetY =
-                CARD_HEIGHT / 2 + (isSelfCard && isFaceUp ? 0.024 : 0.006) + c * 0.002;
+                CARD_HEIGHT / 2 +
+                (isSelfCard && isFaceUp ? 0.024 : 0.006) +
+                (isWinnerHighlight ? 0.032 : 0) +
+                c * 0.002;
               m.position.set(
                 a.cardPos.x + rightX * offset,
                 targetY,
@@ -1099,7 +1147,7 @@ export function PokerScene3D({
         }
       }
 
-      // 6. Community Cards (5 slots centered on felt, stage-aware audio)
+      // 6. Community Cards (5 slots centered on felt, stage-aware audio + showdown winning elevation)
       if (t.communityCards.length < prevCommunityCount || isNewHand) {
         for (let i = 0; i < 5; i++) {
           const old = communityCardMeshes[i];
@@ -1112,12 +1160,12 @@ export function PokerScene3D({
 
       for (let i = 0; i < t.communityCards.length; i++) {
         const card = t.communityCards[i];
+        const isWinnerHighlight = isWinningCard(card);
+        const cardY = CARD_HEIGHT / 2 + 0.006 + (isWinnerHighlight ? 0.034 : 0);
+        const cardScale = isWinnerHighlight ? 1.06 : 1.0;
+
         if (!communityCardMeshes[i]) {
-          const target = new THREE.Vector3(
-            COMMUNITY_SLOTS_X[i],
-            CARD_HEIGHT / 2 + 0.006,
-            COMMUNITY_Z
-          );
+          const target = new THREE.Vector3(COMMUNITY_SLOTS_X[i], cardY, COMMUNITY_Z);
           const shouldAnimate = prevHandNumber !== -1 && i >= prevCommunityCount;
           if (shouldAnimate) {
             const delay = (i - prevCommunityCount) * 0.06;
@@ -1126,6 +1174,7 @@ export function PokerScene3D({
             const settledMesh = factory.createCardMesh(card);
             settledMesh.position.copy(target);
             settledMesh.rotation.set(0, 0, 0);
+            settledMesh.scale.setScalar(cardScale);
             settledMesh.visible = false;
             dynamicGroup.add(settledMesh);
             communityCardMeshes[i] = settledMesh;
@@ -1137,9 +1186,14 @@ export function PokerScene3D({
             const m = factory.createCardMesh(card);
             m.position.copy(target);
             m.rotation.set(0, 0, 0);
+            m.scale.setScalar(cardScale);
             dynamicGroup.add(m);
             communityCardMeshes[i] = m;
           }
+        } else {
+          const m = communityCardMeshes[i]!;
+          m.position.set(COMMUNITY_SLOTS_X[i], cardY, COMMUNITY_Z);
+          m.scale.setScalar(cardScale);
         }
       }
 
@@ -1152,6 +1206,8 @@ export function PokerScene3D({
         prevPlayerBets.set(p.id, p.currentBet);
         prevPlayerChips.set(p.id, p.chips);
       }
+
+      renderer.shadowMap.needsUpdate = true;
 
       if (isSoftwareGl) {
         wakeSoftwareLoopFn?.();
@@ -1229,7 +1285,7 @@ export function PokerScene3D({
     };
 
     function tick() {
-      if (disposed) return;
+      if (disposed || contextLostRef.current || document.hidden) return;
       if (isSoftwareGl && softwareDrawInFlight) {
         softwareDirty = true;
         return;
@@ -1241,7 +1297,9 @@ export function PokerScene3D({
       const elapsedTotal = (nowMs - startTimeMs) / 1000;
 
       if (propsRef.current.ambientOnly) {
+        const yAlpha = 1 - Math.exp(-5 * dt);
         camera.position.x = Math.sin(elapsedTotal * 0.16) * 1.25;
+        camera.position.y = THREE.MathUtils.lerp(camera.position.y, 5.0, yAlpha);
         camera.position.z = 6.2 + Math.cos(elapsedTotal * 0.14) * 0.4;
         camera.lookAt(0, -0.15, 0.1);
       } else {
@@ -1436,6 +1494,12 @@ export function PokerScene3D({
         }
       }
 
+      const hasDynamicShadowMotion =
+        flyingCards.length > 0 || flyingChips.length > 0 || hasStackAnim;
+      if (hasDynamicShadowMotion) {
+        renderer.shadowMap.needsUpdate = true;
+      }
+
       if (isSoftwareGl) {
         softwareDrawInFlight = true;
       }
@@ -1467,10 +1531,30 @@ export function PokerScene3D({
             tick();
           }
         });
-      } else {
+      } else if (!contextLostRef.current && !document.hidden) {
         frameId = requestAnimationFrame(tick);
       }
     }
+
+    resumeLoopFn = () => {
+      if (disposed || contextLostRef.current || document.hidden) return;
+      lastTimeMs = performance.now();
+      if (isSoftwareGl) {
+        wakeSoftwareLoopFn?.();
+      } else {
+        cancelAnimationFrame(frameId);
+        frameId = requestAnimationFrame(tick);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        resumeLoopFn?.();
+      } else {
+        cancelAnimationFrame(frameId);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     if (isSoftwareGl) {
       softwareDrawInFlight = true;
@@ -1491,6 +1575,7 @@ export function PokerScene3D({
       cancelAnimationFrame(frameId);
       clearTimeout(softwareTimerId);
       window.removeEventListener('resize', onResize);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
       renderer.domElement.removeEventListener('webglcontextrestored', onContextRestored);
 
@@ -1526,6 +1611,10 @@ export function PokerScene3D({
       nudgePulseFnRef.current?.(nudgePulse.targetPlayerId);
     }
   }, [nudgePulse]);
+
+  if (webglUnavailable) {
+    return null;
+  }
 
   return (
     <div className="pointer-events-auto absolute inset-0 overflow-hidden bg-[#090B0C]">

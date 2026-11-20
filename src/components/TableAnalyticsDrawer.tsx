@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as d3 from 'd3';
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
   Cell,
   Legend,
@@ -24,6 +22,7 @@ import {
   Trophy,
   X,
 } from 'lucide-react';
+import { buildStreetPotTrend, type StreetPotTrendPoint } from '../shared/potTrendUtils';
 import { PHASE_STAGE_LABELS } from '../shared/tableOverview';
 import type { ClientTableView, HandReplayRecord } from '../shared/types';
 import { PlayerAvatar } from './PlayerAvatar';
@@ -274,6 +273,177 @@ function D3RoomPotHistoryChart({ hands }: { hands: HandReplayRecord[] }) {
   );
 }
 
+interface StreetPotTooltipProps {
+  active?: boolean;
+  payload?: Array<{ payload?: StreetPotTrendPoint }>;
+}
+
+function StreetPotTooltip({ active, payload }: StreetPotTooltipProps) {
+  const pt = payload?.[0]?.payload;
+  if (!active || !pt) return null;
+
+  return (
+    <div className="rounded-md border border-[#D4A853]/35 bg-[#0D1012]/96 px-3 py-2 text-[11px] text-[#F3F1EC] shadow-xl">
+      <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] pb-1 mb-1.5">
+        <span className="font-semibold text-[#F5E4B8]">{pt.label}阶段</span>
+        <span className="font-mono-num text-[10px] text-[#8A948F]">
+          {pt.reached ? `${pt.actionCount} 次注额变动` : '尚未到达'}
+        </span>
+      </div>
+      {pt.reached && pt.pot !== null ? (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-[#9AA5A0]">累计底池</span>
+            <span className="font-mono-num font-bold text-[#E8CF96]">
+              {pt.pot.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-[#9AA5A0]">本街新增</span>
+            <span className="font-mono-num font-semibold text-[#8CC9AA]">
+              +{pt.streetAdded.toLocaleString()}
+            </span>
+          </div>
+          <div className="pt-1 text-[10px] text-[#A8B2AD] truncate max-w-[196px]">
+            关键动作：{pt.highlightAction}
+          </div>
+        </div>
+      ) : (
+        <div className="text-[#7E8984]">本局尚未发至该阶段</div>
+      )}
+    </div>
+  );
+}
+
+function StreetPotLineChart({ table }: { table: ClientTableView }) {
+  const summary = useMemo(
+    () =>
+      buildStreetPotTrend({
+        currentHandNumber: table.handNumber,
+        currentPhase: table.phase,
+        currentPot: table.pot,
+        currentCommunityCardCount: table.communityCards.length,
+        currentPotTimeline: table.analytics?.currentPotTimeline ?? [],
+        handHistory: table.analytics?.handHistory ?? [],
+      }),
+    [
+      table.handNumber,
+      table.phase,
+      table.pot,
+      table.communityCards.length,
+      table.analytics?.currentPotTimeline,
+      table.analytics?.handHistory,
+    ]
+  );
+
+  const hasData = summary.points.some((p) => p.reached && p.pot !== null);
+
+  return (
+    <section className="space-y-3" data-testid="street-pot-line-chart">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-xs font-semibold text-[#EAE6DC]">
+          各阶段底池积累趋势
+        </h3>
+        <span className="font-mono-num text-[11px] text-[#7E8984]">
+          {summary.handNumber > 0
+            ? `第 ${summary.handNumber} 局 · ${summary.isLiveHand ? '进行中' : '最近一手'}`
+            : '翻牌前 / 翻牌 / 转牌 / 河牌'}
+        </span>
+      </div>
+
+      {/* 4-Street Ledger Summary Strip */}
+      <div className="grid grid-cols-4 divide-x divide-white/[0.08] border-y border-white/[0.08] py-2">
+        {summary.points.map((pt) => (
+          <div key={pt.street} className="px-2 first:pl-1 last:pr-1">
+            <div
+              className={`text-[10px] whitespace-nowrap ${
+                pt.isCurrent
+                  ? 'font-semibold text-[#E8CF96]'
+                  : pt.reached
+                    ? 'text-[#9AA5A0]'
+                    : 'text-[#5E6763]'
+              }`}
+            >
+              {pt.label}
+            </div>
+            <div
+              className={`font-mono-num mt-0.5 text-xs font-bold ${
+                pt.reached && pt.pot !== null
+                  ? pt.isCurrent
+                    ? 'text-[#F5E4B8]'
+                    : 'text-[#F3F1EC]'
+                  : 'text-[#4F5854]'
+              }`}
+            >
+              {pt.reached && pt.pot !== null ? pt.pot.toLocaleString() : '—'}
+            </div>
+            <div className="font-mono-num text-[10px] text-[#8CC9AA]/90">
+              {pt.reached ? (pt.streetAdded > 0 ? `+${pt.streetAdded}` : '+0') : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {!hasData ? (
+        <div className="flex h-40 items-center justify-center border-b border-white/[0.08] text-xs text-[#7E8984]">
+          开局发牌后，将实时绘制翻牌前、翻牌、转牌、河牌底池折线
+        </div>
+      ) : (
+        <div className="h-48 w-full pt-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={summary.points}
+              margin={{ top: 10, right: 14, left: -10, bottom: 2 }}
+            >
+              <CartesianGrid stroke="rgba(255,255,255,0.06)" strokeDasharray="2 3" />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: '#9AA5A0', fontSize: 11 }}
+                axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: '#7D8782', fontSize: 10 }}
+                axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                tickLine={false}
+                allowDecimals={false}
+              />
+              <Tooltip content={<StreetPotTooltip />} />
+              <Legend
+                wrapperStyle={{ fontSize: '10px', paddingTop: '4px' }}
+                iconType="plainline"
+              />
+              <Line
+                type="monotone"
+                dataKey="pot"
+                name="累计底池"
+                stroke="#D4A853"
+                strokeWidth={2.25}
+                dot={{ r: 3.5, fill: '#F5E4B8', stroke: '#0B0D0F', strokeWidth: 1.5 }}
+                activeDot={{ r: 5.5, fill: '#D4A853', stroke: '#F5F2EB', strokeWidth: 1.5 }}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="streetAddedPlot"
+                name="本街新增"
+                stroke="#8CC9AA"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                dot={{ r: 2.5, fill: '#8CC9AA', stroke: '#0B0D0F', strokeWidth: 1 }}
+                activeDot={{ r: 4.5, fill: '#8CC9AA', stroke: '#F5F2EB', strokeWidth: 1.5 }}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function TableAnalyticsDrawer({
   open,
   table,
@@ -338,19 +508,6 @@ export function TableAnalyticsDrawer({
       })),
     };
   }, [handHistory, table.players, table.startingChips]);
-
-  const potGrowthData = useMemo(() => {
-    const timeline =
-      table.analytics?.currentPotTimeline?.length > 0
-        ? table.analytics.currentPotTimeline
-        : handHistory[handHistory.length - 1]?.potTimeline ?? [];
-
-    return timeline.map((pt) => ({
-      step: `#${pt.step}`,
-      pot: pt.potAfter,
-      detail: `${pt.actorName} ${pt.actionLabel}`,
-    }));
-  }, [table.analytics?.currentPotTimeline, handHistory]);
 
   const effectiveStatId = playerStatsMap[selectedStatPlayerId]
     ? selectedStatPlayerId
@@ -680,74 +837,24 @@ export function TableAnalyticsDrawer({
               </div>
             </section>
 
-            {/* Intra-Hand Pot Growth Curve */}
-            <section className="space-y-2.5 border-t border-white/[0.08] pt-5">
-              <div className="flex items-baseline justify-between">
-                <h3 className="text-xs font-semibold text-[#EAE6DC]">本局底池增长曲线</h3>
-                <span className="text-[11px] text-[#7E8984]">每轮叫注累计</span>
-              </div>
-              {potGrowthData.length === 0 ? (
-                <div className="flex h-36 items-center justify-center border-y border-white/[0.08] text-xs text-[#7E8984]">
-                  发牌并产生下注后，将实时绘制底池累积曲线
-                </div>
-              ) : (
-                <div className="h-44 w-full pt-1">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={potGrowthData}
-                      margin={{ top: 8, right: 8, left: -12, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="rechartsPotGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#8CC9AA" stopOpacity={0.32} />
-                          <stop offset="95%" stopColor="#8CC9AA" stopOpacity={0.01} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="2 3" />
-                      <XAxis
-                        dataKey="step"
-                        tick={{ fill: '#7D8782', fontSize: 10 }}
-                        axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
-                      />
-                      <YAxis
-                        tick={{ fill: '#7D8782', fontSize: 10 }}
-                        axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#0E1113',
-                          border: '1px solid rgba(140,201,170,0.4)',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          color: '#F3F1EC',
-                        }}
-                        formatter={(value) => [`底池 ${value}`, '当前底池']}
-                        labelFormatter={(_label, payload) =>
-                          payload?.[0]?.payload?.detail ?? ''
-                        }
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="pot"
-                        stroke="#8CC9AA"
-                        strokeWidth={1.75}
-                        fill="url(#rechartsPotGrad)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </section>
+            {/* Street-by-Street Pot Accumulation Recharts Line Chart */}
+            <div className="border-t border-white/[0.08] pt-5">
+              <StreetPotLineChart table={table} />
+            </div>
           </div>
         )}
 
         {activeTab === 'pot_d3' && (
-          <div className="space-y-3">
-            <div className="flex items-baseline justify-between">
-              <h3 className="text-xs font-semibold text-[#EAE6DC]">房间历史底池规模</h3>
-              <span className="text-[11px] text-[#7E8984]">点击节点查看明细</span>
+          <div className="space-y-6">
+            <StreetPotLineChart table={table} />
+
+            <div className="space-y-3 border-t border-white/[0.08] pt-5">
+              <div className="flex items-baseline justify-between">
+                <h3 className="text-xs font-semibold text-[#EAE6DC]">房间历史底池规模</h3>
+                <span className="text-[11px] text-[#7E8984]">点击节点查看明细</span>
+              </div>
+              <D3RoomPotHistoryChart hands={handHistory} />
             </div>
-            <D3RoomPotHistoryChart hands={handHistory} />
           </div>
         )}
 

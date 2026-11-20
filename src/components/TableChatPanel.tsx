@@ -93,11 +93,19 @@ export function TableChatPanel({
     });
   };
 
-  // Auto-scroll to bottom when drawer opens or new message arrives
+  // Auto-scroll to bottom and focus input when drawer opens
   useEffect(() => {
     if (!open) return;
     listEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
   }, [open, messages.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const id = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [open]);
 
   // Escape closes picker or drawer
   useEffect(() => {

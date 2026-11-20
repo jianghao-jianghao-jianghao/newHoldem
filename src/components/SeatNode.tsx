@@ -81,13 +81,21 @@ function getActionToneClasses(tone: ActionFxTone): { text: string; particle: str
   }
 }
 
-function ActionFloatingOverlay({ fx }: { fx: SeatActionFx }) {
+function ActionFloatingOverlay({
+  fx,
+  placement = 'top',
+}: {
+  fx: SeatActionFx;
+  placement?: 'top' | 'bottom';
+}) {
   const cls = getActionToneClasses(fx.tone);
   return (
     <div
       key={fx.id}
       data-testid={`action-fx-${fx.id}`}
-      className="pointer-events-none absolute -top-3 left-1/2 z-40"
+      className={`pointer-events-none absolute left-1/2 z-40 ${
+        placement === 'bottom' ? '-bottom-3.5' : '-top-3'
+      }`}
     >
       {/* Radial Particle Burst */}
       <div className="relative">
@@ -326,8 +334,19 @@ export function SeatNode({
                   {player.chips.toLocaleString()}
                 </span>
                 {isTurn && secondsRemaining !== null ? (
-                  <span className="font-mono-num text-xs font-semibold text-[#E8CF96]">
-                    行动 {secondsRemaining}s
+                  <span className="inline-flex items-center gap-1.5 font-mono-num text-xs font-semibold">
+                    {player.currentBet > 0 && (
+                      <span className="text-[11px] font-normal text-[#9AA5A0]">
+                        注 {player.currentBet}
+                      </span>
+                    )}
+                    <span
+                      className={
+                        secondsRemaining <= 5 ? 'text-[#F87171]' : 'text-[#E8CF96]'
+                      }
+                    >
+                      行动 {secondsRemaining}s
+                    </span>
                   </span>
                 ) : isWinner && winAmount ? (
                   <span className="font-mono-num text-xs font-semibold text-[#8CC9AA]">
@@ -350,7 +369,11 @@ export function SeatNode({
           {isTurn && (
             <div className="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-white/[0.08]">
               <div
-                className="h-full bg-[#D4A853] transition-[width] duration-250 ease-linear"
+                className={`h-full transition-[width] duration-250 ease-linear ${
+                  secondsRemaining !== null && secondsRemaining <= 5
+                    ? 'bg-[#EF4444]'
+                    : 'bg-[#D4A853]'
+                }`}
                 style={{ width: `${turnPct}%` }}
               />
             </div>
@@ -380,14 +403,14 @@ export function SeatNode({
             : 'border border-white/[0.08] bg-[#0B0E10]/84'
         } ${dimmed && !isWinner ? 'opacity-65' : ''}`}
       >
-        {actionFx && <ActionFloatingOverlay fx={actionFx} />}
+        {actionFx && <ActionFloatingOverlay fx={actionFx} placement="bottom" />}
 
         {nudgeFx && (
           <div
             key={nudgeFx.id}
             role="status"
             data-testid={`nudge-bubble-${player.id}`}
-            className="pointer-events-none absolute -top-8 left-1/2 z-40 -translate-x-1/2 whitespace-nowrap rounded border border-[#D4A853]/55 bg-[#12100C]/98 px-2.5 py-0.5 text-[11px] font-medium text-[#EED9A5] shadow-lg animate-chip-impact flex items-center gap-1.5"
+            className="pointer-events-none absolute top-full left-1/2 z-40 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-[#D4A853]/55 bg-[#12100C]/98 px-2.5 py-0.5 text-[11px] font-medium text-[#EED9A5] shadow-lg animate-chip-impact flex items-center gap-1.5"
           >
             <BellRing className="h-3 w-3 text-[#D4A853]" aria-hidden="true" />
             <span>{nudgeFx.message}</span>
@@ -530,8 +553,17 @@ export function SeatNode({
               </span>
 
               {isTurn && secondsRemaining !== null ? (
-                <span className="font-mono-num text-[11px] font-semibold text-[#E8CF96]">
-                  行动 {secondsRemaining}s
+                <span className="inline-flex items-center gap-1 font-mono-num text-[11px] font-semibold">
+                  {player.currentBet > 0 && (
+                    <span className="font-normal text-[#9AA5A0]">注 {player.currentBet}</span>
+                  )}
+                  <span
+                    className={
+                      secondsRemaining <= 5 ? 'text-[#F87171]' : 'text-[#E8CF96]'
+                    }
+                  >
+                    {secondsRemaining}s
+                  </span>
                 </span>
               ) : isWinner && winAmount ? (
                 <span className="font-mono-num text-[11px] font-semibold text-[#8CC9AA]">
@@ -558,7 +590,11 @@ export function SeatNode({
         {isTurn && (
           <div className="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-white/[0.08]">
             <div
-              className="h-full bg-[#D4A853] transition-[width] duration-250 ease-linear"
+              className={`h-full transition-[width] duration-250 ease-linear ${
+                secondsRemaining !== null && secondsRemaining <= 5
+                  ? 'bg-[#EF4444]'
+                  : 'bg-[#D4A853]'
+              }`}
               style={{ width: `${turnPct}%` }}
             />
           </div>
@@ -591,20 +627,32 @@ export function SeatNode({
           </div>
         ))}
 
-      {/* Showdown / Manually Revealed Opponent Cards */}
+      {/* Showdown / All-in / Manually Revealed Opponent Cards + Hand Category */}
       {player.holeCards && player.holeCards.length > 0 ? (
-        <div className="flex items-center gap-1 animate-deal">
-          {player.holeCards.map((card, idx) => (
-            <PlayingCard
-              key={`${card.suit}-${card.rank}-${idx}`}
-              card={card}
-              size="sm"
-              dimmed={player.folded && !player.revealed}
-              highlighted={
-                highlightedCards.length > 0 && isCardInSet(card, highlightedCards)
-              }
-            />
-          ))}
+        <div className="flex flex-col items-center gap-1 animate-deal">
+          <div className="flex items-center gap-1">
+            {player.holeCards.map((card, idx) => (
+              <PlayingCard
+                key={`${card.suit}-${card.rank}-${idx}`}
+                card={card}
+                size="sm"
+                dimmed={player.folded && !player.revealed}
+                highlighted={
+                  highlightedCards.length > 0 && isCardInSet(card, highlightedCards)
+                }
+              />
+            ))}
+          </div>
+          {player.handEvaluation?.categoryName && (
+            <span
+              data-testid={`opponent-hand-cat-${player.id}`}
+              className={`rounded bg-[#0A0D0F]/90 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+                isWinner ? 'text-[#F3DFAC]' : 'text-[#A5B0AA]'
+              }`}
+            >
+              {player.handEvaluation.categoryName}
+            </span>
+          )}
         </div>
       ) : player.inHand && !player.folded && player.cardCount > 0 ? (
         <div className="md:hidden flex items-center gap-0.5" aria-hidden="true">

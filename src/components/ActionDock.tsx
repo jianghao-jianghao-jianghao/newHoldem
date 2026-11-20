@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Minus, Plus } from 'lucide-react';
 import type { AvailableActions, PlayerAction } from '../shared/types';
 
 interface ActionDockProps {
   available: AvailableActions | null;
   pot: number;
   bigBlind: number;
+  myCurrentBet?: number;
   handEvaluationName?: string | null;
   statusMessage: string;
+  hotkeysDisabled?: boolean;
   onAction: (action: PlayerAction) => void;
 }
 
@@ -14,8 +17,10 @@ export function ActionDock({
   available,
   pot,
   bigBlind,
+  myCurrentBet = 0,
   handEvaluationName,
   statusMessage,
+  hotkeysDisabled = false,
   onAction,
 }: ActionDockProps) {
   const [raiseAmount, setRaiseAmount] = useState<number>(0);
@@ -26,15 +31,23 @@ export function ActionDock({
     }
   }, [available?.minRaiseTo, available?.maxRaiseTo, available?.canRaise]);
 
-  // Keyboard shortcuts
+  const min = available?.minRaiseTo ?? 0;
+  const max = available?.maxRaiseTo ?? 0;
+  const clampedRaise = available
+    ? Math.max(min, Math.min(max, raiseAmount || min))
+    : 0;
+
+  // Keyboard shortcuts (strictly ignores Ctrl/Meta/Alt combos, inputs, and open modals/chat)
   useEffect(() => {
-    if (!available) return;
+    if (!available || hotkeysDisabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
           target.isContentEditable)
       ) {
         return;
@@ -49,13 +62,49 @@ export function ActionDock({
         onAction({ type: available.canCheck ? 'check' : 'call' });
       } else if (key === 'r' && available.canRaise) {
         e.preventDefault();
-        onAction({ type: 'raise', amount: raiseAmount });
+        onAction({ type: 'raise', amount: clampedRaise });
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [available, raiseAmount, onAction]);
+  }, [available, hotkeysDisabled, clampedRaise, onAction]);
+
+  // Standard Texas Hold'em pot-fraction sizing presets, deduplicated cleanly
+  const raisePresets = useMemo(() => {
+    if (!available?.canRaise || max <= min) return [];
+    const callToMatch = available.callAmount;
+    const potAfterCall = pot + callToMatch;
+    const baseAfterCall = myCurrentBet + callToMatch;
+
+    const calcFractionTarget = (fraction: number) => {
+      const raw = available.isOpeningBet
+        ? Math.round(pot * fraction)
+        : baseAfterCall + Math.round(potAfterCall * fraction);
+      return Math.max(min, Math.min(max, raw));
+    };
+
+    const candidates: Array<{ id: string; label: string; amount: number; accent?: boolean }> = [
+      { id: 'min', label: '最小', amount: min },
+      { id: 'half', label: '1/2池', amount: calcFractionTarget(0.5) },
+      { id: 'twothirds', label: '2/3池', amount: calcFractionTarget(2 / 3) },
+      { id: 'pot', label: '满池', amount: calcFractionTarget(1) },
+      { id: 'allin', label: '全下', amount: max, accent: true },
+    ];
+
+    const seen = new Set<number>();
+    const deduped: typeof candidates = [];
+    for (const item of candidates) {
+      if (item.id !== 'allin' && seen.has(item.amount)) continue;
+      if (item.id === 'allin' && seen.has(item.amount)) {
+        const idx = deduped.findIndex((d) => d.amount === item.amount);
+        if (idx >= 0) deduped.splice(idx, 1);
+      }
+      seen.add(item.amount);
+      deduped.push(item);
+    }
+    return deduped;
+  }, [available, min, max, pot, myCurrentBet]);
 
   if (!available) {
     return (
@@ -78,15 +127,8 @@ export function ActionDock({
     );
   }
 
-  const min = available.minRaiseTo;
-  const max = available.maxRaiseTo;
-  const clampedRaise = Math.max(min, Math.min(max, raiseAmount));
-
-  const halfPot = Math.min(max, Math.max(min, min + Math.round(pot * 0.5)));
-  const fullPot = Math.min(max, Math.max(min, min + pot));
-  const twoX = Math.min(max, Math.max(min, min + bigBlind * 2));
-
   const raiseVerb = available.isOpeningBet ? '下注' : '加注至';
+  const stepUnit = Math.max(1, Math.min(bigBlind, Math.max(5, Math.floor(bigBlind / 2))));
 
   return (
     <div
@@ -105,44 +147,33 @@ export function ActionDock({
           )}
         </div>
 
-        {/* Quick raise sizing presets */}
-        {available.canRaise && max > min && (
+        {/* Standard Texas Hold'em pot-fraction sizing presets with exact amounts */}
+        {raisePresets.length > 0 && (
           <div className="flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setRaiseAmount(min)}
-              className="touch-manipulation rounded border border-white/[0.1] bg-[#14191B] px-2 py-1 text-[11px] font-medium text-[#C5CECA] hover:border-[#D4A853]/50 hover:text-white transition-colors whitespace-nowrap shrink-0"
-            >
-              最小
-            </button>
-            <button
-              type="button"
-              onClick={() => setRaiseAmount(halfPot)}
-              className="touch-manipulation rounded border border-white/[0.1] bg-[#14191B] px-2 py-1 text-[11px] font-medium text-[#C5CECA] hover:border-[#D4A853]/50 hover:text-white transition-colors whitespace-nowrap shrink-0"
-            >
-              +1/2池
-            </button>
-            <button
-              type="button"
-              onClick={() => setRaiseAmount(fullPot)}
-              className="touch-manipulation rounded border border-white/[0.1] bg-[#14191B] px-2 py-1 text-[11px] font-medium text-[#C5CECA] hover:border-[#D4A853]/50 hover:text-white transition-colors whitespace-nowrap shrink-0"
-            >
-              +满池
-            </button>
-            <button
-              type="button"
-              onClick={() => setRaiseAmount(twoX)}
-              className="touch-manipulation rounded border border-white/[0.1] bg-[#14191B] px-2 py-1 text-[11px] font-medium text-[#C5CECA] hover:border-[#D4A853]/50 hover:text-white transition-colors whitespace-nowrap shrink-0"
-            >
-              +2BB
-            </button>
-            <button
-              type="button"
-              onClick={() => setRaiseAmount(max)}
-              className="touch-manipulation rounded border border-[#D4A853]/40 bg-[#231D12] px-2 py-1 text-[11px] font-semibold text-[#E8CF96] hover:bg-[#312817] transition-colors whitespace-nowrap shrink-0"
-            >
-              全下
-            </button>
+            {raisePresets.map((preset) => {
+              const isSelected = clampedRaise === preset.amount;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => setRaiseAmount(preset.amount)}
+                  className={`touch-manipulation inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    preset.accent
+                      ? isSelected
+                        ? 'border-[#D4A853] bg-[#362C19] font-semibold text-[#FAF0D7]'
+                        : 'border-[#D4A853]/40 bg-[#231D12] font-semibold text-[#E8CF96] hover:bg-[#312817]'
+                      : isSelected
+                        ? 'border-[#D4A853]/65 bg-[#D4A853]/15 text-[#F5E4B8]'
+                        : 'border-white/[0.1] bg-[#14191B] text-[#C5CECA] hover:border-[#D4A853]/50 hover:text-white'
+                  }`}
+                >
+                  <span>{preset.label}</span>
+                  <span className="font-mono-num text-[10px] opacity-75">
+                    {preset.amount}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -176,18 +207,36 @@ export function ActionDock({
         )}
 
         {available.canRaise && (
-          <div className="flex w-full sm:w-auto sm:flex-1 min-w-0 items-center gap-2.5 sm:pl-1">
+          <div className="flex w-full sm:w-auto sm:flex-1 min-w-0 items-center gap-2 sm:pl-1">
             {max > min && (
-              <input
-                type="range"
-                aria-label="加注金额"
-                className="poker-slider flex-1 min-w-0"
-                min={min}
-                max={max}
-                step={Math.max(1, Math.min(10, Math.floor(bigBlind / 2)))}
-                value={clampedRaise}
-                onChange={(e) => setRaiseAmount(Number(e.target.value))}
-              />
+              <>
+                <button
+                  type="button"
+                  onClick={() => setRaiseAmount((prev) => Math.max(min, prev - bigBlind))}
+                  aria-label="减少 1 个大盲注"
+                  className="touch-manipulation flex h-8 w-8 shrink-0 items-center justify-center rounded border border-white/[0.1] bg-[#14191B] text-[#B8C2BD] hover:border-[#D4A853]/50 hover:text-white transition-colors"
+                >
+                  <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+                <input
+                  type="range"
+                  aria-label="加注金额"
+                  className="poker-slider flex-1 min-w-0"
+                  min={min}
+                  max={max}
+                  step={stepUnit}
+                  value={clampedRaise}
+                  onChange={(e) => setRaiseAmount(Number(e.target.value))}
+                />
+                <button
+                  type="button"
+                  onClick={() => setRaiseAmount((prev) => Math.min(max, prev + bigBlind))}
+                  aria-label="增加 1 个大盲注"
+                  className="touch-manipulation flex h-8 w-8 shrink-0 items-center justify-center rounded border border-white/[0.1] bg-[#14191B] text-[#B8C2BD] hover:border-[#D4A853]/50 hover:text-white transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              </>
             )}
 
             <button

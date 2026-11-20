@@ -306,6 +306,13 @@ export class EmailAuthStore {
     try {
       const delivery = await this.emailSender(email, code);
       if (delivery.mode === 'preview') {
+        if (process.env.NODE_ENV === 'production' && process.env.ALLOW_OTP_PREVIEW !== 'true') {
+          this.pendingOtps.delete(email);
+          return {
+            ok: false,
+            error: '邮件服务未配置，请联系管理员设置 SMTP 或 Resend 环境变量',
+          };
+        }
         console.log(`[AuthOTP Preview] ${email} -> ${code}`);
         return {
           ok: true,

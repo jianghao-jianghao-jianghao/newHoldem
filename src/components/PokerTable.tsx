@@ -129,6 +129,24 @@ export function PokerTable({
     Map<string, { label?: string; handNumber: number; revealed?: boolean }>
   >(new Map());
   const initializedPlayersRef = useRef(false);
+  const actionFxTimersRef = useRef<Map<string, number>>(new Map());
+  const nudgeFxTimersRef = useRef<Map<string, number>>(new Map());
+  const joinedTimersRef = useRef<Map<string, number>>(new Map());
+
+  // Clean up all independent per-player FX timers on unmount
+  useEffect(() => {
+    const actionTimers = actionFxTimersRef.current;
+    const nudgeTimers = nudgeFxTimersRef.current;
+    const joinedTimers = joinedTimersRef.current;
+    return () => {
+      actionTimers.forEach((id) => window.clearTimeout(id));
+      actionTimers.clear();
+      nudgeTimers.forEach((id) => window.clearTimeout(id));
+      nudgeTimers.clear();
+      joinedTimers.forEach((id) => window.clearTimeout(id));
+      joinedTimers.clear();
+    };
+  }, []);
 
   // Tick timer for turn countdown AND next-hand countdown
   useEffect(() => {
@@ -184,8 +202,6 @@ export function PokerTable({
     }
     prevPlayersRef.current = nextSnapshot;
 
-    const timers: number[] = [];
-
     if (joinedBatch.length > 0) {
       setNewlyJoinedIds((curr) => {
         const next = { ...curr };
@@ -194,15 +210,20 @@ export function PokerTable({
         });
         return next;
       });
-      timers.push(
-        window.setTimeout(() => {
+      joinedBatch.forEach((id) => {
+        const existing = joinedTimersRef.current.get(id);
+        if (existing) window.clearTimeout(existing);
+        const timerId = window.setTimeout(() => {
+          joinedTimersRef.current.delete(id);
           setNewlyJoinedIds((curr) => {
+            if (!curr[id]) return curr;
             const next = { ...curr };
-            joinedBatch.forEach((id) => delete next[id]);
+            delete next[id];
             return next;
           });
-        }, 700)
-      );
+        }, 700);
+        joinedTimersRef.current.set(id, timerId);
+      });
     }
 
     if (fxBatch.length > 0) {
@@ -213,44 +234,47 @@ export function PokerTable({
         });
         return next;
       });
-      timers.push(
-        window.setTimeout(() => {
+      fxBatch.forEach(({ id, fx }) => {
+        const existing = actionFxTimersRef.current.get(id);
+        if (existing) window.clearTimeout(existing);
+        const timerId = window.setTimeout(() => {
+          actionFxTimersRef.current.delete(id);
           setActionFxMap((curr) => {
+            if (curr[id]?.id !== fx.id) return curr;
             const next = { ...curr };
-            fxBatch.forEach(({ id, fx }) => {
-              if (next[id]?.id === fx.id) delete next[id];
-            });
+            delete next[id];
             return next;
           });
-        }, 1500)
-      );
+        }, 1500);
+        actionFxTimersRef.current.set(id, timerId);
+      });
     }
-
-    return () => {
-      timers.forEach((t) => window.clearTimeout(t));
-    };
   }, [table.players, table.handNumber]);
 
-  // Display synchronized nudge bubble & pulse on target seat
+  // Display synchronized nudge bubble & pulse on target seat with independent per-player timer
   useEffect(() => {
     if (!lastNudge) return;
-    const fxId = `${lastNudge.targetPlayerId}_${lastNudge.createdAt}`;
+    const targetId = lastNudge.targetPlayerId;
+    const fxId = `${targetId}_${lastNudge.createdAt}`;
     setNudgeFxMap((curr) => ({
       ...curr,
-      [lastNudge.targetPlayerId]: {
+      [targetId]: {
         id: fxId,
         message: lastNudge.message,
       },
     }));
+    const existing = nudgeFxTimersRef.current.get(targetId);
+    if (existing) window.clearTimeout(existing);
     const timer = window.setTimeout(() => {
+      nudgeFxTimersRef.current.delete(targetId);
       setNudgeFxMap((curr) => {
-        if (curr[lastNudge.targetPlayerId]?.id !== fxId) return curr;
+        if (curr[targetId]?.id !== fxId) return curr;
         const next = { ...curr };
-        delete next[lastNudge.targetPlayerId];
+        delete next[targetId];
         return next;
       });
     }, 3200);
-    return () => window.clearTimeout(timer);
+    nudgeFxTimersRef.current.set(targetId, timer);
   }, [lastNudge]);
 
   useEffect(() => {
@@ -284,6 +308,7 @@ export function PokerTable({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -343,10 +368,20 @@ export function PokerTable({
     (table.phase === 'waiting' || table.phase === 'showdown') &&
     table.players.length < 22;
 
-  const needsRebuy =
-    selfPlayer &&
-    selfPlayer.chips < table.bigBlind &&
-    (table.phase === 'waiting' || table.phase === 'showdown' || selfPlayer.folded);
+  const isSelfIdleForRebuy =
+    Boolean(selfPlayer) &&
+    (table.phase === 'waiting' ||
+      table.phase === 'showdown' ||
+      !selfPlayer!.inHand ||
+      selfPlayer!.folded);
+
+  const isSelfBusted =
+    Boolean(selfPlayer) && selfPlayer!.chips < table.bigBlind && isSelfIdleForRebuy;
+
+  const canTopUp =
+    Boolean(selfPlayer) &&
+    selfPlayer!.chips < table.startingChips &&
+    isSelfIdleForRebuy;
 
   const canRemoveBots = table.phase === 'waiting' || table.phase === 'showdown';
   const compactOpponents = opponents.length >= 4;
@@ -495,7 +530,15 @@ export function PokerTable({
           <div className="flex items-center divide-x divide-white/[0.06] rounded bg-white/[0.03] border border-white/[0.07]">
             <button
               type="button"
-              onClick={() => setAnalyticsOpen((prev) => !prev)}
+              onClick={() => {
+                if (!analyticsOpen) {
+                  setRequestedAnalyticsTab((prev) => ({
+                    tab: 'trends',
+                    nonce: (prev?.nonce ?? 0) + 1,
+                  }));
+                }
+                setAnalyticsOpen((prev) => !prev);
+              }}
               aria-label={analyticsOpen ? '收起牌局数据' : '打开牌局数据'}
               aria-expanded={analyticsOpen}
               data-testid="toggle-analytics-btn"
@@ -629,15 +672,15 @@ export function PokerTable({
 
       {/* Main Spatial Overlay */}
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-between px-3 py-2 sm:px-6 sm:py-3">
-        {/* Top Perimeter: Whisper-Quiet Table Strip + Opponents */}
-        <div className="flex flex-col items-center gap-2">
+        {/* Top Perimeter: Whisper-Quiet Table Strip + Opponents (spaced clearly so bubbles never overlap pot bar) */}
+        <div className="flex flex-col items-center gap-4 sm:gap-5">
           {(() => {
             const overview = getHandOverviewStats(table);
             return (
               <section
                 data-testid="hand-overview-panel"
                 aria-label="本局状态"
-                className="pointer-events-auto inline-flex items-center gap-3 sm:gap-4 rounded-full border border-white/[0.07] bg-[#0A0C0E]/74 backdrop-blur-md px-4 py-1 text-xs"
+                className="pointer-events-auto relative z-30 inline-flex items-center gap-3 sm:gap-4 rounded-full border border-white/[0.08] bg-[#0A0C0E]/82 backdrop-blur-md px-4 py-1 text-xs shadow-[0_6px_20px_rgba(0,0,0,0.45)]"
               >
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-[11px] text-[#85908B]">底池</span>
@@ -880,16 +923,36 @@ export function PokerTable({
                 </button>
               )}
 
-              {needsRebuy && (
+              {canTopUp && !isSelfBusted && (
                 <button
                   type="button"
+                  data-testid="topup-chips-btn"
                   onClick={onRebuy}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#34D399]/40 bg-[#0F2119]/92 px-3.5 text-xs sm:text-sm font-semibold text-[#6EE7B7] hover:bg-[#152E23] transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#34D399]/35 bg-[#0F2119]/90 px-3.5 text-xs sm:text-sm font-semibold text-[#6EE7B7] hover:bg-[#152E23] transition-colors whitespace-nowrap shrink-0"
                 >
                   <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>补充筹码 ({table.startingChips.toLocaleString()})</span>
+                  <span>补满筹码 ({table.startingChips.toLocaleString()})</span>
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Always-Accessible Busted Rebuy Banner (works even mid-hand when auto-next moved on) */}
+          {isSelfBusted && (
+            <div
+              data-testid="busted-rebuy-banner"
+              className="pointer-events-auto flex flex-wrap items-center justify-center gap-2.5 rounded-lg border border-[#34D399]/40 bg-[#0C1D16]/94 px-4 py-2 text-xs sm:text-sm text-[#D8F3E5] shadow-lg"
+            >
+              <span>筹码不足无法参与本局，可立即补充筹码并在下局继续上桌</span>
+              <button
+                type="button"
+                data-testid="rebuy-chips-btn"
+                onClick={onRebuy}
+                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>立即补充筹码 ({table.startingChips.toLocaleString()})</span>
+              </button>
             </div>
           )}
 
@@ -900,7 +963,7 @@ export function PokerTable({
           )}
         </div>
 
-        {/* Bottom Zone: Local Player Seat + Quick Interaction Bar + Action Dock */}
+        {/* Bottom Zone: Local Player Seat + Action Dock */}
         <section
           aria-label="我的手牌与操作区"
           className="pointer-events-auto mx-auto flex w-full max-w-3xl flex-col gap-2"
@@ -930,8 +993,10 @@ export function PokerTable({
             available={table.myAvailableActions}
             pot={table.pot}
             bigBlind={table.bigBlind}
+            myCurrentBet={selfPlayer?.currentBet ?? 0}
             handEvaluationName={table.myHandEvaluation?.categoryName ?? null}
             statusMessage={statusText}
+            hotkeysDisabled={chatOpen || quickEmojiOpen || blindModalOpen || analyticsOpen}
             onAction={onAction}
           />
         </section>

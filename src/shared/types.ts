@@ -191,6 +191,7 @@ export interface TableState {
   nextHandAt: number | null;
   autoNextHandEnabled: boolean;
   pot: number;
+  deadContributions?: number[];
   currentBet: number;
   lastFullBet: number;
   minRaise: number;

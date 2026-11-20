@@ -73,6 +73,7 @@ export function createTableState(
     nextHandAt: null,
     autoNextHandEnabled: true,
     pot: 0,
+    deadContributions: [],
     currentBet: 0,
     lastFullBet: 0,
     minRaise: bigBlind,
@@ -388,13 +389,9 @@ export function removePlayerFromTable(state: TableState, playerId: string): void
   if (idx === -1) return;
   const removed = state.players[idx];
 
-  // If currently in an active hand, fold them first so game doesn't stall
-  if (
-    state.phase !== 'waiting' &&
-    state.phase !== 'showdown' &&
-    removed.inHand &&
-    !removed.folded
-  ) {
+  // If currently in an active hand, preserve any dead money and fold them first so game doesn't stall
+  const wasActiveHand = state.phase !== 'waiting' && state.phase !== 'showdown';
+  if (wasActiveHand && removed.inHand && !removed.folded) {
     if (state.currentTurnPlayerId === playerId) {
       applyPlayerAction(state, playerId, { type: 'fold' });
     } else {
@@ -403,6 +400,16 @@ export function removePlayerFromTable(state: TableState, playerId: string): void
       removed.lastActionLabel = '离开弃牌';
       checkAndAdvanceAfterPassiveFold(state);
     }
+  }
+
+  // If the hand is still running after folding, preserve the departed player's pot contribution
+  if (
+    state.phase !== 'waiting' &&
+    state.phase !== 'showdown' &&
+    removed.totalContributed > 0
+  ) {
+    if (!state.deadContributions) state.deadContributions = [];
+    state.deadContributions.push(removed.totalContributed);
   }
 
   state.players.splice(idx, 1);
@@ -416,15 +423,22 @@ export function removePlayerFromTable(state: TableState, playerId: string): void
     state.hostId = nextHuman?.id ?? null;
   }
 
-  const activePlayers = state.players.filter((p) => p.chips > 0);
-  if (activePlayers.length < 2 && state.phase !== 'waiting') {
-    if (state.phase !== 'showdown') {
+  if (state.phase !== 'waiting' && state.phase !== 'showdown') {
+    const remainingContenders = state.players.filter((p) => p.inHand && !p.folded);
+    if (remainingContenders.length === 1) {
+      resolveFoldWin(state, Date.now());
+    } else if (remainingContenders.length === 0) {
       state.phase = 'waiting';
       state.allInRunout = false;
       state.nextHandAt = null;
       state.currentTurnPlayerId = null;
       state.turnDeadline = null;
-    } else {
+      state.pot = 0;
+      state.deadContributions = [];
+    }
+  } else if (state.phase === 'showdown') {
+    const activePlayers = state.players.filter((p) => p.chips > 0);
+    if (activePlayers.length < 2) {
       state.nextHandAt = null;
     }
   }
@@ -436,7 +450,7 @@ export function rebuyPlayerChips(state: TableState, playerId: string): boolean {
   if (player.inHand && !player.folded && state.phase !== 'waiting' && state.phase !== 'showdown') {
     return false;
   }
-  if (player.chips >= state.bigBlind) return false;
+  if (player.chips >= state.startingChips) return false;
   player.chips = state.startingChips;
   player.lastActionLabel = '补充筹码';
   pushLog(state, `${player.name} 补充了筹码至 ${state.startingChips}`);
@@ -518,6 +532,7 @@ export function startNewHand(
   state.allInRunout = false;
   state.nextHandAt = null;
   state.pot = 0;
+  state.deadContributions = [];
   state.currentBet = 0;
   state.lastFullBet = state.bigBlind;
   state.minRaise = state.bigBlind;
@@ -772,13 +787,19 @@ export function applyPlayerAction(
     if (!available.canRaise) {
       return { ok: false, error: '当前筹码不足以加注' };
     }
+    if (
+      action.amount !== undefined &&
+      (typeof action.amount !== 'number' || !Number.isFinite(action.amount))
+    ) {
+      return { ok: false, error: '加注金额无效' };
+    }
     const targetBet = Math.floor(action.amount ?? available.minRaiseTo);
     const clampedTarget = Math.max(
       available.minRaiseTo,
       Math.min(available.maxRaiseTo, targetBet)
     );
     const addedChips = clampedTarget - player.currentBet;
-    if (addedChips <= 0) {
+    if (!Number.isFinite(addedChips) || addedChips <= 0) {
       return { ok: false, error: '加注金额无效' };
     }
 
@@ -1148,6 +1169,19 @@ function resolveFoldWin(state: TableState, now: number = Date.now()): void {
 
   if (!winner) return;
 
+  // Official rule: refund any uncalled excess bet above the highest other contribution
+  const otherContribs = [
+    ...state.players.filter((p) => p.id !== winner.id).map((p) => p.totalContributed),
+    ...(state.deadContributions ?? []),
+  ];
+  const maxOtherContrib = otherContribs.length > 0 ? Math.max(0, ...otherContribs) : 0;
+  const uncalledExcess = Math.max(0, winner.totalContributed - maxOtherContrib);
+  if (uncalledExcess > 0) {
+    winner.chips += uncalledExcess;
+    winner.totalContributed = Math.max(0, winner.totalContributed - uncalledExcess);
+    state.pot = Math.max(0, state.pot - uncalledExcess);
+  }
+
   const totalPot = state.pot;
   winner.chips += totalPot;
   const netChange = totalPot - winner.totalContributed;
@@ -1180,8 +1214,12 @@ function resolveShowdown(state: TableState, now: number = Date.now()): void {
     evals.set(p.id, evaluateBestHand([...p.holeCards, ...state.communityCards]));
   }
 
+  const deadContribs = (state.deadContributions ?? []).filter((c) => c > 0);
   const levels = Array.from(
-    new Set(state.players.filter((p) => p.totalContributed > 0).map((p) => p.totalContributed))
+    new Set([
+      ...state.players.filter((p) => p.totalContributed > 0).map((p) => p.totalContributed),
+      ...deadContribs,
+    ])
   ).sort((a, b) => a - b);
 
   const payouts = new Map<string, number>();
@@ -1192,6 +1230,7 @@ function resolveShowdown(state: TableState, now: number = Date.now()): void {
   let prevLevel = 0;
   for (const level of levels) {
     let sliceAmount = 0;
+    let deadInSlice = 0;
     const contributorsInSlice: TablePlayer[] = [];
     for (const p of state.players) {
       const sliceContrib = Math.max(0, Math.min(p.totalContributed, level) - prevLevel);
@@ -1200,15 +1239,28 @@ function resolveShowdown(state: TableState, now: number = Date.now()): void {
         contributorsInSlice.push(p);
       }
     }
+    for (const dc of deadContribs) {
+      const sliceContrib = Math.max(0, Math.min(dc, level) - prevLevel);
+      if (sliceContrib > 0) {
+        sliceAmount += sliceContrib;
+        deadInSlice += sliceContrib;
+      }
+    }
     prevLevel = level;
     if (sliceAmount === 0) continue;
 
-    const eligible = contenders.filter((p) => p.totalContributed >= level);
+    let eligible = contenders.filter((p) => p.totalContributed >= level);
+    if (eligible.length === 0) {
+      // Dead money above the highest contender's contribution rolls into the top eligible tier
+      const maxContenderContrib = Math.max(...contenders.map((p) => p.totalContributed));
+      eligible = contenders.filter((p) => p.totalContributed === maxContenderContrib);
+    }
     if (eligible.length === 0) continue;
 
     // Official rule: an excess bet slice contributed solely by one player is an uncalled bet refund,
     // NOT a won pot (so it must not credit handsWon / showdownWon or list them as a showdown winner).
     if (
+      deadInSlice === 0 &&
       eligible.length === 1 &&
       contributorsInSlice.length === 1 &&
       contributorsInSlice[0].id === eligible[0].id
@@ -1236,7 +1288,11 @@ function resolveShowdown(state: TableState, now: number = Date.now()): void {
     const baseShare = Math.floor(sliceAmount / sliceWinners.length);
     let remainder = sliceAmount % sliceWinners.length;
 
-    const seatSpan = Math.max(1, ...state.players.map((p) => p.seatIndex + 1));
+    const seatSpan = Math.max(
+      1,
+      state.dealerSeatIndex + 1,
+      ...state.players.map((p) => p.seatIndex + 1)
+    );
     const orderedWinners = [...sliceWinners].sort((a, b) => {
       const distA = (((a.seatIndex - state.dealerSeatIndex - 1) % seatSpan) + seatSpan) % seatSpan;
       const distB = (((b.seatIndex - state.dealerSeatIndex - 1) % seatSpan) + seatSpan) % seatSpan;
@@ -1273,11 +1329,11 @@ function resolveShowdown(state: TableState, now: number = Date.now()): void {
 }
 
 /**
- * Produces a player-specific view where opponents' hole cards remain hidden until showdown/reveal.
+ * Produces a player-specific view where opponents' hole cards remain hidden until showdown/all-in runout/reveal.
  */
 export function sanitizeTableForPlayer(state: TableState, viewerId: string): ClientTableView {
   const showAllContenders =
-    state.phase === 'showdown' && countNonFoldedPlayers(state) >= 2;
+    (state.phase === 'showdown' || state.allInRunout) && countNonFoldedPlayers(state) >= 2;
 
   const players: ClientPlayerView[] = getSortedPlayers(state).map((p) => {
     const isSelf = p.id === viewerId;

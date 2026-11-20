@@ -56,6 +56,26 @@ input[type='range'].poker-slider::-webkit-slider-thumb:hover {
   transform: scale(1.14);
 }
 
+input[type='range'].poker-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+input[type='range'].poker-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #D4A853;
+  border: 2px solid #090B0C;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+  transition: transform 0.12s ease;
+}
+
+input[type='range'].poker-slider::-moz-range-thumb:hover {
+  transform: scale(1.14);
+}
+
 @keyframes dealCard {
   0% {
     opacity: 0;

@@ -7,6 +7,7 @@ import {
   createTableState,
   getAvailableActions,
   rebuyPlayerChips,
+  removePlayerFromTable,
   resolveNextHandSeats,
   revealPlayerCards,
   sanitizeTableForPlayer,
@@ -459,6 +460,95 @@ test('3-player short-stacked BB keeps preflop opening call at full bigBlind', ()
   const utgAvail = getAvailableActions(table, 'p0')!;
   assert.equal(utgAvail.callAmount, 20);
 });
+
+test('rejects NaN and Infinity raise amounts without corrupting table chips or pot', () => {
+  const table = createTableState('ROOM_NAN', 10, 20, 2000);
+  addPlayerToTable(table, { id: 'p1', name: 'Alice', chips: 2000 });
+  addPlayerToTable(table, { id: 'p2', name: 'Bob', chips: 2000 });
+  startNewHand(table, () => 0.4, 1000);
+
+  const nanRes = applyPlayerAction(table, 'p1', { type: 'raise', amount: Number.NaN }, 1100);
+  assert.equal(nanRes.ok, false);
+  const infRes = applyPlayerAction(table, 'p1', { type: 'raise', amount: Number.POSITIVE_INFINITY }, 1100);
+  assert.equal(infRes.ok, false);
+
+  assert.equal(table.pot, 30);
+  assert.equal(table.players.find((p) => p.id === 'p1')?.chips, 1990);
+  assert.equal(Number.isFinite(table.currentBet), true);
+});
+
+test('mid-hand leave during active all-in does not abort hand and strictly conserves dead money', () => {
+  const table = createTableState('ROOM_LEAVE_ALLIN', 10, 20, 1000);
+  addPlayerToTable(table, { id: 'p1', name: 'AllInA', chips: 100 }); // Dealer/UTG (seat 0)
+  addPlayerToTable(table, { id: 'p2', name: 'ContenderB', chips: 1000 }); // SB (seat 1)
+  addPlayerToTable(table, { id: 'p3', name: 'LeaverC', chips: 1000 }); // BB (seat 2)
+
+  startNewHand(table, () => 0.35, 1000, { stepAllIn: true });
+  // p1 shoves 100, p2 calls 100, p3 (BB=20) folds -> allInRunout starts with pot = 220 (20 dead from p3)
+  applyPlayerAction(table, 'p1', { type: 'raise', amount: 100 }, 1100, { stepAllIn: true });
+  applyPlayerAction(table, 'p2', { type: 'call' }, 1200, { stepAllIn: true });
+  applyPlayerAction(table, 'p3', { type: 'fold' }, 1300, { stepAllIn: true });
+  assert.equal(table.allInRunout, true);
+  assert.equal(table.pot, 220);
+
+  // During all-in runout, opponents' hole cards are revealed immediately
+  const viewDuringRunout = sanitizeTableForPlayer(table, 'p1');
+  assert.equal(viewDuringRunout.players.find((p) => p.id === 'p2')?.holeCards?.length, 2);
+
+  // Folded player p3 leaves the table mid-runout: p1 has 0 chips, p2 has 900 chips -> MUST NOT abort!
+  const leaverRemainingChips = table.players.find((p) => p.id === 'p3')!.chips; // 980
+  removePlayerFromTable(table, 'p3');
+  assert.equal(table.allInRunout, true);
+  assert.notEqual(table.phase, 'waiting');
+
+  // Finish runout to showdown
+  while (table.phase !== 'showdown') {
+    const step = advanceAllInRunoutStep(table, 2000);
+    assert.equal(step.ok, true);
+  }
+
+  // Total chips across remaining players + departed player's remaining stack must equal initial 2100
+  const remainingSum = table.players.reduce((s, p) => s + p.chips, 0);
+  assert.equal(remainingSum + leaverRemainingChips, 2100);
+});
+
+test('fold-win refunds uncalled excess shove so pot reflects true contested chips', () => {
+  const table = createTableState('ROOM_FOLD_EXCESS', 10, 20, 2000);
+  addPlayerToTable(table, { id: 'p1', name: 'Shover', chips: 2000 });
+  addPlayerToTable(table, { id: 'p2', name: 'Folder', chips: 2000 });
+
+  startNewHand(table, () => 0.4, 1000);
+  applyPlayerAction(table, 'p1', { type: 'raise', amount: 2000 }, 1100);
+  applyPlayerAction(table, 'p2', { type: 'fold' }, 1200);
+
+  assert.equal(table.phase, 'showdown');
+  assert.equal(table.winners.length, 1);
+  assert.equal(table.winners[0].amount, 40); // 20 matched by p1 + 20 from p2's BB
+  assert.equal(table.winners[0].netChange, 20);
+  assert.equal(table.pot, 40);
+  assert.equal(table.players.find((p) => p.id === 'p1')?.chips, 2020);
+  assert.equal(table.players.find((p) => p.id === 'p2')?.chips, 1980);
+});
+
+test('rebuyPlayerChips allows top-up below startingChips and mid-hand rebuy when busted/sat-out', () => {
+  const table = createTableState('ROOM_TOPUP', 10, 20, 2000);
+  addPlayerToTable(table, { id: 'p1', name: 'P1', chips: 1200 });
+  addPlayerToTable(table, { id: 'p2', name: 'P2', chips: 2000 });
+  addPlayerToTable(table, { id: 'p3', name: 'Busted', chips: 0 });
+
+  // Top-up between hands allowed when chips < startingChips
+  assert.equal(rebuyPlayerChips(table, 'p1'), true);
+  assert.equal(table.players.find((p) => p.id === 'p1')?.chips, 2000);
+
+  // Start hand with p1 & p2; p3 has 0 chips so p3 is not inHand -> p3 can rebuy mid-hand!
+  startNewHand(table, () => 0.4, 1000);
+  assert.equal(table.players.find((p) => p.id === 'p3')?.inHand, false);
+  assert.equal(rebuyPlayerChips(table, 'p3'), true);
+  assert.equal(table.players.find((p) => p.id === 'p3')?.chips, 2000);
+  // Active player p1 cannot rebuy mid-hand
+  assert.equal(rebuyPlayerChips(table, 'p1'), false);
+});
+
 
 
 
