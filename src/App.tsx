@@ -60,8 +60,25 @@ function getOrCreatePlayerId(): string {
   return id;
 }
 
+function getOrCreateSeatSecret(): string {
+  const key = 'velvet_holdem_seat_secret';
+  let secret = sessionStorage.getItem(key);
+  if (!secret) {
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      crypto.getRandomValues(bytes);
+      secret = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    } else {
+      secret = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
+    }
+    sessionStorage.setItem(key, secret);
+  }
+  return secret;
+}
+
 export default function App() {
   const [playerId] = useState<string>(() => getOrCreatePlayerId());
+  const [seatSecret] = useState<string>(() => getOrCreateSeatSecret());
   const [playerName, setPlayerName] = useState<string>(() => {
     return localStorage.getItem('velvet_holdem_name') ?? '';
   });
@@ -100,6 +117,7 @@ export default function App() {
   const [muted, setMuted] = useState(() => soundFx.isMuted());
   const [bgmEnabled, setBgmEnabled] = useState(() => soundFx.isBgmEnabled());
   const [webglFailed, setWebglFailed] = useState(false);
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('classic');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [lastNudge, setLastNudge] = useState<PlayerNudgeEvent | null>(null);
@@ -182,10 +200,19 @@ export default function App() {
     }
   }, []);
 
-  // Connect WebSocket with automatic reconnection
+  // Connect WebSocket with exponential backoff reconnection & 15s keepalive heartbeat
   useEffect(() => {
     let disposed = false;
     let reconnectTimer: number | null = null;
+    let heartbeatTimer: number | null = null;
+    let reconnectAttempt = 0;
+
+    const clearHeartbeat = () => {
+      if (heartbeatTimer !== null) {
+        window.clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    };
 
     const connect = () => {
       if (disposed) return;
@@ -193,13 +220,23 @@ export default function App() {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        reconnectAttempt = 0;
+        setWsStatus('connected');
         setErrorMsg(null);
+        clearHeartbeat();
+        heartbeatTimer = window.setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' } satisfies ClientWsMessage));
+          }
+        }, 15_000);
+
         if (joinedRoomRef.current) {
           ws.send(
             JSON.stringify({
               type: 'join_room',
               roomId: joinedRoomRef.current.roomId,
               playerId,
+              seatSecret,
               playerName: joinedRoomRef.current.name,
               avatar: joinedRoomRef.current.avatar,
             } satisfies ClientWsMessage)
@@ -255,8 +292,12 @@ export default function App() {
       };
 
       ws.onclose = () => {
+        clearHeartbeat();
         if (!disposed) {
-          reconnectTimer = window.setTimeout(connect, 1200);
+          setWsStatus('reconnecting');
+          const delayMs = Math.min(8000, 1000 * Math.pow(2, reconnectAttempt));
+          reconnectAttempt = Math.min(reconnectAttempt + 1, 4);
+          reconnectTimer = window.setTimeout(connect, delayMs);
         }
       };
     };
@@ -279,11 +320,12 @@ export default function App() {
 
     return () => {
       disposed = true;
+      clearHeartbeat();
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       wsRef.current?.close();
     };
-  }, [playerId]);
+  }, [playerId, seatSecret]);
 
   // Support ?autostart=1 for instant entry into table
   useEffect(() => {
@@ -299,11 +341,12 @@ export default function App() {
         type: 'join_room',
         roomId: room,
         playerId,
+        seatSecret,
         playerName: autoName,
         avatar: playerAvatar,
       });
     }
-  }, [playerId, playerName, playerAvatar, sendWs]);
+  }, [playerId, seatSecret, playerName, playerAvatar, sendWs]);
 
   // Trigger win fanfare on showdown transition and sync cloud profile stats
   useEffect(() => {
@@ -466,13 +509,14 @@ export default function App() {
         type: 'join_room',
         roomId: cleanRoom,
         playerId,
+        seatSecret,
         playerName: cleanName,
         avatar: cleanAvatar,
         achievements: profile?.achievements,
         achievementDates: profile?.achievementDates,
       });
     },
-    [playerId, sendWs, profile, updatePreferences]
+    [playerId, seatSecret, sendWs, profile, updatePreferences]
   );
 
   const handleCreateRoom = useCallback(
@@ -486,7 +530,10 @@ export default function App() {
       try {
         const res = await fetch(getApiUrl('/api/rooms'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Player-Id': playerId,
+          },
           body: JSON.stringify(params),
         });
         const data = (await res.json()) as { room?: RoomSummary; error?: string };
@@ -507,25 +554,31 @@ export default function App() {
         return null;
       }
     },
-    []
+    [playerId]
   );
 
-  const handleDeleteRoom = useCallback(async (roomId: string) => {
-    try {
-      const res = await fetch(getApiUrl(`/api/rooms/${encodeURIComponent(roomId)}`), {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setErrorMsg(data.error ?? '删除牌桌失败');
-        return;
+  const handleDeleteRoom = useCallback(
+    async (roomId: string) => {
+      try {
+        const res = await fetch(getApiUrl(`/api/rooms/${encodeURIComponent(roomId)}`), {
+          method: 'DELETE',
+          headers: {
+            'X-Player-Id': playerId,
+          },
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setErrorMsg(data.error ?? '删除牌桌失败');
+          return;
+        }
+        setRooms((prev) => prev.filter((r) => r.roomId !== roomId));
+        setErrorMsg(null);
+      } catch {
+        setErrorMsg('删除牌桌失败，无法连接服务器');
       }
-      setRooms((prev) => prev.filter((r) => r.roomId !== roomId));
-      setErrorMsg(null);
-    } catch {
-      setErrorMsg('删除牌桌失败，无法连接服务器');
-    }
-  }, []);
+    },
+    [playerId]
+  );
 
   const handleLeaveRoom = useCallback(() => {
     joinedRoomRef.current = null;
@@ -640,6 +693,7 @@ export default function App() {
           muted={muted}
           bgmEnabled={bgmEnabled}
           isDesktop={use3D}
+          externalModalOpen={achievementsOpen || rankingsOpen}
           cameraPreset={cameraPreset}
           onToggleCameraPreset={handleToggleCameraPreset}
           onToggleMute={handleToggleMute}
@@ -697,6 +751,17 @@ export default function App() {
           >
             查看
           </button>
+        </div>
+      )}
+
+      {/* Subtle transient reconnecting banner when connection drops mid-table */}
+      {screen === 'playing' && wsStatus === 'reconnecting' && (
+        <div
+          role="status"
+          data-testid="ws-reconnecting-banner"
+          className="fixed top-14 left-1/2 z-50 -translate-x-1/2 rounded border border-[#D4A853]/50 bg-[#14110B]/95 px-3.5 py-1.5 text-xs font-medium text-[#F0DFB3] shadow-xl"
+        >
+          网络连接波动，正在自动重连牌桌…
         </div>
       )}
 

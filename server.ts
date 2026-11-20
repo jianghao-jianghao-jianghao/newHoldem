@@ -73,6 +73,7 @@ interface RoomContext {
   isDefault: boolean;
   state: TableState;
   chatHistory: ChatMessage[];
+  seatSecrets: Map<string, string>;
   botStats: Map<
     string,
     {
@@ -89,6 +90,7 @@ interface RoomContext {
 
 interface ClientSession {
   ws: WebSocket;
+  isAlive: boolean;
   roomId: string | null;
   playerId: string | null;
   lastChatAt: number;
@@ -140,6 +142,7 @@ function ensureDefaultClubRoom(): RoomContext {
       isDefault: true,
       state: createTableState('CLUB01', DEFAULT_SMALL_BLIND, DEFAULT_BIG_BLIND, STARTING_CHIPS),
       chatHistory: [],
+      seatSecrets: new Map(),
       botStats: new Map(),
       botTimer: null,
       allInTimer: null,
@@ -180,6 +183,7 @@ function createCustomRoom(params: {
     isDefault: id === 'CLUB01',
     state: createTableState(id, sb, bb, startingChips),
     chatHistory: [],
+    seatSecrets: new Map(),
     botStats: new Map(),
     botTimer: null,
     allInTimer: null,
@@ -193,6 +197,20 @@ function createCustomRoom(params: {
 function getOrCreateRoom(roomId: string): RoomContext {
   const id = normalizeRoomId(roomId) || 'CLUB01';
   return rooms.get(id) ?? createCustomRoom({ roomId: id });
+}
+
+function canRequesterDeleteRoom(
+  ctx: RoomContext,
+  requesterPlayerId: string | null | undefined
+): { ok: boolean; status?: number; error?: string } {
+  if (ctx.isDefault || ctx.state.roomId === 'CLUB01') {
+    return { ok: false, status: 403, error: '默认俱乐部大厅桌不可删除' };
+  }
+  const hasActiveHumans = ctx.state.players.some((p) => !p.isBot && p.connected);
+  if (hasActiveHumans && ctx.state.hostId && requesterPlayerId !== ctx.state.hostId) {
+    return { ok: false, status: 403, error: '仅房主或空桌时可删除牌桌' };
+  }
+  return { ok: true };
 }
 
 function deleteRoomById(roomId: string): { ok: boolean; error?: string } {
@@ -536,6 +554,7 @@ function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean
 
   if (immediate) {
     removePlayerFromTable(ctx.state, playerId);
+    ctx.seatSecrets.delete(playerId);
     // Keep created rooms alive in lobby so players can re-enter or explicitly delete them
     if (ctx.state.players.every((p) => p.isBot)) {
       if (ctx.botTimer) clearTimeout(ctx.botTimer);
@@ -561,6 +580,7 @@ function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean
       );
       if (stillDisconnected) {
         removePlayerFromTable(ctx.state, playerId);
+        ctx.seatSecrets.delete(playerId);
         broadcastRoomState(ctx);
         broadcastRoomsList();
       }
@@ -576,7 +596,7 @@ async function startServer() {
   app.use((_req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Player-Id');
     if (_req.method === 'OPTIONS') {
       res.sendStatus(204);
       return;
@@ -698,9 +718,26 @@ async function startServer() {
   });
 
   app.delete('/api/rooms/:roomId', (req, res) => {
-    const result = deleteRoomById(req.params.roomId);
+    const id = normalizeRoomId(req.params.roomId);
+    const ctx = rooms.get(id);
+    if (!ctx) {
+      res.status(404).json({ error: '牌桌不存在或已被删除' });
+      return;
+    }
+    const requesterId =
+      typeof req.headers['x-player-id'] === 'string'
+        ? req.headers['x-player-id'].trim()
+        : typeof req.query.playerId === 'string'
+          ? req.query.playerId.trim()
+          : null;
+    const authCheck = canRequesterDeleteRoom(ctx, requesterId);
+    if (!authCheck.ok) {
+      res.status(authCheck.status ?? 403).json({ error: authCheck.error });
+      return;
+    }
+    const result = deleteRoomById(id);
     if (!result.ok) {
-      res.status(404).json({ error: result.error });
+      res.status(400).json({ error: result.error });
       return;
     }
     res.json({ ok: true });
@@ -727,6 +764,7 @@ async function startServer() {
   wss.on('connection', (ws) => {
     const session: ClientSession = {
       ws,
+      isAlive: true,
       roomId: null,
       playerId: null,
       lastChatAt: 0,
@@ -734,10 +772,15 @@ async function startServer() {
     };
     sessions.set(ws, session);
 
+    ws.on('pong', () => {
+      session.isAlive = true;
+    });
+
     sendJson(ws, { type: 'rooms_update', rooms: getRoomSummaries() });
     sendJson(ws, { type: 'leaderboard_update', entries: leaderboard.getRankedList(30) });
 
     ws.on('message', (raw) => {
+      session.isAlive = true;
       try {
         let msg: ClientWsMessage;
         try {
@@ -776,16 +819,16 @@ async function startServer() {
           }
           const targetId = normalizeRoomId(msg.roomId);
           const targetCtx = rooms.get(targetId);
-          if (
-            targetCtx &&
-            targetCtx.state.hostId &&
-            targetCtx.state.players.some((p) => !p.isBot && p.connected) &&
-            session.playerId !== targetCtx.state.hostId
-          ) {
-            sendJson(ws, { type: 'error', message: '仅房主或空桌时可删除牌桌' });
+          if (!targetCtx) {
+            sendJson(ws, { type: 'error', message: '牌桌不存在或已被删除' });
             return;
           }
-          const result = deleteRoomById(msg.roomId);
+          const authCheck = canRequesterDeleteRoom(targetCtx, session.playerId);
+          if (!authCheck.ok) {
+            sendJson(ws, { type: 'error', message: authCheck.error ?? '无权删除牌桌' });
+            return;
+          }
+          const result = deleteRoomById(targetId);
           if (!result.ok) {
             sendJson(ws, { type: 'error', message: result.error ?? '删除牌桌失败' });
           }
@@ -803,20 +846,62 @@ async function startServer() {
             sendJson(ws, { type: 'error', message: '请输入有效的玩家昵称' });
             return;
           }
+          // Block impersonating AI bot seats via reserved bot_ prefix
+          if (cleanId.startsWith('bot_')) {
+            sendJson(ws, { type: 'error', message: '无效的玩家身份标识' });
+            return;
+          }
 
           const targetRoomId =
             normalizeRoomId(typeof msg.roomId === 'string' ? msg.roomId : 'CLUB01') || 'CLUB01';
+          const ctx = getOrCreateRoom(targetRoomId);
+          const existingPlayer = ctx.state.players.find((p) => p.id === cleanId);
 
-          // Prevent active-seat hijacking by another concurrent WebSocket connection
-          for (const other of sessions.values()) {
-            if (
-              other !== session &&
-              other.ws.readyState === WebSocket.OPEN &&
-              other.roomId === targetRoomId &&
-              other.playerId === cleanId
-            ) {
-              sendJson(ws, { type: 'error', message: '该玩家已在牌桌在线，请勿重复登录' });
+          if (existingPlayer?.isBot) {
+            sendJson(ws, { type: 'error', message: '不可接管陪练 AI 座位' });
+            return;
+          }
+
+          const incomingSecret =
+            typeof msg.seatSecret === 'string' ? msg.seatSecret.trim().slice(0, 64) : '';
+          const storedSecret = ctx.seatSecrets.get(cleanId);
+
+          if (existingPlayer) {
+            // Verify seat ownership across both live sessions and the 15s disconnect grace window
+            if (storedSecret && incomingSecret !== storedSecret) {
+              sendJson(ws, { type: 'error', message: '该座位已被其他会话占用' });
               return;
+            }
+            if (!storedSecret) {
+              // Legacy client without seatSecret: reject if another open socket holds this seat
+              for (const other of sessions.values()) {
+                if (
+                  other !== session &&
+                  other.ws.readyState === WebSocket.OPEN &&
+                  other.roomId === targetRoomId &&
+                  other.playerId === cleanId
+                ) {
+                  sendJson(ws, { type: 'error', message: '该玩家已在牌桌在线，请勿重复登录' });
+                  return;
+                }
+              }
+            } else {
+              // Legitimate owner reconnecting: cleanly detach any stale/zombie socket so user never self-locks
+              for (const other of sessions.values()) {
+                if (
+                  other !== session &&
+                  other.roomId === targetRoomId &&
+                  other.playerId === cleanId
+                ) {
+                  other.roomId = null;
+                  other.playerId = null;
+                  try {
+                    other.ws.terminate();
+                  } catch {
+                    // Ignore already-closed zombie socket
+                  }
+                }
+              }
             }
           }
 
@@ -831,7 +916,6 @@ async function startServer() {
             disconnectTimers.delete(key);
           }
 
-          const ctx = getOrCreateRoom(targetRoomId);
           const profile = leaderboard.getPlayerProfile(cleanName);
           const clientAch = sanitizeAchievementIds(msg.achievements);
           const clientDates = sanitizeAchievementDates(msg.achievementDates);
@@ -855,6 +939,10 @@ async function startServer() {
           if (!res.ok) {
             sendJson(ws, { type: 'error', message: res.error ?? '无法加入牌桌' });
             return;
+          }
+
+          if (incomingSecret && !ctx.seatSecrets.has(cleanId)) {
+            ctx.seatSecrets.set(cleanId, incomingSecret);
           }
 
           session.roomId = targetRoomId;
@@ -1073,6 +1161,28 @@ async function startServer() {
       cleanupPlayerFromCurrentRoom(session, false);
     });
   });
+
+  // WebSocket heartbeat to terminate half-open/zombie sockets cleanly
+  setInterval(() => {
+    for (const [ws, session] of sessions.entries()) {
+      if (!session.isAlive) {
+        try {
+          ws.terminate();
+        } catch {
+          // Ignore already closed
+        }
+        continue;
+      }
+      session.isAlive = false;
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.ping();
+        } catch {
+          // Ignore ping error
+        }
+      }
+    }
+  }, 15_000);
 
   // Turn timeout watchdog (every 1s)
   setInterval(() => {

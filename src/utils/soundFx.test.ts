@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CHIP_DENOM_AUDIO_LIBRARY,
   classifyChipBetWeight,
+  computeChipImpactOffsets,
   decomposeChipBetAudio,
 } from './soundFx';
 
@@ -48,3 +49,16 @@ test('decomposeChipBetAudio decomposes bet sizes into high-to-low denominations 
   assert.ok(massiveAllIn.includes(500));
   assert.ok(massiveAllIn.length >= 5);
 });
+
+test('computeChipImpactOffsets is strictly monotonically increasing across all-in cascades', () => {
+  const offsets = computeChipImpactOffsets(8, 0.036, true);
+  assert.equal(offsets.length, 8);
+  assert.equal(offsets[0], 0);
+  for (let i = 1; i < offsets.length; i++) {
+    assert.ok(
+      offsets[i] > offsets[i - 1],
+      `Expected offset[${i}] (${offsets[i]}) > offset[${i - 1}] (${offsets[i - 1]})`
+    );
+  }
+});
+

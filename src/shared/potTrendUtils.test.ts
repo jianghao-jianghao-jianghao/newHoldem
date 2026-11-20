@@ -144,3 +144,67 @@ test('buildStreetPotTrend leaves future streets as null when still on flop', () 
   assert.equal(summary.points[3].pot, null);
   assert.equal(summary.points[3].streetAddedPlot, null);
 });
+
+test('buildStreetPotTrend nets out uncalled refund points so street pot matches contested table pot', () => {
+  const timeline: PotTimelinePoint[] = [
+    {
+      step: 1,
+      street: 'preflop',
+      actorId: 'p1',
+      actorName: '林深',
+      actionType: 'blind',
+      actionLabel: '小盲 10',
+      amountAdded: 10,
+      potAfter: 10,
+      timestamp: 1000,
+    },
+    {
+      step: 2,
+      street: 'preflop',
+      actorId: 'p2',
+      actorName: '陈默',
+      actionType: 'blind',
+      actionLabel: '大盲 20',
+      amountAdded: 20,
+      potAfter: 30,
+      timestamp: 1001,
+    },
+    {
+      step: 3,
+      street: 'preflop',
+      actorId: 'p1',
+      actorName: '林深',
+      actionType: 'allin',
+      actionLabel: '全下 2000',
+      amountAdded: 1990,
+      potAfter: 2020,
+      timestamp: 1002,
+    },
+    {
+      step: 4,
+      street: 'preflop',
+      actorId: 'p1',
+      actorName: '林深',
+      actionType: 'refund',
+      actionLabel: '退还无人跟注筹码 1980',
+      amountAdded: -1980,
+      potAfter: 40,
+      timestamp: 1003,
+    },
+  ];
+
+  const summary = buildStreetPotTrend({
+    currentHandNumber: 2,
+    currentPhase: 'showdown',
+    currentPot: 40,
+    currentCommunityCardCount: 0,
+    currentPotTimeline: timeline,
+    handHistory: [],
+  });
+
+  assert.equal(summary.totalPot, 40);
+  assert.equal(summary.points[0].pot, 40);
+  assert.equal(summary.points[0].streetAdded, 40);
+  assert.equal(summary.points[0].actionCount, 3);
+});
+

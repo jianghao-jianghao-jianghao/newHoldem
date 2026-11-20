@@ -512,7 +512,7 @@ test('mid-hand leave during active all-in does not abort hand and strictly conse
   assert.equal(remainingSum + leaverRemainingChips, 2100);
 });
 
-test('fold-win refunds uncalled excess shove so pot reflects true contested chips', () => {
+test('fold-win refunds uncalled excess shove, clears allIn flag, and logs refund in pot timeline', () => {
   const table = createTableState('ROOM_FOLD_EXCESS', 10, 20, 2000);
   addPlayerToTable(table, { id: 'p1', name: 'Shover', chips: 2000 });
   addPlayerToTable(table, { id: 'p2', name: 'Folder', chips: 2000 });
@@ -526,8 +526,15 @@ test('fold-win refunds uncalled excess shove so pot reflects true contested chip
   assert.equal(table.winners[0].amount, 40); // 20 matched by p1 + 20 from p2's BB
   assert.equal(table.winners[0].netChange, 20);
   assert.equal(table.pot, 40);
-  assert.equal(table.players.find((p) => p.id === 'p1')?.chips, 2020);
+  const shover = table.players.find((p) => p.id === 'p1')!;
+  assert.equal(shover.chips, 2020);
+  assert.equal(shover.allIn, false);
   assert.equal(table.players.find((p) => p.id === 'p2')?.chips, 1980);
+
+  const lastTimelinePt = table.currentPotTimeline[table.currentPotTimeline.length - 1];
+  assert.equal(lastTimelinePt?.actionType, 'refund');
+  assert.equal(lastTimelinePt?.amountAdded, -1980);
+  assert.equal(lastTimelinePt?.potAfter, 40);
 });
 
 test('rebuyPlayerChips allows top-up below startingChips and mid-hand rebuy when busted/sat-out', () => {

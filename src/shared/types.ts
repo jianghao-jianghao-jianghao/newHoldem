@@ -312,15 +312,16 @@ export interface PlayerNudgeEvent {
 
 // WebSocket protocol messages
 export type ClientWsMessage =
-  | {
-      type: 'join_room';
-      roomId: string;
-      playerId: string;
-      playerName: string;
-      avatar?: string;
-      achievements?: AchievementId[];
-      achievementDates?: AchievementDatesMap;
-    }
+    | {
+        type: 'join_room';
+        roomId: string;
+        playerId: string;
+        playerName: string;
+        seatSecret?: string;
+        avatar?: string;
+        achievements?: AchievementId[];
+        achievementDates?: AchievementDatesMap;
+      }
   | {
       type: 'create_room';
       tableName?: string;

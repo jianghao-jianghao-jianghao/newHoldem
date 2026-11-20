@@ -267,6 +267,36 @@ export function decomposeChipBetAudio(
   return picked;
 }
 
+/**
+ * Computes strictly monotonic relative chip impact timestamps (seconds)
+ * so accelerated all-in cascades never jump backward or double-hit.
+ */
+export function computeChipImpactOffsets(
+  count: number,
+  spacingSec: number,
+  isAllIn: boolean
+): number[] {
+  const offsets: number[] = [];
+  let acc = 0;
+  for (let idx = 0; idx < count; idx++) {
+    if (idx > 0) {
+      const step = isAllIn && idx > 3 ? spacingSec * 0.78 : spacingSec;
+      acc += step;
+    }
+    offsets.push(acc);
+  }
+  return offsets;
+}
+
+function safeReadStorage(key: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 class SoundFx {
   private ctx: AudioContext | null = null;
   private noiseBuffer: AudioBuffer | null = null;
@@ -274,12 +304,8 @@ class SoundFx {
   private bgmGain: GainNode | null = null;
   private bgmFilter: BiquadFilterNode | null = null;
 
-  private muted =
-    typeof window !== 'undefined' && window.localStorage.getItem('velvet_sfx_muted') === '1';
-  private bgmEnabled =
-    typeof window !== 'undefined'
-      ? window.localStorage.getItem('velvet_bgm_enabled') !== '0'
-      : true;
+  private muted = safeReadStorage('velvet_sfx_muted') === '1';
+  private bgmEnabled = safeReadStorage('velvet_bgm_enabled') !== '0';
   private userInteracted = false;
   private bgmStarted = false;
   private bgmTimer: number | null = null;
@@ -377,7 +403,8 @@ class SoundFx {
         // Ignore storage errors
       }
     }
-    if (!this.userInteracted && !enabled) return;
+    // Never create an AudioContext before the first user gesture
+    if (!this.userInteracted) return;
     this.initAudioGraph();
     this.startOrFadeBgm(enabled && !this.muted);
   }
@@ -692,17 +719,17 @@ class SoundFx {
       this.triggerFeltSlide(ctx, this.sfxGain, slideStart, slideDur, tierCfg.slideVol);
     }
 
-    // 2. Staggered denomination-specific chip collisions
+    // 2. Staggered denomination-specific chip collisions (strictly monotonic offsets)
+    const impactOffsets = computeChipImpactOffsets(
+      denoms.length,
+      tierCfg.spacingSec,
+      params.actionKind === 'allin'
+    );
     let lastImpactTime = baseTime;
     denoms.forEach((denom, idx) => {
-      // Slight natural acceleration into the stack impact for All-in pushes
-      const jitter = (Math.random() - 0.5) * 0.007;
-      const spacing =
-        params.actionKind === 'allin' && idx > 3
-          ? tierCfg.spacingSec * 0.78
-          : tierCfg.spacingSec;
-      const t = Math.max(ctx.currentTime, baseTime + idx * spacing + jitter);
-      lastImpactTime = t;
+      const jitter = (Math.random() - 0.5) * 0.004;
+      const t = Math.max(ctx.currentTime, baseTime + impactOffsets[idx] + jitter);
+      lastImpactTime = Math.max(lastImpactTime, t);
 
       // Accent the lead chip and final anchor chip slightly
       const contour = idx === 0 ? 1.06 : idx === denoms.length - 1 ? 1.08 : 0.94;

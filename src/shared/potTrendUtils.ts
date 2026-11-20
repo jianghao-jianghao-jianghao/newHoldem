@@ -166,16 +166,20 @@ export function buildStreetPotTrend(params: {
       };
     }
 
-    const streetAdded = streetEvents.reduce((sum, pt) => sum + pt.amountAdded, 0);
+    const streetAdded = Math.max(
+      0,
+      streetEvents.reduce((sum, pt) => sum + pt.amountAdded, 0)
+    );
     if (streetEvents.length > 0) {
       runningPot = streetEvents[streetEvents.length - 1].potAfter;
     } else if (idx === 0 && runningPot === 0 && effectivePot > 0) {
       runningPot = effectivePot;
     }
 
-    // Highlight the largest betting action in this street (prefer non-blind if available)
-    const nonBlindEvents = streetEvents.filter((e) => e.actionType !== 'blind');
-    const highlightPool = nonBlindEvents.length > 0 ? nonBlindEvents : streetEvents;
+    // Highlight the largest betting action in this street (prefer non-blind, exclude refund entries)
+    const bettingEvents = streetEvents.filter((e) => e.actionType !== 'refund');
+    const nonBlindEvents = bettingEvents.filter((e) => e.actionType !== 'blind');
+    const highlightPool = nonBlindEvents.length > 0 ? nonBlindEvents : bettingEvents;
     let topEvent: PotTimelinePoint | null = null;
     for (const ev of highlightPool) {
       if (!topEvent || ev.amountAdded >= topEvent.amountAdded) {
@@ -202,14 +206,14 @@ export function buildStreetPotTrend(params: {
       pot: runningPot,
       streetAdded,
       streetAddedPlot: streetAdded,
-      actionCount: streetEvents.length,
+      actionCount: bettingEvents.length,
       highlightAction,
       reached: true,
       isCurrent,
     };
   });
 
-  const finalPot = Math.max(runningPot, effectivePot);
+  const finalPot = effectivePot > 0 ? effectivePot : runningPot;
   return {
     handNumber: effectiveHandNumber,
     isLiveHand: hasLiveData && currentPhase !== 'showdown',

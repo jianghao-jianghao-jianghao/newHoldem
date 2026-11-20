@@ -48,6 +48,7 @@ interface PokerTableProps {
   muted: boolean;
   bgmEnabled: boolean;
   isDesktop?: boolean;
+  externalModalOpen?: boolean;
   cameraPreset: CameraPreset;
   onToggleCameraPreset: () => void;
   onToggleMute: () => void;
@@ -90,6 +91,7 @@ export function PokerTable({
   muted,
   bgmEnabled,
   isDesktop = true,
+  externalModalOpen = false,
   cameraPreset,
   onToggleCameraPreset,
   onToggleMute,
@@ -308,12 +310,14 @@ export function PokerTable({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (externalModalOpen || blindModalOpen) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
           target.isContentEditable)
       ) {
         return;
@@ -326,7 +330,7 @@ export function PokerTable({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [externalModalOpen, blindModalOpen]);
 
   const activeBubbles = useMemo(
     () => getActiveBubbleMap(chatMessages, chatNow, CHAT_BUBBLE_TTL_MS),
@@ -360,11 +364,14 @@ export function PokerTable({
     (p) => p.id === table.currentTurnPlayerId
   );
 
+  const isHost = !table.hostId || table.hostId === myPlayerId;
+
   const canStart =
     (table.phase === 'waiting' || table.phase === 'showdown') &&
-    table.players.filter((p) => p.chips > 0).length >= 2;
+    table.players.filter((p) => p.chips > 0 || p.isBot).length >= 2;
 
   const canAddBot =
+    isHost &&
     (table.phase === 'waiting' || table.phase === 'showdown') &&
     table.players.length < 22;
 
@@ -383,7 +390,7 @@ export function PokerTable({
     selfPlayer!.chips < table.startingChips &&
     isSelfIdleForRebuy;
 
-  const canRemoveBots = table.phase === 'waiting' || table.phase === 'showdown';
+  const canRemoveBots = isHost && (table.phase === 'waiting' || table.phase === 'showdown');
   const compactOpponents = opponents.length >= 4;
   const usePreviewBlinds = table.phase === 'waiting';
   const displayDealerSeat = usePreviewBlinds
@@ -469,24 +476,39 @@ export function PokerTable({
               {table.roomId}
             </span>
             <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
-            <button
-              type="button"
-              data-testid="open-blind-settings-btn"
-              onClick={() => setBlindModalOpen(true)}
-              title="设置大小盲注与盲位"
-              className="touch-manipulation inline-flex h-7 items-center gap-1.5 rounded bg-white/[0.04] px-2 font-mono-num text-[11px] sm:text-xs font-medium text-[#DCE2DF] hover:bg-white/[0.09] hover:text-[#F0DFB3] transition-colors whitespace-nowrap shrink-0"
-            >
-              <SlidersHorizontal className="h-3 w-3 text-[#C8A153] shrink-0" aria-hidden="true" />
-              <span>
-                <span className="hidden sm:inline text-[#9AA5A0]">盲注 </span>
-                {table.smallBlind}/{table.bigBlind}
-              </span>
-              {table.pendingBlinds && (
-                <span className="text-[10px] text-[#8CC9AA]">
-                  → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
+            {isHost ? (
+              <button
+                type="button"
+                data-testid="open-blind-settings-btn"
+                onClick={() => setBlindModalOpen(true)}
+                title="设置大小盲注与盲位（房主）"
+                className="touch-manipulation inline-flex h-7 items-center gap-1.5 rounded bg-white/[0.04] px-2 font-mono-num text-[11px] sm:text-xs font-medium text-[#DCE2DF] hover:bg-white/[0.09] hover:text-[#F0DFB3] transition-colors whitespace-nowrap shrink-0"
+              >
+                <SlidersHorizontal className="h-3 w-3 text-[#C8A153] shrink-0" aria-hidden="true" />
+                <span>
+                  <span className="hidden sm:inline text-[#9AA5A0]">盲注 </span>
+                  {table.smallBlind}/{table.bigBlind}
                 </span>
-              )}
-            </button>
+                {table.pendingBlinds && (
+                  <span className="text-[10px] text-[#8CC9AA]">
+                    → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <span
+                title="仅房主可调整盲注"
+                className="inline-flex h-7 items-center gap-1 rounded bg-white/[0.03] px-2 font-mono-num text-[11px] sm:text-xs font-medium text-[#B8C2BD] whitespace-nowrap shrink-0"
+              >
+                <span className="hidden sm:inline text-[#85908B]">盲注</span>
+                <span>{table.smallBlind}/{table.bigBlind}</span>
+                {table.pendingBlinds && (
+                  <span className="text-[10px] text-[#8CC9AA]">
+                    → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
+                  </span>
+                )}
+              </span>
+            )}
             <span aria-hidden="true" className="text-white/15 hidden md:inline">·</span>
             <span className="font-mono-num text-xs text-[#8A948F] whitespace-nowrap hidden md:inline">
               初始 {table.startingChips.toLocaleString()}
@@ -996,7 +1018,9 @@ export function PokerTable({
             myCurrentBet={selfPlayer?.currentBet ?? 0}
             handEvaluationName={table.myHandEvaluation?.categoryName ?? null}
             statusMessage={statusText}
-            hotkeysDisabled={chatOpen || quickEmojiOpen || blindModalOpen || analyticsOpen}
+            hotkeysDisabled={
+              externalModalOpen || chatOpen || quickEmojiOpen || blindModalOpen || analyticsOpen
+            }
             onAction={onAction}
           />
         </section>

@@ -54,6 +54,14 @@ export function ActionDock({
       }
 
       const key = e.key.toLowerCase();
+      if (
+        key === ' ' &&
+        target &&
+        target.closest('button, a, [role="button"], [role="menuitem"], summary')
+      ) {
+        return;
+      }
+
       if (key === 'f' && available.canFold) {
         e.preventDefault();
         onAction({ type: 'fold' });

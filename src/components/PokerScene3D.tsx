@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Component, type ReactNode, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -209,7 +209,27 @@ function getCameraGoal(
   };
 }
 
-export function PokerScene3D({
+class WebGLErrorBoundary extends Component<
+  { onError?: () => void; children: ReactNode },
+  { hasError: boolean }
+> {
+  public state = { hasError: false };
+
+  public static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  public componentDidCatch(): void {
+    this.props.onError?.();
+  }
+
+  public render(): ReactNode {
+    if (this.state.hasError) return null;
+    return this.props.children;
+  }
+}
+
+function PokerScene3DInner({
   table,
   myPlayerId,
   cameraPreset = 'classic',
@@ -291,6 +311,22 @@ export function PokerScene3D({
 
     container.appendChild(renderer.domElement);
 
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x090b0c);
+    scene.fog = new THREE.FogExp2(0x090b0c, 0.042);
+
+    const buildEnvTarget = () => {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const roomEnv = new RoomEnvironment();
+      const target = pmrem.fromScene(roomEnv, 0.04);
+      roomEnv.dispose();
+      pmrem.dispose();
+      return target;
+    };
+
+    let envTarget = buildEnvTarget();
+    scene.environment = envTarget.texture;
+
     let resumeLoopFn: (() => void) | null = null;
     const onContextLost = (e: Event) => {
       e.preventDefault();
@@ -300,22 +336,18 @@ export function PokerScene3D({
     const onContextRestored = () => {
       contextLostRef.current = false;
       setContextLost(false);
+      try {
+        envTarget.dispose();
+        envTarget = buildEnvTarget();
+        scene.environment = envTarget.texture;
+      } catch {
+        // Ignore if GPU context immediately drops again
+      }
       renderer.shadowMap.needsUpdate = true;
       resumeLoopFn?.();
     };
     renderer.domElement.addEventListener('webglcontextlost', onContextLost);
     renderer.domElement.addEventListener('webglcontextrestored', onContextRestored);
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x090b0c);
-    scene.fog = new THREE.FogExp2(0x090b0c, 0.042);
-
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const roomEnv = new RoomEnvironment();
-    const envTarget = pmrem.fromScene(roomEnv, 0.04);
-    roomEnv.dispose();
-    scene.environment = envTarget.texture;
-    pmrem.dispose();
 
     const initGoal = getCameraGoal(
       propsRef.current.cameraPreset,
@@ -1625,5 +1657,13 @@ export function PokerScene3D({
         </div>
       )}
     </div>
+  );
+}
+
+export function PokerScene3D(props: PokerScene3DProps) {
+  return (
+    <WebGLErrorBoundary onError={props.onWebGlUnavailable}>
+      <PokerScene3DInner {...props} />
+    </WebGLErrorBoundary>
   );
 }

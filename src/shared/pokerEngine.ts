@@ -1180,6 +1180,25 @@ function resolveFoldWin(state: TableState, now: number = Date.now()): void {
     winner.chips += uncalledExcess;
     winner.totalContributed = Math.max(0, winner.totalContributed - uncalledExcess);
     state.pot = Math.max(0, state.pot - uncalledExcess);
+    // Uncalled shove is NOT a contested all-in (prevents free all-in achievement farming)
+    if (winner.chips > 0) {
+      winner.allIn = false;
+    }
+    const refundStreet =
+      state.currentPotTimeline.length > 0
+        ? state.currentPotTimeline[state.currentPotTimeline.length - 1].street
+        : 'preflop';
+    state.currentPotTimeline.push({
+      step: state.currentPotTimeline.length + 1,
+      street: refundStreet,
+      actorId: winner.id,
+      actorName: winner.name,
+      actionType: 'refund',
+      actionLabel: `退回超额 ${uncalledExcess}`,
+      amountAdded: -uncalledExcess,
+      potAfter: state.pot,
+      timestamp: now,
+    });
   }
 
   const totalPot = state.pot;
@@ -1269,6 +1288,24 @@ function resolveShowdown(state: TableState, now: number = Date.now()): void {
       refundedPlayer.chips += sliceAmount;
       refundedPlayer.totalContributed = Math.max(0, refundedPlayer.totalContributed - sliceAmount);
       state.pot = Math.max(0, state.pot - sliceAmount);
+      if (refundedPlayer.chips > 0) {
+        refundedPlayer.allIn = false;
+      }
+      const refundStreet =
+        state.currentPotTimeline.length > 0
+          ? state.currentPotTimeline[state.currentPotTimeline.length - 1].street
+          : 'river';
+      state.currentPotTimeline.push({
+        step: state.currentPotTimeline.length + 1,
+        street: refundStreet,
+        actorId: refundedPlayer.id,
+        actorName: refundedPlayer.name,
+        actionType: 'refund',
+        actionLabel: `退回超额 ${sliceAmount}`,
+        amountAdded: -sliceAmount,
+        potAfter: state.pot,
+        timestamp: now,
+      });
       pushLog(state, `${refundedPlayer.name} 退回未被跟注筹码 ${sliceAmount}`);
       continue;
     }
