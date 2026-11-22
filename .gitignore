@@ -7,4 +7,8 @@ coverage/
 .env*
 !.env.example
 data/
+*.mp4
+*.mov
+promo-video/
+newHoldem/
 
