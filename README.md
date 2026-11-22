@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="docs/media/banner-poster.jpg" alt="Velvet Hold'em · 3D 实时多人德州扑克" width="100%" />
+  <a href="docs/media/promo.mp4">
+    <img src="docs/media/banner-poster.jpg" alt="Velvet Hold'em · 3D 实时多人德州扑克（点击观看宣传片）" width="100%" />
+  </a>
 </p>
 
 <div align="center">
@@ -7,16 +9,17 @@
 <h3>把私人德州俱乐部的克制质感，搬进浏览器</h3>
 
 <p>
-  3D 丝绒牌桌 · WSOP / TDA 严谨结算 · GTO v2 陪练引擎 · SQLite 持久化 · 邮箱验证码与游客免登录并行 · Docker 一键部署
+  3D 丝绒牌桌 · WSOP / TDA 严谨结算 · GTO v2 陪练引擎 · Canvas 动态打击特效 · 30 枚荣誉与趣事勋章 · SQLite 持久化 · Docker 一键部署
 </p>
 
 <p>
-  <a href="#实机演示">实机演示</a> &nbsp;·&nbsp;
-  <a href="#核心亮点">核心亮点</a> &nbsp;·&nbsp;
-  <a href="#技术架构与安全特性">架构特性</a> &nbsp;·&nbsp;
-  <a href="#快捷键与手势">操作指南</a> &nbsp;·&nbsp;
-  <a href="#快速部署">快速部署</a> &nbsp;·&nbsp;
-  <a href="#免责与合规说明">合规说明</a>
+  <a href="#-宣传片">宣传片</a> &nbsp;·&nbsp;
+  <a href="#-一局完整流程">实机流程</a> &nbsp;·&nbsp;
+  <a href="#-核心亮点">核心亮点</a> &nbsp;·&nbsp;
+  <a href="#️-技术架构与安全特性">架构特性</a> &nbsp;·&nbsp;
+  <a href="#️-快捷键与手势">操作指南</a> &nbsp;·&nbsp;
+  <a href="#-快速部署">快速部署</a> &nbsp;·&nbsp;
+  <a href="#-免责与合规说明">合规说明</a>
 </p>
 
 <p>
@@ -33,52 +36,111 @@
 
 ---
 
-**Velvet Hold'em** 是一款面向亲友约局与个人 GTO 练牌打造的 3D 实时多人无上限德州扑克。没有花哨廉价的棋牌弹窗，也没有含糊其辞的简化规则——从高对比度原创宫廷牌面、全下与赢池时的 Canvas 动态打击特效、按面值合成的物理筹码声效，到内置 169 手牌矩阵与蒙特卡洛胜率估算的 **GTO v2 陪练引擎**、SQLite WAL 持久化与 Docker 生产化部署，每个细节都围绕「打开即入局，久玩不累眼」打磨。
-
-## 实机演示
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/media/demo-table.gif" alt="3D 发牌、推筹码与双视角平滑切换演示" width="100%" />
-      <br />
-      <strong>3D 发牌、筹码落池与双视角切换</strong><br />
-      <sub>翻牌入桌、筹码堆叠、经典与俯瞰视角一键平滑切换</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/media/demo-social.gif" alt="单击头像档案、双击轻敲提醒、AI 陪练回怼与实时数据抽屉演示" width="100%" />
-      <br />
-      <strong>头像档案 · 陪练互动 · 数据复盘</strong><br />
-      <sub>单击查看 VPIP 与勋章，双击提醒对手，陪练即时回话，侧栏展开底池曲线</sub>
-    </td>
-  </tr>
-</table>
+**Velvet Hold'em** 是一款面向亲友约局与个人 GTO 练牌打造的 3D 实时多人无上限德州扑克。没有花哨廉价的棋牌弹窗，也没有含糊其辞的简化规则——从高对比度原创宫廷牌面、全下与赢池时的 Canvas 动态打击特效、按面值合成的物理筹码声效，到内置 169 手牌矩阵与蒙特卡洛胜率估算的 **GTO v2 陪练引擎**、SQLite WAL 持久化与 Docker 生产化部署，每个细节都围绕「**打开即入局，久玩不累眼**」打磨。
 
 <p align="center">
-  <img src="docs/media/hero-table.png" alt="Velvet Hold'em 3D 丝绒牌桌主界面" width="100%" />
+  <img src="docs/media/hero-table.jpg" alt="Velvet Hold'em 3D 丝绒牌桌主界面" width="100%" />
   <br />
   <sub>桌面端 3D 绿绒实景牌桌 · 移动端或无 WebGL 环境自动无缝回退 2D 牌桌</sub>
 </p>
 
 ---
 
-## 核心亮点
+## 🎬 宣传片
 
-### 1. 私人俱乐部视觉与 Canvas 动态互动特效
+<table>
+  <tr>
+    <td width="58%" align="center">
+      <a href="docs/media/promo.mp4"><img src="docs/media/promo-preview.gif" alt="宣传片动态预览，点击观看完整版" width="100%" /></a>
+      <br />
+      <sub>▲ 宣传片动态速览（点击上方动图或右侧封面播放 1080p 含游戏原声完整版）</sub>
+    </td>
+    <td width="42%">
+      <a href="docs/media/promo.mp4"><img src="docs/media/promo-poster.jpg" alt="Three.js 宣传片开场封面" width="100%" /></a>
+      <p>约 65 秒实机宣传片（<b>Remotion + Three.js</b> 制作，保留实录<b>爵士 BGM 与物理筹码原声</b>）：</p>
+      <ol>
+        <li><b>Three.js 3D 开场</b>：筹码雨落桌与黑桃皇家同花顺翻牌</li>
+        <li><b>3D 浮空舞台</b>：牌室大厅 → 一键入座丝绒牌桌</li>
+        <li><b>实机高光</b>：双视角切换 · ALL-IN 打击光刃 · 全下摊牌 · 沙龙闲聊 · 五维复盘 · 30 枚勋章</li>
+      </ol>
+      <p>▶ <a href="docs/media/promo.mp4"><b>点击观看完整宣传片（docs/media/promo.mp4）</b></a></p>
+    </td>
+  </tr>
+</table>
 
-低饱和祖母绿绒面搭配胡桃木包边与黄铜饰钉，高对比度纸牌加深边缘投影，点数、花色与 `D / SB / BB` 盲位指示物一目了然。玩家触发**全押（All-in）**或**赢取底池**时，头像正上方实时呈现基于 Canvas 的动态互动气泡——金红强力打击光刃、双层冲击波与多面额立体筹码溅射，悬停头像还可触发实时粒子涟漪。
+---
+
+## 🃏 一局完整流程
+
+从进大厅到复盘，下面 6 段实录动图依次对应一局牌的完整过程：
 
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/media/camera-topdown.png" alt="俯瞰视角 3D 牌桌" width="100%" />
-      <br />
-      <strong>俯瞰全局视角</strong><br />
-      <sub>立体筹码柱、SB/BB/D 盲位指示物与桌面底池一目了然</sub>
+      <img src="docs/media/flow-join.gif" alt="牌室大厅一键入局" width="100%" /><br />
+      <strong>① 进大厅 · 一键入座</strong><br />
+      <sub>3D 牌室大厅展示在线牌桌，点「进入」平滑过渡到牌桌</sub>
     </td>
     <td width="50%" align="center">
-      <img src="docs/media/card-showcase.png" alt="定制双头宫廷人像与大小鬼牌面图鉴" width="100%" />
-      <br />
+      <img src="docs/media/flow-camera.gif" alt="经典与俯瞰视角平滑切换" width="100%" /><br />
+      <strong>② 双视角 · 随时切换</strong><br />
+      <sub>经典 45° 视角与俯瞰全局一键平滑过渡，筹码与盲注一目了然</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/media/flow-allin.gif" alt="全押打击特效与赢池结算" width="100%" /><br />
+      <strong>③ ALL-IN · 打击特效</strong><br />
+      <sub>全押触发金红光刃与筹码溅射，赢池飘字与成就即时解锁</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/media/flow-showdown.gif" alt="全员全下自动翻牌与摊牌结算" width="100%" /><br />
+      <strong>④ 全下摊牌 · 自动翻牌</strong><br />
+      <sub>全员全下后自动发完公共牌，亮牌比大小，边池精确清算</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/media/flow-chat.gif" alt="牌桌闲聊与 AI 陪练回话" width="100%" /><br />
+      <strong>⑤ 牌桌闲聊 · AI 陪练</strong><br />
+      <sub>表情与快捷短语一键发送，陪练会接梗，也会回怼</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/media/flow-analytics.gif" alt="牌局账簿与复盘抽屉" width="100%" /><br />
+      <strong>⑥ 牌局账簿 · 五维复盘</strong><br />
+      <sub>排行、筹码走势、分街底池、风格洞察、手牌回放五个面板</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
+## ✨ 核心亮点
+
+| | 亮点维度 | 具体实现与体验优势 |
+| :---: | :--- | :--- |
+| 🎨 | **私人俱乐部 3D 视觉** | 低饱和祖母绿绒面 + 胡桃木包边 + 黄铜饰钉，高对比度原创宫廷牌面，`D / SB / BB` 盲位指示物一眼可辨 |
+| 💥 | **Canvas 打击与筹码溅射** | 全押触发强力金红光刃与微震回弹，赢池绽放多面额立体筹码喷泉，悬停头像可触发实时粒子涟漪 |
+| 🔊 | **物理筹码声效 + 爵士 BGM** | 按筹码面值（5 / 25 / 100 / 500 / 1000+）实时合成不同质感的碰撞音，`M` 键一键静音控管音效与配乐 |
+| ⚖️ | **WSOP / TDA 严谨清算** | 密码学安全洗牌（`crypto.randomInt`）、多级边池、超额未跟注退还、死钱守恒、Rule 47，经 92 项单测校验 |
+| 🧠 | **GTO v2 陪练策略引擎** | 169 手牌 6-max / HU 翻前频率矩阵、≤15BB Nash 推/弃表、蒙特卡洛范围胜率、MDF、阻断牌与几何下注尺度 |
+| 📊 | **五维牌局账簿与复盘** | 局内排行、玩家筹码走势、分街底池折线图、牌风画像（VPIP / 胜率 / 摊牌胜率）与最近 20 手动作级回放 |
+| 🏅 | **30 枚勋章 + 动态段位光环** | 荣耀战绩 / 牌桌趣事 / 实战风格三类共 30 枚勋章（铜/银/金/传奇黑金），头像外圈随青铜 → 钻石段位实时流转 |
+| 🔐 | **双轨通行 + SQLite 持久化** | 游客免登录即开即玩 × 纯邮箱 6 位验证码登录同步档案；SQLite WAL 持久化账号、排行榜与脱敏手牌历史 |
+
+### 1. 私人俱乐部视觉 · 3D 丝绒牌桌与双视角
+
+牌桌、立体筹码堆叠与发牌动画均由 Three.js 实时渲染，翻牌、转牌、河牌依次平滑落桌。支持经典 45° 视角与俯瞰全局视角一键切换，原创对称双头 `J / Q / K` 宫廷牌面内置牌型大小速查图鉴。
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/media/topdown.jpg" alt="俯瞰视角 3D 牌桌" width="100%" /><br />
+      <strong>俯瞰全局视角</strong><br />
+      <sub>立体筹码柱、SB / BB / D 盲位指示物与赢池飘字一目了然</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/media/card-showcase.png" alt="定制双头宫廷人像与大小鬼牌面图鉴" width="100%" /><br />
       <strong>原创宫廷人像牌面图鉴</strong><br />
       <sub>对称双头 J / Q / K 宫廷插画与传统弄臣大小鬼，内置牌型大小速查</sub>
     </td>
@@ -87,7 +149,28 @@
 
 ---
 
-### 2. WSOP / TDA 严谨清算与 GTO v2 陪练引擎
+### 2. Canvas 动态打击特效 · 物理筹码声效
+
+玩家触发**全押（All-in）**或**赢取底池**时，头像正上方实时呈现基于 Canvas 的动态互动气泡——金红强力打击光刃、双层冲击波与多面额立体筹码溅射；每次下注均触发按面值建模的物理筹码碰撞声，赢池瞬间右上角同步弹出新解锁的成就勋章。
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/media/allin-burst.jpg" alt="ALL-IN 全押打击特效特写" width="100%" /><br />
+      <strong>ALL-IN 打击光刃特写</strong><br />
+      <sub>金红光刃 + 双层冲击波 + 立体筹码溅射，全押金额同步展示</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/media/win-achievement.jpg" alt="赢池结算与成就解锁通知" width="100%" /><br />
+      <strong>赢池飘字 · 成就即时解锁</strong><br />
+      <sub>结算飘字展示赢池金额，右上角实时弹出新解锁勋章横幅</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
+### 3. WSOP / TDA 严谨清算 · GTO v2 陪练引擎 · 沙龙闲聊
 
 - **严谨德州规则核心**：支持 2–10 人桌、密码学安全洗牌（`crypto.randomInt`）、多人全下多级边池清算、超额未跟注退还、中途离桌死钱守恒、短全下不重开加注（WSOP Rule 47）、局间补码与出局重买。
 - **GTO v2 陪练策略引擎**：内置 169 手牌 6-max / HU 翻前频率矩阵、≤15BB Nash 推/弃表、零分配 O(1) 7 张牌评估、蒙特卡洛范围加权胜率估算、最小防守频率（MDF）、河牌最优诈唬比、阻断牌（Blockers）与几何下注尺度，并提供多种风格陪练（含 `gto_pro` 平衡型大师）。
@@ -96,59 +179,63 @@
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/media/showdown.png" alt="摊牌结算、赢牌亮出与动态段位光环" width="100%" />
-      <br />
-      <strong>摊牌亮牌与动态段位光环</strong><br />
-      <sub>头像外围随排行榜段位实时流转青铜、白银、黄金、钻石光环</sub>
+      <img src="docs/media/showdown.jpg" alt="全下摊牌与边池结算" width="100%" /><br />
+      <strong>全下摊牌 · 边池清算与段位光环</strong><br />
+      <sub>全员全下后自动翻完公共牌，亮牌结算，头像外圈随段位流转光环</sub>
     </td>
     <td width="50%" align="center">
-      <img src="docs/media/chat.png" alt="精简牌桌闲聊与一键表情短语托盘" width="100%" />
-      <br />
+      <img src="docs/media/chat.jpg" alt="精简牌桌闲聊与一键表情短语托盘" width="100%" /><br />
       <strong>极简沙龙闲聊 · 表情与短语合一</strong><br />
-      <sub>左下角轻巧胶囊一键展开，精选牌桌表情与快捷短语合一，不遮挡牌面</sub>
+      <sub>左下角轻巧胶囊一键展开，聊天气泡同步出现在头像旁，不遮挡牌面</sub>
     </td>
   </tr>
 </table>
 
 ---
 
-### 3. 分街底池曲线、24 枚荣誉/趣事成就与物理筹码声效
+### 4. 五维牌局账簿与复盘 · 30 枚荣誉与趣事勋章
 
-右侧数据抽屉以折线图追踪当前牌局从**翻牌前 → 翻牌 → 转牌 → 河牌**的底池变化及多玩家筹码走势；牌桌上**单击任意头像**即可翻看实时盈亏、VPIP、摊牌胜率与已解锁勋章。成就馆收录 **24 枚** 荣誉与牌桌趣事勋章（包括「7-2 传说」「火箭坠毁」「空气赢家」「残血反杀」「天选倒霉蛋」「交完学费」等真实牌局彩蛋），每次下注均触发按面值（5 / 25 / 100 / 500 / 1000+）建模的物理筹码声效。
+点击顶栏「数据」展开右侧「牌局账簿与复盘」抽屉，五个面板完整记录当前房间从实时排行到每一手动作的细节：
+
+<p align="center">
+  <img src="docs/media/analytics-panels.jpg" alt="局内排行、筹码趋势、底池统计、风格洞察、手牌回放五个面板" width="100%" />
+  <br />
+  <sub>局内排行 · 玩家筹码走势 · 分街底池与历史底池规模 · 牌手风格与胜率分析（VPIP / 摊牌胜率） · 最近 20 手回放与动作时间线</sub>
+</p>
+
+牌桌上**单击任意头像**或顶栏「个人中心」即可查看生涯战绩、自定义俱乐部徽章/上传头像，以及按**荣耀战绩、牌桌趣事、实战风格**分类的 **30 枚**勋章（含「传奇 10-2」「天选倒霉蛋」「大滑头绝杀」「7-2 传说」「火箭坠毁」「空气赢家」「残血反杀」等真实牌局彩蛋）：
 
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/media/analytics.png" alt="分街底池折线图与玩家筹码走势" width="100%" />
-      <br />
-      <strong>分街底池折线图与筹码走势</strong><br />
-      <sub>实时记录各街底池增量、局内净胜榜、打法洞察与单手牌回放</sub>
+      <img src="docs/media/profile-achievements.jpg" alt="勋章陈列：传奇 10-2、天选倒霉蛋、大滑头绝杀" width="100%" /><br />
+      <strong>勋章陈列（30 枚四档稀有度）</strong><br />
+      <sub>铜章 / 银章 / 金章 / 传奇黑金四档，记录每枚勋章解锁时刻并支持佩戴</sub>
     </td>
     <td width="50%" align="center">
-      <img src="docs/media/profile.png" alt="单击头像弹出的玩家档案与成就勋章" width="100%" />
-      <br />
-      <strong>单击头像档案与 24 枚趣味成就</strong><br />
-      <sub>按荣耀战绩、牌桌趣事、实战风格分类浏览，记录每枚勋章解锁时刻</sub>
+      <img src="docs/media/profile-avatar.jpg" alt="形象设置：俱乐部徽章与自定义头像" width="100%" /><br />
+      <strong>形象设置与俱乐部徽章</strong><br />
+      <sub>内置 7 款俱乐部徽章并支持上传自定义头像，佩戴勋章同步展示于牌桌</sub>
     </td>
   </tr>
 </table>
 
 ---
 
-### 4. 游客免登录直玩 × 纯邮箱验证码个人中心
+### 5. 游客免登录直玩 × 纯邮箱验证码个人中心
 
-- **零门槛入局**：无需注册或登录，打开大厅即可一键加入牌桌、自定义盲注/初始筹码创建私人房间，或输入房号与好友约局。
-- **邮箱验证码账号体系**：点击右上角「登录」通过 6 位邮箱验证码（支持 SMTP / Resend 真实发信）验证身份后，即可解锁跨设备同步的个人中心——保存积分、净盈亏、胜率、连胜、等级头像与成就勋章；登录前以游客身份获得的本地成就也会自动合并入账号。
+- **零门槛入局**：无需注册或登录，打开 3D 牌室大厅即可一键加入牌桌、自定义盲注/初始筹码创建私人房间，或输入房号与好友约局。
+- **邮箱验证码账号体系**：点击右上角通过 6 位邮箱验证码（支持 SMTP / Resend 真实发信）验证身份后，即可解锁跨设备同步的个人中心——保存积分、净盈亏、胜率、连胜、等级头像与成就勋章；登录前以游客身份获得的本地成就也会自动合并入账号。
 
 <p align="center">
-  <img src="docs/media/lobby.png" alt="牌室大厅、多房间盲注配置与入座登记" width="84%" />
+  <img src="docs/media/lobby.jpg" alt="3D 牌室大厅、多房间盲注配置与入座登记" width="92%" />
   <br />
-  <sub>牌室大厅 · 自动生成房号 · 自定义盲注与初始筹码深度 · 游客直玩与邮箱验证码登录并行</sub>
+  <sub>3D 牌室大厅 · 自动生成房号 · 自定义盲注与初始筹码深度 · 游客直玩与邮箱验证码登录并行</sub>
 </p>
 
 ---
 
-## 技术架构与安全特性
+## 🏗️ 技术架构与安全特性
 
 | 模块 | 实现细节 |
 | :--- | :--- |
@@ -181,6 +268,7 @@
 │   ├── components/            # 大厅、3D/2D 牌桌、个人中心、邮箱登录弹窗与数据抽屉
 │   ├── three/                 # Three.js 丝绒牌桌、筹码与镜头动画
 │   └── utils/                 # 物理筹码合成音效、爵士 BGM 与 Canvas 打击特效
+├── docs/media/                # 宣传视频 (promo.mp4)、实机流程 GIF 与高清截图
 ├── deploy/
 │   └── nginx.conf.example     # Nginx HTTPS + WebSocket 反向代理模板
 ├── Dockerfile                 # 多阶段构建（node:22-slim 非 root 生产镜像）
@@ -193,7 +281,7 @@
 
 ---
 
-## 快捷键与手势
+## ⌨️ 快捷键与手势
 
 快捷键自动忽略 `Ctrl / Meta / Alt` 组合键，并在聊天输入或弹窗打开时暂停触发：
 
@@ -210,7 +298,7 @@
 
 ---
 
-## 快速部署
+## 🚀 快速部署
 
 ### 方式一：Docker Compose 一键部署（推荐）
 
@@ -303,7 +391,7 @@ npm start
 
 ---
 
-## 免责与合规说明
+## 📜 免责与合规说明
 
 本项目（Velvet Hold'em）仅用于软件工程学习与亲友间的免费休闲娱乐，请在使用或部署前了解以下边界：
 
