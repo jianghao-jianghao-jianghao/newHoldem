@@ -1,43 +1,111 @@
 import { evaluateBestHand } from '../src/shared/handEvaluator';
 import { getAvailableActions } from '../src/shared/pokerEngine';
 import type { Card, PlayerAction, TableState } from '../src/shared/types';
+import {
+  analyzeBoardTexture,
+  computeGeometricBetFraction,
+  computeMdf,
+  computeOptimalBluffRatio,
+  estimatePostflopEquity,
+  evaluateBlockers,
+  getGtoPreflopMix,
+  toCanonicalHandKey,
+  type GtoPosition,
+} from './gtoRanges';
 
 export interface BotPersonality {
-  name: 'tag' | 'lag' | 'balanced' | 'calling_station';
-  /** Shifts calling/opening looseness (-0.06 tight .. +0.09 loose) */
+  name: 'gto_pro' | 'tag' | 'lag' | 'balanced' | 'calling_station';
+  label: string;
   looseness: number;
-  /** Shifts raise / value-bet aggression (-0.08 passive .. +0.10 aggressive) */
   aggression: number;
-  /** Baseline bluff frequency on dry spots (0.04 .. 0.16) */
   bluffRate: number;
+  gtoDiscipline: number;
 }
 
-const PERSONALITIES: BotPersonality[] = [
-  { name: 'tag', looseness: -0.05, aggression: 0.08, bluffRate: 0.08 },
-  { name: 'lag', looseness: 0.06, aggression: 0.1, bluffRate: 0.15 },
-  { name: 'balanced', looseness: 0.0, aggression: 0.02, bluffRate: 0.1 },
-  { name: 'calling_station', looseness: 0.08, aggression: -0.08, bluffRate: 0.04 },
+export const BOT_PERSONALITY_PROFILES: BotPersonality[] = [
+  {
+    name: 'gto_pro',
+    label: 'GTO 均衡大师',
+    looseness: 0.0,
+    aggression: 0.03,
+    bluffRate: 0.11,
+    gtoDiscipline: 0.96,
+  },
+  {
+    name: 'tag',
+    label: '紧凶牌手 (TAG)',
+    looseness: -0.05,
+    aggression: 0.07,
+    bluffRate: 0.09,
+    gtoDiscipline: 0.88,
+  },
+  {
+    name: 'lag',
+    label: '松凶压迫 (LAG)',
+    looseness: 0.06,
+    aggression: 0.1,
+    bluffRate: 0.15,
+    gtoDiscipline: 0.78,
+  },
+  {
+    name: 'balanced',
+    label: '稳健均衡',
+    looseness: 0.0,
+    aggression: 0.02,
+    bluffRate: 0.1,
+    gtoDiscipline: 0.9,
+  },
+  {
+    name: 'calling_station',
+    label: '抓鸡跟注站',
+    looseness: 0.08,
+    aggression: -0.07,
+    bluffRate: 0.04,
+    gtoDiscipline: 0.68,
+  },
 ];
 
+const NAMED_BOT_PERSONALITIES: Record<string, BotPersonality['name']> = {
+  陈默: 'gto_pro',
+  林澈: 'tag',
+  周屿: 'lag',
+  苏砚: 'balanced',
+  陆沉: 'calling_station',
+  沈舟: 'gto_pro',
+  顾言: 'tag',
+  许嘉: 'lag',
+};
+
 export function getBotPersonality(seed: string): BotPersonality {
+  const mapped = NAMED_BOT_PERSONALITIES[seed];
+  if (mapped) {
+    const found = BOT_PERSONALITY_PROFILES.find((p) => p.name === mapped);
+    if (found) return found;
+  }
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
   }
-  return PERSONALITIES[hash % PERSONALITIES.length];
+  return BOT_PERSONALITY_PROFILES[Math.abs(hash) % BOT_PERSONALITY_PROFILES.length];
 }
 
-/**
- * Calibrated Chen-inspired preflop strength score on [0.08, 0.98].
- * Premium hands stay decisively strong even in 6-max pots:
- * AA≈0.97, KK≈0.92, QQ≈0.87, JJ≈0.81, AKs≈0.85, AKo≈0.80, AQs≈0.78, 72o≈0.11.
- */
+function createSeededRng(seed: number): () => number {
+  let a = seed | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 export function evaluatePreflopStrength(holeCards: Card[]): number {
   if (holeCards.length < 2) return 0.2;
-  const [c1, c2] = holeCards;
-  const high = Math.max(c1.rank, c2.rank);
-  const low = Math.min(c1.rank, c2.rank);
-  const suited = c1.suit === c2.suit;
+  const r1 = Number(holeCards[0].rank);
+  const r2 = Number(holeCards[1].rank);
+  const high = Math.max(r1, r2);
+  const low = Math.min(r1, r2);
+  const suited = holeCards[0].suit === holeCards[1].suit;
   const gap = high - low;
 
   const baseHighScore = (r: number): number => {
@@ -66,7 +134,6 @@ export function evaluatePreflopStrength(holeCards: Card[]): number {
     } else {
       chen -= 5;
     }
-    // Bonus for Broadway high-card combos (AK, AQ, AJ, KQ) which play strongly preflop
     if (high >= 13 && low >= 12) {
       chen += 3.2;
     } else if (high === 14 && low >= 10) {
@@ -74,29 +141,21 @@ export function evaluatePreflopStrength(holeCards: Card[]): number {
     }
   }
 
-  // Smooth nonlinear mapping so Chen 10..20 maps nicely into [0.68, 0.97]
-  // while Chen -1..9 maps into [0.09, 0.66].
   const clampedChen = Math.max(-1.5, Math.min(20, chen));
   let normalized: number;
   if (clampedChen >= 10) {
-    normalized = 0.70 + ((clampedChen - 10) / 10) * 0.27;
+    normalized = 0.7 + ((clampedChen - 10) / 10) * 0.27;
   } else {
     normalized = 0.09 + ((clampedChen + 1.5) / 11.5) * 0.61;
   }
   return Math.max(0.08, Math.min(0.98, normalized));
 }
 
-/**
- * Counts exact distinct rank completions (each distinct rank = 4 outs) that form a 5-card straight
- * using at least one hole card. Correctly distinguishes 4-out gutshots/wheel-tops (AKQJ, A234)
- * from 8-out open-ended/double-gutter straight draws (JT98, 97653).
- */
 export function countStraightDrawCompletionRanks(holeCards: Card[], board: Card[]): number {
   const all = [...holeCards, ...board];
   const existingRanks = new Set<number>(all.map((c) => Number(c.rank)));
   const holeRanks = new Set<number>(holeCards.map((c) => Number(c.rank)));
 
-  // Helper: check if rankSet contains any 5-card straight that uses >=1 hole card
   const hasHoleStraight = (ranks: Set<number>): boolean => {
     for (let start = 1; start <= 10; start++) {
       let ok = true;
@@ -116,7 +175,6 @@ export function countStraightDrawCompletionRanks(holeCards: Card[], board: Card[
     return false;
   };
 
-  // Already have a straight using hole cards
   if (hasHoleStraight(existingRanks)) return 0;
 
   let completionRanks = 0;
@@ -134,22 +192,19 @@ export function countStraightDrawCompletionRanks(holeCards: Card[], board: Card[
 export function estimateDrawBonus(holeCards: Card[], board: Card[]): number {
   if (board.length < 3 || board.length >= 5) return 0;
   const all = [...holeCards, ...board];
-  const streetsLeft = 5 - board.length; // 2 on flop, 1 on turn
+  const streetsLeft = 5 - board.length;
   let bonus = 0;
 
-  // Flush draw: 4 cards of same suit with at least 1 hole card contributing (9 outs)
   const suitCounts = new Map<string, number>();
   for (const c of all) {
     suitCounts.set(c.suit, (suitCounts.get(c.suit) ?? 0) + 1);
   }
-  for (const [suit, count] of suitCounts.entries()) {
-    if (count === 4 && holeCards.some((h) => h.suit === suit)) {
+  for (const [suit, cnt] of suitCounts.entries()) {
+    if (cnt === 4 && holeCards.some((h) => h.suit === suit)) {
       bonus += streetsLeft === 2 ? 0.17 : 0.1;
-      break;
     }
   }
 
-  // Exact straight draw outs: 1 completion rank = 4 outs (gutshot / AKQJ / A234), >=2 = 8+ outs (OESD)
   const straightRankOuts = countStraightDrawCompletionRanks(holeCards, board);
   if (straightRankOuts >= 2) {
     bonus += streetsLeft === 2 ? 0.14 : 0.08;
@@ -157,13 +212,9 @@ export function estimateDrawBonus(holeCards: Card[], board: Card[]): number {
     bonus += streetsLeft === 2 ? 0.06 : 0.035;
   }
 
-  return Math.min(0.24, bonus);
+  return Math.min(0.28, bonus);
 }
 
-/**
- * Evaluates relative postflop strength accounting for board texture, true Top Pair + kicker
- * (including overcard kickers like AQ on Q-8-4), board-paired traps, and exact draw outs.
- */
 export function evaluatePostflopStrength(holeCards: Card[], board: Card[]): number {
   const all = [...holeCards, ...board];
   const ev = evaluateBestHand(all);
@@ -173,66 +224,70 @@ export function evaluatePostflopStrength(holeCards: Card[], board: Card[]): numb
   const holeLow = Math.min(Number(holeCards[0]?.rank ?? 2), Number(holeCards[1]?.rank ?? 2));
   const isPocketPair = holeHigh === holeLow;
 
-  // Board rank frequencies to detect board-paired false pairs
   const boardFreq = new Map<number, number>();
   for (const c of board) {
     const r = Number(c.rank);
     boardFreq.set(r, (boardFreq.get(r) ?? 0) + 1);
   }
-  const boardHasPair = Array.from(boardFreq.values()).some((v) => v >= 2);
+  const boardPairCount = Array.from(boardFreq.values()).filter((v) => v >= 2).length;
+  const boardHasPair = boardPairCount >= 1;
+  const boardHasDoublePair = boardPairCount >= 2;
   const boardHasTrips = Array.from(boardFreq.values()).some((v) => v >= 3);
 
-  let base = 0.18;
+  let base = 0.2;
   switch (ev.category) {
-    case 0: // High card
+    case 0:
       base = 0.14 + (holeHigh >= 13 ? 0.07 : 0) + (holeHigh > boardHigh ? 0.05 : 0);
       break;
-    case 1: { // One pair
+    case 1: {
       const matchedHigh = board.some((c) => Number(c.rank) === holeHigh);
       const matchedLow = board.some((c) => Number(c.rank) === holeLow);
       const matchedTopBoard =
         (matchedHigh && holeHigh === boardHigh) || (matchedLow && holeLow === boardHigh);
 
       if (isPocketPair && holeHigh > boardHigh) {
-        // Overpair (e.g., AA/KK/QQ on J-8-4)
         base = 0.74 + (holeHigh / 14) * 0.08;
       } else if (matchedTopBoard) {
-        // Top pair — scale by the unpaired kicker (works for both KQ on K-7-2 and AQ on Q-8-4!)
         const kicker = matchedHigh && holeHigh === boardHigh ? holeLow : holeHigh;
         base = 0.62 + (kicker / 14) * 0.14;
       } else if (matchedHigh || matchedLow || isPocketPair) {
-        // Middle / under / bottom pair
         const pairRank = isPocketPair ? holeHigh : matchedHigh ? holeHigh : holeLow;
         base = 0.42 + (pairRank / Math.max(14, boardHigh)) * 0.14;
       } else if (boardHasPair) {
-        // Only playing the board pair -> weak bluff-catcher
         base = 0.22 + (holeHigh >= 13 ? 0.08 : 0);
       } else {
         base = 0.44;
       }
       break;
     }
-    case 2: // Two pair
-      base = boardHasPair ? 0.66 : 0.80;
+    case 2: {
+      const holeMatchesBoard =
+        board.some((c) => Number(c.rank) === holeHigh) ||
+        board.some((c) => Number(c.rank) === holeLow);
+      if (boardHasDoublePair && !holeMatchesBoard && !isPocketPair) {
+        base = 0.28 + (holeHigh >= 13 ? 0.08 : 0);
+      } else {
+        base = boardHasPair ? 0.66 : 0.8;
+      }
       break;
-    case 3: // Trips / Set
-      base = boardHasTrips ? 0.56 : 0.86;
+    }
+    case 3:
+      base = boardHasTrips ? 0.52 : 0.86;
       break;
-    case 4: // Straight
+    case 4:
       base = 0.89;
       break;
-    case 5: // Flush
+    case 5:
       base = 0.92;
       break;
-    case 6: // Full house
+    case 6:
       base = 0.95;
       break;
-    default: // Quads / Straight Flush / Royal Flush
-      base = 0.99;
+    default:
+      base = 0.98;
       break;
   }
 
-  // If best hand is literally just playing the 5-card board, heavily discount
   if (boardEval && ev.score === boardEval.score) {
     base = Math.min(base, 0.25);
   }
@@ -241,10 +296,6 @@ export function evaluatePostflopStrength(holeCards: Card[], board: Card[]): numb
   return Math.max(0.08, Math.min(0.99, base + drawBonus));
 }
 
-/**
- * Computes exact acting position ratio on [0, 1] among active players in the hand.
- * 0.0 = first to act (UTG preflop / SB postflop), 1.0 = last to act (BB/BTN).
- */
 export function computePositionRatio(state: TableState, playerSeatIndex: number): number {
   const activeSeats = state.players
     .filter((p) => p.inHand && !p.folded)
@@ -252,13 +303,10 @@ export function computePositionRatio(state: TableState, playerSeatIndex: number)
     .sort((a, b) => a - b);
   if (activeSeats.length <= 1) return 1;
 
-  // Determine the anchor seat whose immediate clockwise neighbor acts FIRST on this street
   const anchorSeat =
     state.phase === 'preflop' && state.bigBlindSeatIndex !== null
-      ? activeSeats.length === 2 && state.smallBlindSeatIndex !== null
-        ? state.bigBlindSeatIndex // Heads-up preflop: SB/BTN acts first, BB acts last
-        : state.bigBlindSeatIndex // 3+ preflop: UTG (left of BB) acts first, BB acts last
-      : state.dealerSeatIndex; // Postflop: first active seat left of Dealer acts first, Dealer acts last
+      ? state.bigBlindSeatIndex
+      : state.dealerSeatIndex;
 
   const ordered: number[] = [
     ...activeSeats.filter((s) => s > anchorSeat),
@@ -269,16 +317,66 @@ export function computePositionRatio(state: TableState, playerSeatIndex: number)
   return idx / Math.max(1, ordered.length - 1);
 }
 
+export function resolveGtoPosition(state: TableState, playerSeatIndex: number): GtoPosition {
+  if (state.bigBlindSeatIndex !== null && playerSeatIndex === state.bigBlindSeatIndex) {
+    return 'BB';
+  }
+  if (state.smallBlindSeatIndex !== null && playerSeatIndex === state.smallBlindSeatIndex) {
+    return 'SB';
+  }
+  if (playerSeatIndex === state.dealerSeatIndex) {
+    return 'BTN';
+  }
+
+  const inHandSeats = state.players
+    .filter((p) => p.inHand)
+    .map((p) => p.seatIndex)
+    .sort((a, b) => a - b);
+  const nonBlindSeats = inHandSeats.filter(
+    (s) => s !== state.smallBlindSeatIndex && s !== state.bigBlindSeatIndex
+  );
+  if (nonBlindSeats.length <= 1) return 'BTN';
+
+  const anchor = state.bigBlindSeatIndex ?? state.dealerSeatIndex;
+  const clockwise = [
+    ...nonBlindSeats.filter((s) => s > anchor),
+    ...nonBlindSeats.filter((s) => s <= anchor),
+  ];
+  const distFromBtn = clockwise.length - 1 - clockwise.indexOf(playerSeatIndex);
+  if (distFromBtn <= 0) return 'BTN';
+  if (distFromBtn === 1) return 'CO';
+  if (distFromBtn === 2) return 'HJ';
+  return 'UTG';
+}
+
 function countStreetRaises(state: TableState): number {
-  return state.currentHandActions.filter(
-    (a) =>
-      a.street === state.phase &&
-      (a.actionLabel.startsWith('加注') ||
-        a.actionLabel.startsWith('下注') ||
-        a.actionLabel.startsWith('全下'))
+  return state.currentPotTimeline.filter(
+    (pt) =>
+      pt.street === state.phase &&
+      (pt.actionType === 'raise' || pt.actionType === 'bet' || pt.actionType === 'allin')
   ).length;
 }
 
+function wasPreflopAggressor(state: TableState, playerId: string): boolean {
+  let lastAggressor: string | null = null;
+  for (const pt of state.currentPotTimeline) {
+    if (
+      pt.street === 'preflop' &&
+      (pt.actionType === 'raise' || pt.actionType === 'allin')
+    ) {
+      lastAggressor = pt.actorId;
+    }
+  }
+  return lastAggressor === playerId;
+}
+
+/**
+ * GTO-driven Texas Hold'em AI Engine:
+ * - Preflop: 6-max / Heads-Up 169-hand GTO frequency charts (RFI, vs-RFI, vs-3bet, vs-4bet, <=15BB Nash)
+ * - Postflop: Zero-allocation Monte Carlo equity vs aggression-weighted range,
+ *   board texture & range-advantage c-betting, MDF defense, blocker-driven river bluffs,
+ *   river equilibrium bluff ratio alpha = B / (P + 2B), and geometric sizing.
+ */
 export function chooseBotAction(
   state: TableState,
   botId: string,
@@ -288,145 +386,316 @@ export function chooseBotAction(
   if (!available) return { type: 'fold' };
 
   const bot = state.players.find((p) => p.id === botId);
-  if (!bot) return { type: 'fold' };
+  if (!bot) return available.canCheck ? { type: 'check' } : { type: 'fold' };
 
-  const personality = getBotPersonality(`${bot.id}:${bot.name}`);
+  const personality = getBotPersonality(bot.name || bot.id);
   const r = rng();
   const streetRaises = countStreetRaises(state);
   const activeOpponents = Math.max(
     1,
     state.players.filter((p) => p.inHand && !p.folded && p.id !== bot.id).length
   );
+  const inHandCount = state.players.filter((p) => p.inHand).length;
+  const isHeadsUp = inHandCount <= 2 || activeOpponents === 1;
+  const position = resolveGtoPosition(state, bot.seatIndex);
 
-  // Raw hand equity estimate on [0.08, 0.99]
-  const rawStrength =
-    state.communityCards.length === 0
-      ? evaluatePreflopStrength(bot.holeCards)
-      : evaluatePostflopStrength(bot.holeCards, state.communityCards);
-
-  // Gentle multiway discount that does NOT cripple premium hands (KK/QQ/AKs) in 6-max pots
-  const perOppPenalty =
-    state.communityCards.length === 0
-      ? rawStrength >= 0.78
-        ? 0.008
-        : 0.014
-      : rawStrength >= 0.8
-        ? 0.012
-        : 0.024;
-  const multiwayDiscount = Math.min(
-    state.communityCards.length === 0 ? 0.065 : 0.1,
-    (activeOpponents - 1) * perOppPenalty
+  const effectiveStack = Math.min(
+    bot.chips + bot.currentBet,
+    Math.max(
+      state.bigBlind,
+      ...state.players
+        .filter((p) => p.inHand && !p.folded && p.id !== bot.id)
+        .map((p) => p.chips + p.currentBet)
+    )
   );
-  const strength = Math.max(0.05, Math.min(0.99, rawStrength - multiwayDiscount));
+  const effectiveStackBB = effectiveStack / Math.max(1, state.bigBlind);
 
-  // True clockwise position adjustment: early (UTG) slightly tighter (-0.025), late (CO/BTN) wider (+0.035)
-  const posRatio = computePositionRatio(state, bot.seatIndex);
-  const isLatePos = posRatio >= 0.65;
-  const posBonus = isLatePos ? 0.035 : posRatio <= 0.25 ? -0.025 : 0;
-
-  // Pot-proportional bet sizing helper clamped to legal bounds
-  const pickBetTarget = (potMultiplier: number): number => {
-    const basePot = Math.max(state.bigBlind * 2, state.pot);
-    const desired =
-      state.currentBet === 0
-        ? Math.round(basePot * potMultiplier)
-        : Math.round(state.currentBet + basePot * potMultiplier);
-    const snapped =
-      Math.round(desired / Math.max(1, state.smallBlind)) * Math.max(1, state.smallBlind);
+  const snapBet = (desired: number): number => {
+    const unit = Math.max(1, state.smallBlind);
+    const snapped = Math.round(desired / unit) * unit;
     return Math.min(available.maxRaiseTo, Math.max(available.minRaiseTo, snapped));
   };
 
-  // --- CASE 1: Free check available ---
-  if (available.canCheck) {
-    const canValueBet =
-      available.canRaise && strength + personality.aggression * 0.5 + posBonus >= 0.62;
-    const canBluffBet =
-      available.canRaise &&
-      streetRaises === 0 &&
-      r < personality.bluffRate + (isLatePos ? 0.04 : 0);
+  const pickPotSizedBet = (potMultiplier: number): number => {
+    const basePot = Math.max(state.pot, state.bigBlind * 2);
+    const callAmt = available.canCall ? available.callAmount : 0;
+    const desired =
+      state.currentBet === 0
+        ? Math.round(basePot * potMultiplier)
+        : Math.round(state.currentBet + (basePot + callAmt) * potMultiplier);
+    return snapBet(desired);
+  };
 
-    if (canValueBet && (strength >= 0.78 || r > 0.25)) {
-      const sizeMult = strength >= 0.85 ? 0.72 : 0.48;
-      return { type: 'raise', amount: pickBetTarget(sizeMult) };
+  // --- PHASE 1: PREFLOP GTO MATRIX ENGINE ---
+  if (state.phase === 'preflop' || state.communityCards.length === 0) {
+    const facingRaises = state.currentBet <= state.bigBlind ? 0 : Math.max(1, streetRaises);
+    const facingBetBB = state.currentBet / Math.max(1, state.bigBlind);
+
+    const gtoMix = getGtoPreflopMix({
+      holeCards: bot.holeCards,
+      position,
+      facingRaises,
+      facingBetBB,
+      effectiveStackBB,
+      isHeadsUp,
+      canCheck: available.canCheck,
+    });
+
+    const dev = 1 - personality.gtoDiscipline;
+    let raiseFreq = gtoMix.raise;
+    let callFreq = gtoMix.call;
+
+    if (raiseFreq > 0 || (facingRaises === 0 && personality.looseness > 0.04)) {
+      raiseFreq = Math.max(0, Math.min(1, raiseFreq + personality.aggression * (0.35 + dev)));
     }
-    if (canBluffBet) {
-      return { type: 'raise', amount: pickBetTarget(0.45) };
+    if (callFreq > 0 || personality.looseness > 0.05) {
+      callFreq = Math.max(
+        0,
+        Math.min(1 - raiseFreq, callFreq + personality.looseness * (0.45 + dev))
+      );
     }
+
+    const key = toCanonicalHandKey(bot.holeCards);
+    if (streetRaises >= 4 && key !== 'AA' && key !== 'KK') {
+      callFreq = Math.min(1, callFreq + raiseFreq);
+      raiseFreq = 0;
+    }
+
+    if (available.canRaise && r < raiseFreq) {
+      if (effectiveStackBB <= 15 || facingRaises >= 3 || facingBetBB >= effectiveStackBB * 0.45) {
+        return { type: 'raise', amount: available.maxRaiseTo };
+      }
+      if (facingRaises === 0) {
+        const limpers = state.players.filter(
+          (p) =>
+            p.inHand &&
+            !p.folded &&
+            p.id !== bot.id &&
+            p.currentBet === state.bigBlind &&
+            p.seatIndex !== state.bigBlindSeatIndex
+        ).length;
+        const openBB = (position === 'SB' || position === 'BB' ? 3.0 : 2.5) + limpers * 1.0;
+        return { type: 'raise', amount: snapBet(openBB * state.bigBlind) };
+      }
+      if (facingRaises === 1) {
+        const mult = position === 'SB' || position === 'BB' ? 3.8 : 3.0;
+        const target = Math.max(available.minRaiseTo, state.currentBet * mult);
+        return {
+          type: 'raise',
+          amount: target >= bot.chips * 0.72 ? available.maxRaiseTo : snapBet(target),
+        };
+      }
+      const fourBetTarget = state.currentBet * 2.3;
+      return {
+        type: 'raise',
+        amount: fourBetTarget >= bot.chips * 0.55 ? available.maxRaiseTo : snapBet(fourBetTarget),
+      };
+    }
+
+    if (available.canCheck) {
+      return { type: 'check' };
+    }
+
+    if (available.canCall && r < raiseFreq + callFreq) {
+      return { type: 'call' };
+    }
+
+    const callAmt = available.callAmount;
+    const potOdds = callAmt / Math.max(1, state.pot + callAmt);
+    const preStrength = evaluatePreflopStrength(bot.holeCards);
+    if (available.canCall && potOdds <= 0.14 && preStrength >= 0.35) {
+      return { type: 'call' };
+    }
+
+    return { type: 'fold' };
+  }
+
+  // --- PHASE 2: POSTFLOP GTO SOLVER HEURISTICS + MONTE CARLO EQUITY ---
+  const board = state.communityCards;
+  const texture = analyzeBoardTexture(board);
+  const blockers = evaluateBlockers(bot.holeCards, board, texture);
+  const drawBonus = estimateDrawBonus(bot.holeCards, board);
+  const heuristicStrength = evaluatePostflopStrength(bot.holeCards, board);
+
+  const callAmt = available.canCall ? available.callAmount : 0;
+  const potBeforeBet = Math.max(1, state.pot - callAmt);
+  const betFractionOfPot = callAmt / potBeforeBet;
+
+  const villainTightness =
+    callAmt === 0
+      ? 0.22
+      : Math.min(0.75, 0.25 + streetRaises * 0.15 + Math.min(0.28, betFractionOfPot * 0.22));
+
+  const mcSeed =
+    ((state.handNumber + 1) * 2654435761) ^
+    (bot.seatIndex * 97531) ^
+    (board.length * 1337) ^
+    Math.floor(r * 0x7fffffff);
+  const mcEquity = estimatePostflopEquity({
+    holeCards: bot.holeCards,
+    board,
+    opponentCount: activeOpponents,
+    villainTightness,
+    iterations: 140,
+    rng: createSeededRng(mcSeed),
+  });
+
+  const effectiveEquity = Math.max(
+    0.04,
+    Math.min(0.99, mcEquity * 0.65 + heuristicStrength * 0.35)
+  );
+
+  const posRatio = computePositionRatio(state, bot.seatIndex);
+  const inPosition = posRatio >= 0.6;
+  const isPfa = wasPreflopAggressor(state, bot.id);
+  const streetsLeft = state.phase === 'flop' ? 3 : state.phase === 'turn' ? 2 : 1;
+  const spr = bot.chips / Math.max(1, state.pot);
+  const geoFrac = computeGeometricBetFraction(state.pot, effectiveStack, streetsLeft);
+
+  if (available.canCheck) {
+    if (!available.canRaise) return { type: 'check' };
+
+    const rangeCbetSpot =
+      state.phase === 'flop' &&
+      isPfa &&
+      activeOpponents <= 2 &&
+      texture.isDryHighBoard &&
+      streetRaises === 0;
+
+    if (rangeCbetSpot) {
+      const rangeBetFreq =
+        effectiveEquity >= 0.58
+          ? 0.88
+          : drawBonus >= 0.06
+            ? 0.78
+            : 0.58 + personality.aggression;
+      if (r < rangeBetFreq) {
+        return { type: 'raise', amount: pickPotSizedBet(0.33) };
+      }
+      return { type: 'check' };
+    }
+
+    if (state.phase === 'river') {
+      const valueThreshold = activeOpponents === 1 ? 0.68 : 0.74;
+      if (effectiveEquity >= valueThreshold) {
+        const sizeMult =
+          effectiveEquity >= 0.88
+            ? Math.min(1.25, Math.max(0.75, geoFrac))
+            : effectiveEquity >= 0.78
+              ? 0.66
+              : 0.45;
+        return { type: 'raise', amount: pickPotSizedBet(sizeMult) };
+      }
+      if (effectiveEquity <= 0.24 && blockers.bluffScore >= 0.45) {
+        const bluffSize = 0.75;
+        const gtoBluffAlpha = computeOptimalBluffRatio(bluffSize * state.pot, state.pot);
+        const bluffChance = Math.min(
+          0.35,
+          gtoBluffAlpha * blockers.bluffScore * (1 + personality.aggression)
+        );
+        if (r < bluffChance) {
+          return { type: 'raise', amount: pickPotSizedBet(bluffSize) };
+        }
+      }
+      return { type: 'check' };
+    }
+
+    const valueThreshold = (activeOpponents === 1 ? 0.62 : 0.68) - personality.aggression * 0.35;
+    if (effectiveEquity >= valueThreshold) {
+      if (effectiveEquity >= 0.9 && texture.wetness < 0.25 && inPosition && r < 0.12) {
+        return { type: 'check' };
+      }
+      const baseMult =
+        texture.wetness >= 0.5
+          ? 0.72
+          : spr <= 2.5
+            ? Math.min(1.0, geoFrac)
+            : effectiveEquity >= 0.82
+              ? 0.66
+              : 0.45;
+      return { type: 'raise', amount: pickPotSizedBet(baseMult) };
+    }
+
+    if (drawBonus >= 0.1 && streetRaises === 0) {
+      const semiBluffFreq =
+        (drawBonus >= 0.16 ? 0.72 : 0.48) +
+        (inPosition ? 0.08 : 0) +
+        personality.aggression * 0.5;
+      if (r < semiBluffFreq) {
+        return { type: 'raise', amount: pickPotSizedBet(texture.wetness >= 0.45 ? 0.66 : 0.5) };
+      }
+    }
+
+    if (
+      streetRaises === 0 &&
+      inPosition &&
+      effectiveEquity <= 0.32 &&
+      blockers.bluffScore >= 0.45 &&
+      r < personality.bluffRate * 0.85
+    ) {
+      return { type: 'raise', amount: pickPotSizedBet(0.45) };
+    }
+
     return { type: 'check' };
   }
 
-  // --- CASE 2: Facing a bet / raise ---
-  const callAmt = available.callAmount;
   const potOdds = callAmt / Math.max(1, state.pot + callAmt);
-  const betInBB = callAmt / Math.max(1, state.bigBlind);
+  const mdf = computeMdf(potBeforeBet, callAmt);
   const stackCommitment = callAmt / Math.max(1, bot.chips + callAmt);
+  const raiseCapReached = streetRaises >= 3 && effectiveEquity < 0.9;
 
-  // Prevent infinite min-raise loops: cap re-raises unless holding a true monster (AA/KK/set+)
-  const raiseCapReached = streetRaises >= 3 && strength < 0.9;
-  const isPreflopUnopened = state.phase === 'preflop' && state.currentBet <= state.bigBlind;
-  const canValueRaise =
-    available.canRaise &&
-    !raiseCapReached &&
-    (strength >= 0.80 ||
-      (isPreflopUnopened && strength + posBonus >= 0.64) ||
-      (strength + posBonus >= 0.70 - personality.aggression * 0.4 &&
-        streetRaises <= 1 &&
-        r < 0.55 + personality.aggression));
-
-  if (canValueRaise) {
-    if (strength >= 0.9 && stackCommitment > 0.45) {
+  const raiseThreshold = (state.phase === 'river' ? 0.84 : 0.78) - personality.aggression * 0.3;
+  if (available.canRaise && !raiseCapReached && effectiveEquity >= raiseThreshold) {
+    if (effectiveEquity >= 0.9 && (stackCommitment >= 0.45 || spr <= 1.8)) {
       return { type: 'raise', amount: available.maxRaiseTo };
     }
-    const mult = isPreflopUnopened ? 0.85 : streetRaises === 0 ? 0.65 : 0.8;
-    return { type: 'raise', amount: pickBetTarget(mult) };
+    const raiseFreq = effectiveEquity >= 0.88 ? 0.92 : 0.62 + personality.aggression;
+    if (r < raiseFreq) {
+      const mult = state.phase === 'river' ? 0.75 : texture.wetness >= 0.45 ? 0.75 : 0.58;
+      return { type: 'raise', amount: pickPotSizedBet(mult) };
+    }
   }
 
-  // Occasional semi-bluff raise on flop/turn when facing a single moderate bet
   if (
     available.canRaise &&
     !raiseCapReached &&
+    state.phase !== 'river' &&
     streetRaises <= 1 &&
-    betInBB <= 6 &&
-    strength >= 0.48 &&
-    r < personality.bluffRate * 0.65
+    drawBonus >= 0.16 &&
+    stackCommitment < 0.45 &&
+    r < 0.24 + personality.bluffRate * 0.6 + (blockers.hasNutFlushBlocker ? 0.12 : 0)
   ) {
-    return { type: 'raise', amount: pickBetTarget(0.6) };
+    return { type: 'raise', amount: pickPotSizedBet(0.7) };
   }
 
-  // Required equity threshold scales with true pot odds + pressure of large bets/shoves
-  // Premium holdings (QQ+/AKs/Top Pair+) comfortably call shoves without folding to over-tight math
-  const pressurePenalty =
-    stackCommitment > 0.55
-      ? 0.14
-      : betInBB >= 8
-        ? 0.09
-        : betInBB >= 4
-          ? 0.04
-          : 0;
-  const callThreshold = Math.min(
-    0.78,
-    Math.max(0.18, potOdds + 0.08 + pressurePenalty - personality.looseness - posBonus)
+  const impliedOddsCredit = state.phase === 'river' ? 0 : Math.min(0.08, drawBonus * 0.38);
+  const mdfShift = (0.6 - mdf) * 0.1;
+  const blockerCallCredit =
+    state.phase === 'river' && (blockers.hasNutFlushBlocker || blockers.hasTopCardBlocker)
+      ? 0.035
+      : 0;
+  const multiwayExtra = activeOpponents > 1 ? Math.min(0.07, (activeOpponents - 1) * 0.035) : 0;
+
+  const requiredEquity = Math.max(
+    0.12,
+    Math.min(
+      0.78,
+      potOdds +
+        0.02 +
+        mdfShift +
+        multiwayExtra -
+        impliedOddsCredit -
+        blockerCallCredit -
+        personality.looseness * 0.55 -
+        (inPosition ? 0.015 : 0)
+    )
   );
 
-  if (strength >= callThreshold) {
+  if (effectiveEquity >= requiredEquity) {
     return { type: 'call' };
   }
 
-  // Cheap defend in BB / tiny limp (< 1 BB) with playable hands (still folds pure trash to raises)
-  if (
-    callAmt <= state.bigBlind &&
-    state.phase === 'preflop' &&
-    strength >= 0.28 - personality.looseness * 0.5
-  ) {
-    return { type: 'call' };
-  }
-
-  // Rare hero call when pot odds are generous
-  if (
-    potOdds < 0.22 &&
-    strength >= potOdds + 0.04 &&
-    r < 0.16 + Math.max(0, personality.looseness)
-  ) {
+  if (effectiveEquity >= requiredEquity - 0.03 && r < 0.35 + Math.max(0, personality.looseness)) {
     return { type: 'call' };
   }
 

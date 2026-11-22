@@ -4,14 +4,27 @@ import {
   applyHandToAchievementStats,
   createEmptyAchievementStats,
   mergeAchievementDates,
+  sanitizeAchievementDates,
+  sanitizeAchievementIds,
   type AchievementDatesMap,
   type AchievementId,
   type PlayerAchievementStats,
 } from '../src/shared/achievements';
 import type { HandCategory, LeaderboardEntry } from '../src/shared/types';
+import { getSharedDatabase, resolveDataDir, type HoldemDatabase } from './db';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const LEADERBOARD_FILE = path.join(DATA_DIR, 'leaderboard.json');
+function getLegacyLeaderboardFile(): string {
+  return path.join(resolveDataDir(), 'leaderboard.json');
+}
+
+export type LeaderboardMode = 'all' | 'ranked' | 'practice';
+
+interface StoredLeaderboardEntry extends LeaderboardEntry {
+  entryKey: string;
+  uid?: string | null;
+  isVerified?: boolean;
+  mode: LeaderboardMode;
+}
 
 const SEED_ENTRIES: LeaderboardEntry[] = [
   {
@@ -47,7 +60,7 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
     },
   },
   {
-    playerName: '陈默',
+    playerName: '陆行舟',
     points: 1420,
     netChips: 420,
     handsPlayed: 14,
@@ -139,71 +152,255 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
   },
 ];
 
-export class LeaderboardStore {
-  private entries = new Map<string, LeaderboardEntry>();
+export function computeNormalizedPointsDelta(params: {
+  netChips: number;
+  bigBlind: number;
+  won: boolean;
+  isPracticeWithBots: boolean;
+}): number {
+  const bb = Math.max(1, params.bigBlind);
+  const netBB = params.netChips / bb;
+  const clampedBB = Math.max(-100, Math.min(100, netBB));
+  const modeWeight = params.isPracticeWithBots ? 0.35 : 1.0;
+  const winBonus = params.won ? (params.isPracticeWithBots ? 8 : 20) : 0;
+  return Math.round(clampedBB * 10 * modeWeight + winBonus);
+}
 
-  constructor() {
+export interface LeaderboardStoreOptions {
+  database?: HoldemDatabase;
+  legacyJsonFile?: string;
+  disableDiskPersistence?: boolean;
+}
+
+export class LeaderboardStore {
+  private entries = new Map<string, StoredLeaderboardEntry>();
+  private readonly holdemDb: HoldemDatabase | null;
+  private readonly legacyJsonFile: string;
+
+  constructor(options: LeaderboardStoreOptions = {}) {
+    this.legacyJsonFile = options.legacyJsonFile ?? getLegacyLeaderboardFile();
+    this.holdemDb = options.disableDiskPersistence
+      ? null
+      : (options.database ?? getSharedDatabase());
     this.load();
   }
 
+  private toPublic(entry: StoredLeaderboardEntry): LeaderboardEntry {
+    return {
+      playerName: entry.playerName,
+      points: entry.points,
+      netChips: entry.netChips,
+      handsPlayed: entry.handsPlayed,
+      handsWon: entry.handsWon,
+      bestHandName: entry.bestHandName,
+      bestHandScore: entry.bestHandScore,
+      updatedAt: entry.updatedAt,
+      achievements: entry.achievements,
+      achievementDates: entry.achievementDates,
+      currentWinStreak: entry.currentWinStreak,
+      maxWinStreak: entry.maxWinStreak,
+      stats: entry.stats,
+    };
+  }
+
   private load(): void {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      if (fs.existsSync(LEADERBOARD_FILE)) {
-        const raw = fs.readFileSync(LEADERBOARD_FILE, 'utf-8');
-        const parsed = JSON.parse(raw) as LeaderboardEntry[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const seedMap = new Map(SEED_ENTRIES.map((s) => [s.playerName, s]));
-          for (const item of parsed) {
-            const seed = seedMap.get(item.playerName);
-            const ach = item.achievements ?? seed?.achievements ?? [];
-            this.entries.set(item.playerName, {
-              ...item,
+    if (this.holdemDb) {
+      try {
+        const rows = this.holdemDb.db
+          .prepare('SELECT * FROM leaderboard_entries')
+          .all() as Array<Record<string, unknown>>;
+        if (rows.length > 0) {
+          for (const row of rows) {
+            const entryKey = String(row.entry_key ?? '');
+            const playerName = String(row.player_name ?? '');
+            if (!entryKey || !playerName) continue;
+
+            let ach: AchievementId[] = [];
+            let dates: AchievementDatesMap = {};
+            let stats: PlayerAchievementStats | undefined;
+            try {
+              ach = sanitizeAchievementIds(JSON.parse(String(row.achievements_json ?? '[]')));
+            } catch {
+              ach = [];
+            }
+            try {
+              dates = sanitizeAchievementDates(
+                JSON.parse(String(row.achievement_dates_json ?? '{}'))
+              );
+            } catch {
+              dates = {};
+            }
+            try {
+              if (row.stats_json) {
+                stats = JSON.parse(String(row.stats_json)) as PlayerAchievementStats;
+              }
+            } catch {
+              stats = undefined;
+            }
+
+            this.entries.set(entryKey, {
+              entryKey,
+              uid: row.uid ? String(row.uid) : null,
+              isVerified: Number(row.is_verified) === 1,
+              mode:
+                row.mode === 'ranked' || row.mode === 'practice'
+                  ? row.mode
+                  : 'all',
+              playerName,
+              points: Number(row.points) || 1000,
+              netChips: Number(row.net_chips) || 0,
+              handsPlayed: Number(row.hands_played) || 0,
+              handsWon: Number(row.hands_won) || 0,
+              bestHandName: String(row.best_hand_name ?? '高牌'),
+              bestHandScore: Number(row.best_hand_score) || 0,
+              updatedAt: Number(row.updated_at) || Date.now(),
               achievements: ach,
-              achievementDates: item.achievementDates ?? seed?.achievementDates ?? {},
-              currentWinStreak: item.currentWinStreak ?? seed?.currentWinStreak ?? 0,
-              maxWinStreak: item.maxWinStreak ?? seed?.maxWinStreak ?? 0,
-              stats: item.stats ?? seed?.stats,
+              achievementDates: dates,
+              currentWinStreak: Number(row.current_win_streak) || 0,
+              maxWinStreak: Number(row.max_win_streak) || 0,
+              stats,
             });
           }
           return;
         }
+      } catch (err) {
+        console.error('[LeaderboardStore] Failed to load from SQLite:', err);
       }
-    } catch {
-      // Fallback to seed entries if file is unreadable
+
+      if (this.migrateLegacyJsonIfPresent()) {
+        return;
+      }
     }
 
     for (const seed of SEED_ENTRIES) {
-      this.entries.set(seed.playerName, { ...seed });
+      const stored: StoredLeaderboardEntry = {
+        ...seed,
+        entryKey: `name:${seed.playerName}`,
+        uid: null,
+        isVerified: false,
+        mode: 'ranked',
+      };
+      this.entries.set(stored.entryKey, stored);
+      this.persistEntry(stored);
     }
-    this.save();
   }
 
-  private save(): void {
+  private migrateLegacyJsonIfPresent(): boolean {
     try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
+      if (!fs.existsSync(this.legacyJsonFile)) return false;
+      const raw = fs.readFileSync(this.legacyJsonFile, 'utf-8');
+      const parsed = JSON.parse(raw) as LeaderboardEntry[];
+      if (!Array.isArray(parsed) || parsed.length === 0) return false;
+
+      const migrate = () => {
+        for (const item of parsed) {
+          if (!item || typeof item.playerName !== 'string' || !item.playerName.trim()) continue;
+          const cleanName = item.playerName.trim();
+          const stored: StoredLeaderboardEntry = {
+            ...item,
+            playerName: cleanName,
+            entryKey: `name:${cleanName}`,
+            uid: null,
+            isVerified: false,
+            mode: 'all',
+            achievements: sanitizeAchievementIds(item.achievements),
+            achievementDates: sanitizeAchievementDates(item.achievementDates),
+            currentWinStreak: item.currentWinStreak ?? 0,
+            maxWinStreak: item.maxWinStreak ?? 0,
+          };
+          this.entries.set(stored.entryKey, stored);
+          this.persistEntry(stored);
+        }
+      };
+
+      if (this.holdemDb) {
+        this.holdemDb.runInTransaction(migrate);
+      } else {
+        migrate();
       }
-      fs.writeFileSync(
-        LEADERBOARD_FILE,
-        JSON.stringify(this.getRankedList(100), null, 2),
-        'utf-8'
-      );
+      return this.entries.size > 0;
     } catch {
-      // Ignore disk write issues in read-only environments
+      return false;
     }
   }
 
-  public getPlayerProfile(playerName: string): {
+  private persistEntry(entry: StoredLeaderboardEntry): void {
+    if (!this.holdemDb) return;
+    try {
+      this.holdemDb.db
+        .prepare(
+          `INSERT INTO leaderboard_entries (
+            entry_key, uid, player_name, is_verified, mode,
+            points, net_chips, hands_played, hands_won,
+            best_hand_name, best_hand_score,
+            achievements_json, achievement_dates_json,
+            current_win_streak, max_win_streak, stats_json, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(entry_key) DO UPDATE SET
+            uid = excluded.uid,
+            player_name = excluded.player_name,
+            is_verified = excluded.is_verified,
+            mode = excluded.mode,
+            points = excluded.points,
+            net_chips = excluded.net_chips,
+            hands_played = excluded.hands_played,
+            hands_won = excluded.hands_won,
+            best_hand_name = excluded.best_hand_name,
+            best_hand_score = excluded.best_hand_score,
+            achievements_json = excluded.achievements_json,
+            achievement_dates_json = excluded.achievement_dates_json,
+            current_win_streak = excluded.current_win_streak,
+            max_win_streak = excluded.max_win_streak,
+            stats_json = excluded.stats_json,
+            updated_at = excluded.updated_at`
+        )
+        .run(
+          entry.entryKey,
+          entry.uid ?? null,
+          entry.playerName,
+          entry.isVerified ? 1 : 0,
+          entry.mode,
+          entry.points,
+          entry.netChips,
+          entry.handsPlayed,
+          entry.handsWon,
+          entry.bestHandName,
+          entry.bestHandScore,
+          JSON.stringify(entry.achievements ?? []),
+          JSON.stringify(entry.achievementDates ?? {}),
+          entry.currentWinStreak ?? 0,
+          entry.maxWinStreak ?? 0,
+          entry.stats ? JSON.stringify(entry.stats) : null,
+          entry.updatedAt
+        );
+    } catch (err) {
+      console.error('[LeaderboardStore] Failed to persist entry:', err);
+    }
+  }
+
+  public runBatch<T>(fn: () => T): T {
+    if (this.holdemDb) {
+      return this.holdemDb.runInTransaction(fn);
+    }
+    return fn();
+  }
+
+  private resolveEntryKey(playerName: string, uid?: string | null): string {
+    if (uid && uid.trim()) return `uid:${uid.trim()}`;
+    return `name:${playerName.trim()}`;
+  }
+
+  public getPlayerProfile(
+    playerName: string,
+    uid?: string | null
+  ): {
     achievements: AchievementId[];
     achievementDates: AchievementDatesMap;
     currentWinStreak: number;
     stats: PlayerAchievementStats;
   } {
-    const cleanName = playerName.trim();
-    const existing = this.entries.get(cleanName);
+    const key = this.resolveEntryKey(playerName, uid);
+    const existing = this.entries.get(key) ?? this.entries.get(`name:${playerName.trim()}`);
     if (!existing) {
       return {
         achievements: [],
@@ -229,6 +426,8 @@ export class LeaderboardStore {
 
   public recordHandOutcome(params: {
     playerName: string;
+    uid?: string | null;
+    isPracticeWithBots?: boolean;
     netChips: number;
     won: boolean;
     potWon?: number;
@@ -240,7 +439,7 @@ export class LeaderboardStore {
     currentChips?: number;
     startingChips?: number;
     bigBlind?: number;
-  }): { entry: LeaderboardEntry; newlyUnlocked: AchievementId[] } {
+  }): { entry: LeaderboardEntry; newlyUnlocked: AchievementId[]; pointsDelta: number } {
     const cleanName = params.playerName.trim();
     if (!cleanName) {
       return {
@@ -258,10 +457,19 @@ export class LeaderboardStore {
           maxWinStreak: 0,
         },
         newlyUnlocked: [],
+        pointsDelta: 0,
       };
     }
 
-    const existing = this.entries.get(cleanName) ?? {
+    const cleanUid = params.uid?.trim() || null;
+    const entryKey = this.resolveEntryKey(cleanName, cleanUid);
+    const isPractice = Boolean(params.isPracticeWithBots);
+
+    const existing: StoredLeaderboardEntry = this.entries.get(entryKey) ?? {
+      entryKey,
+      uid: cleanUid,
+      isVerified: Boolean(cleanUid),
+      mode: isPractice ? 'practice' : 'ranked',
       playerName: cleanName,
       points: 1000,
       netChips: 0,
@@ -271,6 +479,7 @@ export class LeaderboardStore {
       bestHandScore: 0,
       updatedAt: Date.now(),
       achievements: [],
+      achievementDates: {},
       currentWinStreak: 0,
       maxWinStreak: 0,
     };
@@ -296,12 +505,28 @@ export class LeaderboardStore {
       bigBlind: params.bigBlind ?? 20,
     });
 
+    const pointsDelta = computeNormalizedPointsDelta({
+      netChips: params.netChips,
+      bigBlind: params.bigBlind ?? 20,
+      won: params.won,
+      isPracticeWithBots: isPractice,
+    });
+
+    existing.playerName = cleanName;
+    if (cleanUid) {
+      existing.uid = cleanUid;
+      existing.isVerified = true;
+    }
+    if (!isPractice) {
+      existing.mode = 'ranked';
+    }
     existing.handsPlayed += 1;
     if (params.won) {
       existing.handsWon += 1;
     }
-    existing.netChips += params.netChips;
-    existing.points = Math.max(0, 1000 + existing.netChips + existing.handsWon * 20);
+    existing.netChips += Math.trunc(params.netChips);
+    existing.points = Math.max(0, existing.points + pointsDelta);
+
     if (
       params.handName &&
       typeof params.handScore === 'number' &&
@@ -323,22 +548,29 @@ export class LeaderboardStore {
     existing.maxWinStreak = achResult.nextStats.maxWinStreak;
     existing.updatedAt = nowMs;
 
-    this.entries.set(cleanName, existing);
-    this.save();
+    this.entries.set(entryKey, existing);
+    this.persistEntry(existing);
 
     return {
-      entry: existing,
+      entry: this.toPublic(existing),
       newlyUnlocked: achResult.newlyUnlocked,
+      pointsDelta,
     };
   }
 
-  public getRankedList(limit: number = 30): LeaderboardEntry[] {
+  public getRankedList(limit: number = 30, mode: LeaderboardMode = 'all'): LeaderboardEntry[] {
     return Array.from(this.entries.values())
+      .filter((entry) => {
+        if (mode === 'all') return true;
+        if (mode === 'ranked') return entry.mode === 'ranked' || entry.mode === 'all';
+        return entry.mode === 'practice';
+      })
       .sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
         if (b.handsWon !== a.handsWon) return b.handsWon - a.handsWon;
         return b.updatedAt - a.updatedAt;
       })
-      .slice(0, limit);
+      .slice(0, limit)
+      .map((e) => this.toPublic(e));
   }
 }

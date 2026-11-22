@@ -1,16 +1,20 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 import {
+  applyHandToAchievementStats,
+  createEmptyAchievementStats,
   mergeAchievementDates,
   sanitizeAchievementDates,
   sanitizeAchievementIds,
   type AchievementDatesMap,
   type AchievementId,
+  type PlayerAchievementStats,
 } from '../src/shared/achievements';
-import { sanitizeAvatar } from '../src/shared/avatarUtils';
-import type { LeaderboardEntry } from '../src/shared/types';
+import { MAX_CUSTOM_AVATAR_BYTES, sanitizeAvatar } from '../src/shared/avatarUtils';
+import type { HandCategory, LeaderboardEntry } from '../src/shared/types';
+import { getSharedDatabase, resolveDataDir, type HoldemDatabase } from './db';
 
 export interface EmailAccountProfile {
   uid: string;
@@ -30,6 +34,11 @@ export interface EmailAccountProfile {
   bgmEnabled: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+interface InternalAccountRecord extends EmailAccountProfile {
+  tokenVersion: number;
+  stats: PlayerAchievementStats;
 }
 
 interface PendingOtpRecord {
@@ -59,9 +68,15 @@ export interface VerifyOtpResult {
   profile?: EmailAccountProfile;
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
-const SESSION_SECRET_FILE = path.join(DATA_DIR, '.session_secret');
+function getDataDir(): string {
+  return resolveDataDir();
+}
+function getLegacyAccountsFile(): string {
+  return path.join(getDataDir(), 'accounts.json');
+}
+function getSessionSecretFile(): string {
+  return path.join(getDataDir(), '.session_secret');
+}
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_COOLDOWN_MS = 60 * 1000;
@@ -69,6 +84,9 @@ const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+let cachedSmtpKey: string | null = null;
+let cachedSmtpTransport: Transporter | null = null;
 
 export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase().slice(0, 160);
@@ -86,11 +104,33 @@ function clampName(val: string | undefined, fallback: string): string {
 
 function clampAvatar(raw: string | undefined): string {
   const safe = sanitizeAvatar(raw);
-  return safe.length <= 32768 ? safe : 'default';
+  return safe.length <= MAX_CUSTOM_AVATAR_BYTES ? safe : 'default';
 }
 
 function hashOtp(salt: string, code: string): string {
   return crypto.createHash('sha256').update(`${salt}:${code}`).digest('hex');
+}
+
+function toPublicProfile(rec: InternalAccountRecord): EmailAccountProfile {
+  return {
+    uid: rec.uid,
+    email: rec.email,
+    displayName: rec.displayName,
+    avatar: rec.avatar,
+    points: rec.points,
+    netChips: rec.netChips,
+    handsPlayed: rec.handsPlayed,
+    handsWon: rec.handsWon,
+    bestHandName: rec.bestHandName,
+    bestHandScore: rec.bestHandScore,
+    achievements: rec.achievements,
+    achievementDates: rec.achievementDates,
+    currentWinStreak: rec.currentWinStreak,
+    maxWinStreak: rec.maxWinStreak,
+    bgmEnabled: rec.bgmEnabled,
+    createdAt: rec.createdAt,
+    updatedAt: rec.updatedAt,
+  };
 }
 
 function resolveSessionSecret(customSecret?: string): string {
@@ -102,15 +142,17 @@ function resolveSessionSecret(customSecret?: string): string {
     return envSecret;
   }
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    const dataDir = getDataDir();
+    const secretFile = getSessionSecretFile();
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
     }
-    if (fs.existsSync(SESSION_SECRET_FILE)) {
-      const stored = fs.readFileSync(SESSION_SECRET_FILE, 'utf-8').trim();
+    if (fs.existsSync(secretFile)) {
+      const stored = fs.readFileSync(secretFile, 'utf-8').trim();
       if (stored.length >= 32) return stored;
     }
     const generated = crypto.randomBytes(32).toString('hex');
-    fs.writeFileSync(SESSION_SECRET_FILE, generated, { encoding: 'utf-8', mode: 0o600 });
+    fs.writeFileSync(secretFile, generated, { encoding: 'utf-8', mode: 0o600 });
     return generated;
   } catch {
     return crypto.randomBytes(32).toString('hex');
@@ -125,7 +167,7 @@ async function deliverOtpEmail(
   const fromAddress =
     process.env.SMTP_FROM?.trim() ||
     process.env.SMTP_USER?.trim() ||
-    'Velvet Hold\'em <noreply@velvetholdem.local>';
+    "Velvet Hold'em <noreply@velvetholdem.local>";
 
   const subject = `Velvet Hold'em 登录验证码：${code}`;
   const textBody = `您的 Velvet Hold'em 邮箱登录验证码为：${code}（10 分钟内有效，请勿泄露给他人）。`;
@@ -144,6 +186,7 @@ async function deliverOtpEmail(
   if (resendKey) {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
+      signal: AbortSignal.timeout(10_000),
       headers: {
         Authorization: `Bearer ${resendKey}`,
         'Content-Type': 'application/json',
@@ -168,13 +211,18 @@ async function deliverOtpEmail(
   const smtpPass = process.env.SMTP_PASS?.trim();
   if (smtpHost && smtpUser && smtpPass) {
     const port = Number(process.env.SMTP_PORT) || 587;
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port,
-      secure: port === 465,
-      auth: { user: smtpUser, pass: smtpPass },
-    });
-    await transporter.sendMail({
+    const key = `${smtpHost}:${port}:${smtpUser}`;
+    if (!cachedSmtpTransport || cachedSmtpKey !== key) {
+      const { default: nodemailer } = await import('nodemailer');
+      cachedSmtpKey = key;
+      cachedSmtpTransport = nodemailer.createTransport({
+        host: smtpHost,
+        port,
+        secure: port === 465,
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+    }
+    await cachedSmtpTransport.sendMail({
       from: fromAddress,
       to: toEmail,
       subject,
@@ -188,18 +236,19 @@ async function deliverOtpEmail(
 }
 
 export interface AuthStoreOptions {
-  persistenceFile?: string;
+  database?: HoldemDatabase;
+  legacyJsonFile?: string;
   sessionSecret?: string;
   disableDiskPersistence?: boolean;
   emailSender?: (email: string, code: string) => Promise<{ delivered: boolean; mode: OtpDeliveryMode }>;
 }
 
 export class EmailAuthStore {
-  private accountsByEmail = new Map<string, EmailAccountProfile>();
-  private accountsByUid = new Map<string, EmailAccountProfile>();
+  private accountsByEmail = new Map<string, InternalAccountRecord>();
+  private accountsByUid = new Map<string, InternalAccountRecord>();
   private pendingOtps = new Map<string, PendingOtpRecord>();
-  private readonly persistenceFile: string;
-  private readonly disableDiskPersistence: boolean;
+  private readonly holdemDb: HoldemDatabase | null;
+  private readonly legacyJsonFile: string;
   private readonly sessionSecret: string;
   private readonly emailSender: (
     email: string,
@@ -207,29 +256,108 @@ export class EmailAuthStore {
   ) => Promise<{ delivered: boolean; mode: OtpDeliveryMode }>;
 
   constructor(options: AuthStoreOptions = {}) {
-    this.persistenceFile = options.persistenceFile ?? ACCOUNTS_FILE;
-    this.disableDiskPersistence = Boolean(options.disableDiskPersistence);
+    this.legacyJsonFile = options.legacyJsonFile ?? getLegacyAccountsFile();
+    this.holdemDb = options.disableDiskPersistence
+      ? null
+      : (options.database ?? getSharedDatabase());
     this.sessionSecret = resolveSessionSecret(options.sessionSecret);
     this.emailSender = options.emailSender ?? deliverOtpEmail;
-    if (!this.disableDiskPersistence) {
-      this.load();
+    if (this.holdemDb) {
+      this.loadFromDb();
     }
   }
 
-  private load(): void {
+  private loadFromDb(): void {
+    if (!this.holdemDb) return;
     try {
-      const dir = path.dirname(this.persistenceFile);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+      const rows = this.holdemDb.db
+        .prepare('SELECT * FROM accounts')
+        .all() as Array<Record<string, unknown>>;
+
+      if (rows.length === 0) {
+        this.migrateLegacyJsonIfPresent();
+        return;
       }
-      if (!fs.existsSync(this.persistenceFile)) return;
-      const raw = fs.readFileSync(this.persistenceFile, 'utf-8');
+
+      for (const row of rows) {
+        const email = normalizeEmail(String(row.email ?? ''));
+        const uid = String(row.uid ?? '');
+        if (!email || !uid) continue;
+
+        let parsedAch: unknown = [];
+        let parsedDates: unknown = {};
+        let parsedStats: PlayerAchievementStats | null = null;
+        try {
+          parsedAch = JSON.parse(String(row.achievements_json ?? '[]'));
+        } catch {
+          parsedAch = [];
+        }
+        try {
+          parsedDates = JSON.parse(String(row.achievement_dates_json ?? '{}'));
+        } catch {
+          parsedDates = {};
+        }
+        try {
+          if (row.stats_json) {
+            parsedStats = JSON.parse(String(row.stats_json)) as PlayerAchievementStats;
+          }
+        } catch {
+          parsedStats = null;
+        }
+
+        const handsPlayed = Number(row.hands_played) || 0;
+        const handsWon = Number(row.hands_won) || 0;
+        const currentWinStreak = Number(row.current_win_streak) || 0;
+        const maxWinStreak = Number(row.max_win_streak) || 0;
+        const netChips = Number(row.net_chips) || 0;
+
+        const rec: InternalAccountRecord = {
+          uid,
+          email,
+          displayName: clampName(String(row.display_name ?? ''), email.split('@')[0] || '牌手'),
+          avatar: clampAvatar(String(row.avatar ?? 'default')),
+          points: Number(row.points) || 1000,
+          netChips,
+          handsPlayed,
+          handsWon,
+          bestHandName: clampName(String(row.best_hand_name ?? '高牌'), '高牌'),
+          bestHandScore: Number(row.best_hand_score) || 0,
+          achievements: sanitizeAchievementIds(parsedAch),
+          achievementDates: sanitizeAchievementDates(parsedDates),
+          currentWinStreak,
+          maxWinStreak,
+          bgmEnabled: Number(row.bgm_enabled) !== 0,
+          tokenVersion: Math.max(1, Number(row.token_version) || 1),
+          stats: parsedStats ?? {
+            ...createEmptyAchievementStats(),
+            handsPlayed,
+            handsWon,
+            currentWinStreak,
+            maxWinStreak,
+            netChips,
+          },
+          createdAt: Number(row.created_at) || Date.now(),
+          updatedAt: Number(row.updated_at) || Date.now(),
+        };
+        this.accountsByEmail.set(email, rec);
+        this.accountsByUid.set(uid, rec);
+      }
+    } catch (err) {
+      console.error('[AuthStore] Failed to load SQLite accounts:', err);
+    }
+  }
+
+  private migrateLegacyJsonIfPresent(): void {
+    try {
+      if (!fs.existsSync(this.legacyJsonFile)) return;
+      const raw = fs.readFileSync(this.legacyJsonFile, 'utf-8');
       const parsed = JSON.parse(raw) as EmailAccountProfile[];
-      if (!Array.isArray(parsed)) return;
+      if (!Array.isArray(parsed) || parsed.length === 0) return;
+
       for (const acc of parsed) {
         if (!acc || typeof acc.email !== 'string' || typeof acc.uid !== 'string') continue;
         const email = normalizeEmail(acc.email);
-        const normalized: EmailAccountProfile = {
+        const rec: InternalAccountRecord = {
           uid: acc.uid,
           email,
           displayName: clampName(acc.displayName, email.split('@')[0] || '牌手'),
@@ -246,35 +374,99 @@ export class EmailAuthStore {
             typeof acc.currentWinStreak === 'number' ? Math.floor(acc.currentWinStreak) : 0,
           maxWinStreak: typeof acc.maxWinStreak === 'number' ? Math.floor(acc.maxWinStreak) : 0,
           bgmEnabled: acc.bgmEnabled !== false,
+          tokenVersion: 1,
+          stats: {
+            ...createEmptyAchievementStats(),
+            handsPlayed: typeof acc.handsPlayed === 'number' ? Math.floor(acc.handsPlayed) : 0,
+            handsWon: typeof acc.handsWon === 'number' ? Math.floor(acc.handsWon) : 0,
+            currentWinStreak:
+              typeof acc.currentWinStreak === 'number' ? Math.floor(acc.currentWinStreak) : 0,
+            maxWinStreak: typeof acc.maxWinStreak === 'number' ? Math.floor(acc.maxWinStreak) : 0,
+            netChips: typeof acc.netChips === 'number' ? acc.netChips : 0,
+          },
           createdAt: typeof acc.createdAt === 'number' ? acc.createdAt : Date.now(),
           updatedAt: typeof acc.updatedAt === 'number' ? acc.updatedAt : Date.now(),
         };
-        this.accountsByEmail.set(email, normalized);
-        this.accountsByUid.set(normalized.uid, normalized);
+        this.accountsByEmail.set(email, rec);
+        this.accountsByUid.set(rec.uid, rec);
+        this.persistAccount(rec);
       }
     } catch {
-      // Ignore corrupt disk state
+      // Ignore corrupt legacy file
     }
   }
 
-  private save(): void {
-    if (this.disableDiskPersistence) return;
+  private persistAccount(rec: InternalAccountRecord): void {
+    if (!this.holdemDb) return;
     try {
-      const dir = path.dirname(this.persistenceFile);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(
-        this.persistenceFile,
-        JSON.stringify(Array.from(this.accountsByEmail.values()), null, 2),
-        'utf-8'
-      );
-    } catch {
-      // Ignore write failures on read-only systems
+      this.holdemDb.db
+        .prepare(
+          `INSERT INTO accounts (
+            uid, email, display_name, avatar, points, net_chips,
+            hands_played, hands_won, best_hand_name, best_hand_score,
+            achievements_json, achievement_dates_json, current_win_streak,
+            max_win_streak, stats_json, bgm_enabled, token_version,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(uid) DO UPDATE SET
+            display_name = excluded.display_name,
+            avatar = excluded.avatar,
+            points = excluded.points,
+            net_chips = excluded.net_chips,
+            hands_played = excluded.hands_played,
+            hands_won = excluded.hands_won,
+            best_hand_name = excluded.best_hand_name,
+            best_hand_score = excluded.best_hand_score,
+            achievements_json = excluded.achievements_json,
+            achievement_dates_json = excluded.achievement_dates_json,
+            current_win_streak = excluded.current_win_streak,
+            max_win_streak = excluded.max_win_streak,
+            stats_json = excluded.stats_json,
+            bgm_enabled = excluded.bgm_enabled,
+            token_version = excluded.token_version,
+            updated_at = excluded.updated_at`
+        )
+        .run(
+          rec.uid,
+          rec.email,
+          rec.displayName,
+          rec.avatar,
+          rec.points,
+          rec.netChips,
+          rec.handsPlayed,
+          rec.handsWon,
+          rec.bestHandName,
+          rec.bestHandScore,
+          JSON.stringify(rec.achievements),
+          JSON.stringify(rec.achievementDates),
+          rec.currentWinStreak,
+          rec.maxWinStreak,
+          JSON.stringify(rec.stats),
+          rec.bgmEnabled ? 1 : 0,
+          rec.tokenVersion,
+          rec.createdAt,
+          rec.updatedAt
+        );
+    } catch (err) {
+      console.error('[AuthStore] Failed to persist account:', err);
     }
+  }
+
+  public pruneExpiredOtps(now: number = Date.now()): void {
+    for (const [email, rec] of this.pendingOtps.entries()) {
+      if (now > rec.expiresAt) {
+        this.pendingOtps.delete(email);
+      }
+    }
+  }
+
+  public getProfileByUid(uid: string): EmailAccountProfile | null {
+    const rec = this.accountsByUid.get(uid);
+    return rec ? toPublicProfile(rec) : null;
   }
 
   public async requestOtp(rawEmail: string, now: number = Date.now()): Promise<RequestOtpResult> {
+    this.pruneExpiredOtps(now);
     const email = normalizeEmail(rawEmail);
     if (!isValidEmail(email)) {
       return { ok: false, error: '请输入有效的邮箱地址' };
@@ -385,11 +577,11 @@ export class EmailAuthStore {
 
     this.pendingOtps.delete(email);
 
-    let profile = this.accountsByEmail.get(email);
-    if (!profile) {
+    let rec = this.accountsByEmail.get(email);
+    if (!rec) {
       const uid = `u_${crypto.createHash('sha256').update(email).digest('hex').slice(0, 16)}`;
       const fallbackName = email.split('@')[0] || '俱乐部牌手';
-      profile = {
+      rec = {
         uid,
         email,
         displayName: clampName(defaults?.displayName, fallbackName),
@@ -405,25 +597,33 @@ export class EmailAuthStore {
         currentWinStreak: 0,
         maxWinStreak: 0,
         bgmEnabled: true,
+        tokenVersion: 1,
+        stats: createEmptyAchievementStats(),
         createdAt: now,
         updatedAt: now,
       };
-      this.accountsByEmail.set(email, profile);
-      this.accountsByUid.set(uid, profile);
-      this.save();
+      this.accountsByEmail.set(email, rec);
+      this.accountsByUid.set(uid, rec);
+      this.persistAccount(rec);
     } else {
-      profile.updatedAt = now;
-      this.save();
+      rec.updatedAt = now;
+      this.persistAccount(rec);
     }
 
-    const token = this.signSessionToken(profile.uid, profile.email, now);
-    return { ok: true, token, profile };
+    const token = this.signSessionToken(rec.uid, rec.email, rec.tokenVersion, now);
+    return { ok: true, token, profile: toPublicProfile(rec) };
   }
 
-  public signSessionToken(uid: string, email: string, now: number = Date.now()): string {
+  public signSessionToken(
+    uid: string,
+    email: string,
+    tokenVersion: number = 1,
+    now: number = Date.now()
+  ): string {
     const payload = {
       uid,
       email,
+      ver: tokenVersion,
       iat: now,
       exp: now + SESSION_TTL_MS,
     };
@@ -460,15 +660,33 @@ export class EmailAuthStore {
       const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf-8')) as {
         uid?: string;
         email?: string;
+        ver?: number;
         exp?: number;
       };
       if (!payload.uid || typeof payload.exp !== 'number' || now > payload.exp) {
         return null;
       }
-      return this.accountsByUid.get(payload.uid) ?? null;
+      const rec = this.accountsByUid.get(payload.uid);
+      if (!rec) return null;
+      const tokenVer = typeof payload.ver === 'number' ? payload.ver : 1;
+      if (tokenVer !== rec.tokenVersion) {
+        return null;
+      }
+      return toPublicProfile(rec);
     } catch {
       return null;
     }
+  }
+
+  public revokeSessionToken(token: string | undefined | null, now: number = Date.now()): boolean {
+    const profile = this.verifySessionToken(token, now);
+    if (!profile) return false;
+    const rec = this.accountsByUid.get(profile.uid);
+    if (!rec) return false;
+    rec.tokenVersion += 1;
+    rec.updatedAt = now;
+    this.persistAccount(rec);
+    return true;
   }
 
   public updatePreferences(
@@ -476,74 +694,103 @@ export class EmailAuthStore {
     patch: { displayName?: string; avatar?: string; bgmEnabled?: boolean },
     now: number = Date.now()
   ): EmailAccountProfile | null {
-    const acc = this.accountsByUid.get(uid);
-    if (!acc) return null;
+    const rec = this.accountsByUid.get(uid);
+    if (!rec) return null;
     if (patch.displayName !== undefined) {
-      acc.displayName = clampName(patch.displayName, acc.displayName);
+      rec.displayName = clampName(patch.displayName, rec.displayName);
     }
     if (patch.avatar !== undefined) {
-      acc.avatar = clampAvatar(patch.avatar);
+      rec.avatar = clampAvatar(patch.avatar);
     }
     if (patch.bgmEnabled !== undefined) {
-      acc.bgmEnabled = Boolean(patch.bgmEnabled);
+      rec.bgmEnabled = Boolean(patch.bgmEnabled);
     }
-    acc.updatedAt = now;
-    this.save();
-    return acc;
+    rec.updatedAt = now;
+    this.persistAccount(rec);
+    return toPublicProfile(rec);
+  }
+
+  public recordAuthoritativeHandOutcome(
+    uid: string,
+    params: {
+      netChips: number;
+      normalizedPointsDelta: number;
+      won: boolean;
+      potWon?: number;
+      wasAllIn?: boolean;
+      wonByFold?: boolean;
+      handName?: string;
+      handScore?: number;
+      handCategory?: HandCategory;
+      currentChips?: number;
+      startingChips?: number;
+      bigBlind?: number;
+    },
+    now: number = Date.now()
+  ): { profile: EmailAccountProfile; newlyUnlocked: AchievementId[] } | null {
+    const rec = this.accountsByUid.get(uid);
+    if (!rec) return null;
+
+    const achResult = applyHandToAchievementStats(rec.stats, rec.achievements, {
+      won: params.won,
+      potWon: params.potWon ?? 0,
+      netChips: params.netChips,
+      wasAllIn: Boolean(params.wasAllIn),
+      wonByFold: Boolean(params.wonByFold),
+      handCategory: params.handCategory ?? null,
+      currentChips: params.currentChips ?? 0,
+      startingChips: params.startingChips ?? 2000,
+      bigBlind: params.bigBlind ?? 20,
+    });
+
+    rec.handsPlayed += 1;
+    if (params.won) {
+      rec.handsWon += 1;
+    }
+    rec.netChips += Math.trunc(params.netChips);
+    rec.points = Math.max(0, Math.round(rec.points + params.normalizedPointsDelta));
+
+    if (
+      params.handName &&
+      typeof params.handScore === 'number' &&
+      params.handScore > rec.bestHandScore
+    ) {
+      rec.bestHandName = clampName(params.handName, '高牌');
+      rec.bestHandScore = params.handScore;
+    }
+
+    rec.stats = achResult.nextStats;
+    rec.achievements = achResult.unlocked;
+    rec.achievementDates = mergeAchievementDates(
+      rec.achievementDates,
+      achResult.unlocked,
+      achResult.newlyUnlocked,
+      now
+    );
+    rec.currentWinStreak = achResult.nextStats.currentWinStreak;
+    rec.maxWinStreak = achResult.nextStats.maxWinStreak;
+    rec.updatedAt = now;
+
+    this.persistAccount(rec);
+    return {
+      profile: toPublicProfile(rec),
+      newlyUnlocked: achResult.newlyUnlocked,
+    };
   }
 
   public syncMatchOutcome(
     uid: string,
-    entry: LeaderboardEntry,
+    _entry: LeaderboardEntry,
     avatar?: string,
     now: number = Date.now()
   ): EmailAccountProfile | null {
-    const acc = this.accountsByUid.get(uid);
-    if (!acc) return null;
-
-    const mergedAch = sanitizeAchievementIds([
-      ...acc.achievements,
-      ...(entry.achievements ?? []),
-    ]);
-    const newlyAdded = mergedAch.filter((id) => !acc.achievements.includes(id));
-    const mergedDates = mergeAchievementDates(
-      { ...acc.achievementDates, ...(entry.achievementDates ?? {}) },
-      mergedAch,
-      newlyAdded,
-      now
-    );
-
-    const safeHandsPlayed = Math.max(acc.handsPlayed, Math.floor(entry.handsPlayed || 0));
-    const safeHandsWon = Math.min(
-      safeHandsPlayed,
-      Math.max(acc.handsWon, Math.floor(entry.handsWon || 0))
-    );
-    const safeCurrentStreak = Math.max(0, Math.floor(entry.currentWinStreak ?? 0));
-    const safeMaxStreak = Math.max(
-      acc.maxWinStreak,
-      safeCurrentStreak,
-      Math.floor(entry.maxWinStreak ?? 0)
-    );
-    const safeBestScore = Math.max(acc.bestHandScore, Number(entry.bestHandScore) || 0);
-    const safeBestName =
-      (Number(entry.bestHandScore) || 0) > acc.bestHandScore && entry.bestHandName
-        ? clampName(entry.bestHandName, '高牌')
-        : acc.bestHandName;
-
-    acc.displayName = clampName(entry.playerName || acc.displayName, acc.displayName);
-    acc.avatar = clampAvatar(avatar ?? acc.avatar);
-    acc.points = Math.max(0, Math.min(100_000_000, Math.floor(entry.points || 0)));
-    acc.netChips = Math.max(-10_000_000, Math.min(100_000_000, Math.floor(entry.netChips || 0)));
-    acc.handsPlayed = safeHandsPlayed;
-    acc.handsWon = safeHandsWon;
-    acc.bestHandName = safeBestName;
-    acc.bestHandScore = safeBestScore;
-    acc.achievements = mergedAch;
-    acc.achievementDates = mergedDates;
-    acc.currentWinStreak = safeCurrentStreak;
-    acc.maxWinStreak = safeMaxStreak;
-    acc.updatedAt = now;
-    this.save();
-    return acc;
+    const rec = this.accountsByUid.get(uid);
+    if (!rec) return null;
+    if (avatar !== undefined) {
+      rec.avatar = clampAvatar(avatar);
+      rec.updatedAt = now;
+      this.persistAccount(rec);
+    }
+    return toPublicProfile(rec);
   }
 }

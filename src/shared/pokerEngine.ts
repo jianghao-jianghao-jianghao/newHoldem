@@ -12,6 +12,7 @@ import type {
   PlayerAction,
   PotTimelinePoint,
   Rank,
+  SidePotInfo,
   StreetPhase,
   Suit,
   TablePlayer,
@@ -393,12 +394,12 @@ export function removePlayerFromTable(state: TableState, playerId: string): void
   const wasActiveHand = state.phase !== 'waiting' && state.phase !== 'showdown';
   if (wasActiveHand && removed.inHand && !removed.folded) {
     if (state.currentTurnPlayerId === playerId) {
-      applyPlayerAction(state, playerId, { type: 'fold' });
+      applyPlayerAction(state, playerId, { type: 'fold' }, Date.now(), { stepAllIn: true });
     } else {
       removed.folded = true;
       removed.actedThisRound = true;
       removed.lastActionLabel = '离开弃牌';
-      checkAndAdvanceAfterPassiveFold(state);
+      checkAndAdvanceAfterPassiveFold(state, { stepAllIn: true });
     }
   }
 
@@ -876,9 +877,30 @@ export function applyPlayerAction(
   return advanceAfterAction(state, player.seatIndex, now, options);
 }
 
-function checkAndAdvanceAfterPassiveFold(state: TableState): void {
+function checkAndAdvanceAfterPassiveFold(
+  state: TableState,
+  options: EngineOptions = {}
+): void {
+  const now = Date.now();
   if (countNonFoldedPlayers(state) <= 1) {
-    resolveFoldWin(state, Date.now());
+    resolveFoldWin(state, now);
+    return;
+  }
+
+  // If a passive fold reduced able-to-act players below 2 and all remaining bets are matched,
+  // avoid prompting a lone non-all-in player into a dry street — advance into all-in runout/showdown.
+  const ableToAct = state.players.filter((p) => p.inHand && !p.folded && !p.allIn);
+  const pendingActors = ableToAct.filter(
+    (p) => !p.actedThisRound || p.currentBet < state.currentBet
+  );
+  if (ableToAct.length < 2 && pendingActors.length === 0) {
+    if (options.stepAllIn && state.phase !== 'river') {
+      state.allInRunout = true;
+      state.currentTurnPlayerId = null;
+      state.turnDeadline = null;
+      return;
+    }
+    runOutToShowdown(state, now);
   }
 }
 
@@ -1366,6 +1388,61 @@ function resolveShowdown(state: TableState, now: number = Date.now()): void {
 }
 
 /**
+ * Computes itemized Main Pot + Side Pot(s) from current contributions and dead money.
+ */
+export function computeSidePots(state: TableState): SidePotInfo[] {
+  if (state.pot <= 0) return [];
+  const contenders = state.players.filter((p) => p.inHand && !p.folded);
+  if (contenders.length === 0) return [];
+
+  const deadContribs = (state.deadContributions ?? []).filter((c) => c > 0);
+  const levels = Array.from(
+    new Set([
+      ...state.players.filter((p) => p.totalContributed > 0).map((p) => p.totalContributed),
+      ...deadContribs,
+    ])
+  ).sort((a, b) => a - b);
+
+  const rawTiers: Array<{ amount: number; eligibleIds: string[] }> = [];
+  let prevLevel = 0;
+
+  for (const level of levels) {
+    let sliceAmount = 0;
+    for (const p of state.players) {
+      sliceAmount += Math.max(0, Math.min(p.totalContributed, level) - prevLevel);
+    }
+    for (const dc of deadContribs) {
+      sliceAmount += Math.max(0, Math.min(dc, level) - prevLevel);
+    }
+    prevLevel = level;
+    if (sliceAmount <= 0) continue;
+
+    let eligible = contenders.filter((p) => p.totalContributed >= level);
+    if (eligible.length === 0) {
+      const maxC = Math.max(...contenders.map((p) => p.totalContributed));
+      eligible = contenders.filter((p) => p.totalContributed === maxC);
+    }
+    const eligibleIds = eligible.map((p) => p.id).sort();
+    const prevTier = rawTiers[rawTiers.length - 1];
+    if (
+      prevTier &&
+      prevTier.eligibleIds.length === eligibleIds.length &&
+      prevTier.eligibleIds.every((id, idx) => id === eligibleIds[idx])
+    ) {
+      prevTier.amount += sliceAmount;
+    } else {
+      rawTiers.push({ amount: sliceAmount, eligibleIds });
+    }
+  }
+
+  return rawTiers.map((tier, idx) => ({
+    amount: tier.amount,
+    eligiblePlayerIds: tier.eligibleIds,
+    isMain: idx === 0,
+  }));
+}
+
+/**
  * Produces a player-specific view where opponents' hole cards remain hidden until showdown/all-in runout/reveal.
  */
 export function sanitizeTableForPlayer(state: TableState, viewerId: string): ClientTableView {
@@ -1453,6 +1530,7 @@ export function sanitizeTableForPlayer(state: TableState, viewerId: string): Cli
     autoNextHandEnabled: state.autoNextHandEnabled,
     canRevealMyCards,
     pot: state.pot,
+    sidePots: computeSidePots(state),
     currentBet: state.currentBet,
     minRaise: state.minRaise,
     communityCards: state.communityCards,

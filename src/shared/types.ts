@@ -89,6 +89,12 @@ export interface WinnerInfo {
   netChange: number;
 }
 
+export interface SidePotInfo {
+  amount: number;
+  eligiblePlayerIds: string[];
+  isMain: boolean;
+}
+
 export interface PotTimelinePoint {
   step: number;
   street: StreetPhase;
@@ -254,6 +260,7 @@ export interface ClientTableView {
   autoNextHandEnabled: boolean;
   canRevealMyCards: boolean;
   pot: number;
+  sidePots?: SidePotInfo[];
   currentBet: number;
   minRaise: number;
   communityCards: Card[];
@@ -318,6 +325,7 @@ export type ClientWsMessage =
         playerId: string;
         playerName: string;
         seatSecret?: string;
+        authToken?: string;
         avatar?: string;
         achievements?: AchievementId[];
         achievementDates?: AchievementDatesMap;

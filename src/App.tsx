@@ -231,12 +231,14 @@ export default function App() {
         }, 15_000);
 
         if (joinedRoomRef.current) {
+          const authToken = localStorage.getItem('velvet_holdem_auth_token') ?? undefined;
           ws.send(
             JSON.stringify({
               type: 'join_room',
               roomId: joinedRoomRef.current.roomId,
               playerId,
               seatSecret,
+              authToken,
               playerName: joinedRoomRef.current.name,
               avatar: joinedRoomRef.current.avatar,
             } satisfies ClientWsMessage)
@@ -505,11 +507,13 @@ export default function App() {
       if (profile) {
         void updatePreferences({ displayName: cleanName, avatar: cleanAvatar });
       }
+      const authToken = localStorage.getItem('velvet_holdem_auth_token') ?? undefined;
       sendWs({
         type: 'join_room',
         roomId: cleanRoom,
         playerId,
         seatSecret,
+        authToken,
         playerName: cleanName,
         avatar: cleanAvatar,
         achievements: profile?.achievements,
@@ -564,6 +568,7 @@ export default function App() {
           method: 'DELETE',
           headers: {
             'X-Player-Id': playerId,
+            'X-Seat-Secret': seatSecret,
           },
         });
         if (!res.ok) {
@@ -577,7 +582,7 @@ export default function App() {
         setErrorMsg('删除牌桌失败，无法连接服务器');
       }
     },
-    [playerId]
+    [playerId, seatSecret]
   );
 
   const handleLeaveRoom = useCallback(() => {
