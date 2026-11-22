@@ -212,7 +212,11 @@
 ## 系统架构
 
 <p align="center">
-  <img src="docs/media/architecture.svg" alt="Velvet Hold'em 系统架构图" width="100%" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/architecture-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/media/architecture-light.svg" />
+    <img src="docs/media/architecture-dark.svg" alt="Velvet Hold'em 系统架构图" width="100%" />
+  </picture>
 </p>
 
 <details>

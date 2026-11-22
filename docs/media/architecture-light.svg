@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 396" width="1040" height="396" fill="none">
+  <defs>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#E2E8F0"/>
+    </pattern>
+    <filter id="softShadow" x="-8%" y="-8%" width="116%" height="124%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#0F172A" flood-opacity="0.06"/>
+    </filter>
+    <marker id="arrAccent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1.5 1.5 L 8.5 5 L 1.5 8.5" fill="none" stroke="#9A6E1C" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrWire" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1.5 1.5 L 8.5 5 L 1.5 8.5" fill="none" stroke="#94A3B8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1.5 1.5 L 8.5 5 L 1.5 8.5" fill="none" stroke="#1E6B4B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- Canvas & subtle engineering dot grid -->
+  <rect width="1040" height="396" rx="12" fill="#FFFFFF"/>
+  <rect x="8" y="8" width="1024" height="380" rx="8" fill="url(#dots)"/>
+
+  <!-- ==================== ZONE 1: BROWSER CLIENT ==================== -->
+  <rect x="24" y="28" width="222" height="340" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="40" y="54" fill="#64748B" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="11" letter-spacing="0.8">BROWSER CLIENT</text>
+
+  <!-- Client Card 1: 3D/2D Table -->
+  <g filter="url(#softShadow)">
+    <rect x="40" y="72" width="190" height="76" rx="8" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1"/>
+  </g>
+  <g transform="translate(54, 92)" stroke="#9A6E1C" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 1 L17 5.5 L17 14.5 L9 19 L1 14.5 L1 5.5 Z"/>
+    <path d="M1 5.5 L9 10 L17 5.5 M9 10 L9 19"/>
+  </g>
+  <text x="82" y="102" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13.5" font-weight="600">3D / 2D 牌桌渲染</text>
+  <text x="82" y="122" fill="#475569" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5">Three.js · 2D Fallback</text>
+
+  <!-- Client Card 2: FX & Audio -->
+  <g filter="url(#softShadow)">
+    <rect x="40" y="164" width="190" height="76" rx="8" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1"/>
+  </g>
+  <g transform="translate(54, 184)" stroke="#475569" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 10 L5 10 L7 4 L11 16 L13 10 L16 10"/>
+  </g>
+  <text x="82" y="194" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13.5" font-weight="600">打击特效与声效</text>
+  <text x="82" y="214" fill="#475569" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5">Canvas 2D · Web Audio</text>
+
+  <!-- Client Card 3: UI & Ledger -->
+  <g filter="url(#softShadow)">
+    <rect x="40" y="256" width="190" height="76" rx="8" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1"/>
+  </g>
+  <g transform="translate(54, 276)" stroke="#475569" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="1" y="2" width="16" height="14" rx="2"/>
+    <path d="M1 7 L17 7 M7 7 L7 16"/>
+  </g>
+  <text x="82" y="286" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13.5" font-weight="600">交互台与账簿复盘</text>
+  <text x="82" y="306" fill="#475569" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5">React 19 · Recharts</text>
+
+  <!-- ==================== BUS: CLIENT <-> GATEWAY ==================== -->
+  <!-- WebSocket wire -->
+  <path d="M 248 152 L 344 152" stroke="#9A6E1C" stroke-width="1.5" marker-start="url(#arrAccent)" marker-end="url(#arrAccent)"/>
+  <rect x="266" y="139" width="60" height="24" rx="12" fill="#FFFFFF" stroke="#9A6E1C" stroke-width="1"/>
+  <text x="296" y="154.5" text-anchor="middle" fill="#9A6E1C" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="600">WS /ws</text>
+  <text x="296" y="177" text-anchor="middle" fill="#64748B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="10">状态广播</text>
+
+  <!-- REST wire -->
+  <path d="M 248 244 L 344 244" stroke="#94A3B8" stroke-width="1.3" marker-start="url(#arrWire)" marker-end="url(#arrWire)"/>
+  <rect x="260" y="231" width="72" height="24" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1"/>
+  <text x="296" y="246.5" text-anchor="middle" fill="#475569" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5">REST /api</text>
+  <text x="296" y="269" text-anchor="middle" fill="#64748B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="10">鉴权 · 复盘</text>
+
+  <!-- ==================== ZONE 2: SINGLE-PORT GATEWAY ==================== -->
+  <g filter="url(#softShadow)">
+    <rect x="348" y="84" width="144" height="228" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.2"/>
+  </g>
+  <circle cx="364" cy="107" r="3.5" fill="#9A6E1C"/>
+  <text x="375" y="111" fill="#64748B" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5">PORT :3000</text>
+  <text x="364" y="136" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="600">Express + ws</text>
+  <text x="364" y="155" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11">同源单端口网关</text>
+
+  <line x1="364" y1="172" x2="476" y2="172" stroke="#E2E8F0" stroke-width="1"/>
+
+  <rect x="364" y="186" width="112" height="26" rx="5" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="420" y="203" text-anchor="middle" fill="#475569" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5">HMAC · 6位OTP</text>
+
+  <rect x="364" y="222" width="112" height="26" rx="5" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="420" y="239" text-anchor="middle" fill="#475569" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5">X-Seat-Secret</text>
+
+  <rect x="364" y="258" width="112" height="26" rx="5" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="420" y="275" text-anchor="middle" fill="#475569" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5">Rate Limiter</text>
+
+  <!-- ==================== ZONE 3: AUTHORITATIVE CORE ==================== -->
+  <rect x="546" y="28" width="244" height="340" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="562" y="54" fill="#64748B" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="11" letter-spacing="0.8">AUTHORITATIVE CORE</text>
+
+  <!-- ==================== BUS: GATEWAY -> CORE (drawn above zone border) ==================== -->
+  <path d="M 492 198 L 516 198 Q 522 198 522 192 L 522 140 Q 522 134 528 134 L 558 134" stroke="#94A3B8" stroke-width="1.4" marker-end="url(#arrWire)"/>
+  <path d="M 492 198 L 516 198 Q 522 198 522 204 L 522 272 Q 522 278 528 278 L 558 278" stroke="#94A3B8" stroke-width="1.4" marker-end="url(#arrWire)"/>
+  <circle cx="522" cy="198" r="3" fill="#94A3B8"/>
+
+  <!-- Core Card 1: WSOP Engine -->
+  <g filter="url(#softShadow)">
+    <rect x="562" y="74" width="212" height="120" rx="8" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1"/>
+  </g>
+  <circle cx="578" cy="97" r="3.5" fill="#1E6B4B"/>
+  <text x="589" y="101" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13.5" font-weight="600">WSOP / TDA 规则引擎</text>
+  <text x="576" y="126" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11.5">多级边池 · 死钱守恒 · Rule 47</text>
+  <text x="576" y="146" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11.5">密码学安全洗牌 · 92 项单测</text>
+  <text x="576" y="176" fill="#64748B" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10">src/shared/pokerEngine.ts</text>
+
+  <!-- Core Card 2: GTO v2 -->
+  <g filter="url(#softShadow)">
+    <rect x="562" y="218" width="212" height="120" rx="8" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1"/>
+  </g>
+  <circle cx="578" cy="241" r="3.5" fill="#9A6E1C"/>
+  <text x="589" y="245" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13.5" font-weight="600">GTO v2 陪练与复盘</text>
+  <text x="576" y="270" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11.5">169 翻前矩阵 · ≤15BB Nash</text>
+  <text x="576" y="290" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11.5">蒙特卡洛胜率 · MDF · 阻断牌</text>
+  <text x="576" y="320" fill="#64748B" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10">server/botAi.ts · gtoCoach.ts</text>
+
+  <!-- ==================== BUS: CORE -> DATA / EXTERNAL ==================== -->
+  <path d="M 776 134 L 844 134" stroke="#1E6B4B" stroke-width="1.4" marker-start="url(#arrGreen)" marker-end="url(#arrGreen)"/>
+  <text x="815" y="124" text-anchor="middle" fill="#1E6B4B" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10">WAL</text>
+
+  <path d="M 776 278 L 844 278" stroke="#94A3B8" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#arrWire)"/>
+  <text x="815" y="268" text-anchor="middle" fill="#64748B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="10">可选</text>
+
+  <!-- ==================== ZONE 4: STORAGE & INTEGRATIONS ==================== -->
+  <!-- SQLite Card -->
+  <g filter="url(#softShadow)">
+    <rect x="848" y="74" width="168" height="120" rx="8" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1"/>
+  </g>
+  <g transform="translate(863, 91)" stroke="#1E6B4B" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="7" cy="3.5" rx="6" ry="2.5"/>
+    <path d="M1 3.5 L1 12.5 C1 13.9 3.7 15 7 15 C10.3 15 13 13.9 13 12.5 L13 3.5"/>
+    <path d="M1 8 C1 9.4 3.7 10.5 7 10.5 C10.3 10.5 13 9.4 13 8"/>
+  </g>
+  <text x="884" y="103" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13.5" font-weight="600">SQLite</text>
+  <text x="864" y="128" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11.5">账号 · 排行榜 · 勋章</text>
+  <text x="864" y="148" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11.5">脱敏手牌回放记录</text>
+  <text x="864" y="176" fill="#64748B" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="10">node:sqlite · ./data</text>
+
+  <!-- Optional Integrations Card -->
+  <rect x="848" y="218" width="168" height="120" rx="8" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="864" y="245" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13.5" font-weight="600">可选外部接口</text>
+  <text x="864" y="270" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11.5">DeepSeek · 闲聊点评</text>
+  <text x="864" y="290" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="11.5">SMTP / Resend · OTP</text>
+  <text x="864" y="320" fill="#64748B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="10">留空亦可完整运行</text>
+</svg>
