@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import {
   ArrowRight,
-  Award,
   Plus,
   RotateCcw,
   Trash2,
@@ -15,8 +14,8 @@ import {
   MAX_CUSTOM_AVATAR_BYTES,
   sanitizeAvatar,
 } from '../shared/avatarUtils';
-import type { RoomSummary } from '../shared/types';
-import { LogOut as SignOutIcon, Mail } from 'lucide-react';
+import { resolvePlayerAvatarProfile } from '../shared/playerProfile';
+import type { LeaderboardEntry, RoomSummary } from '../shared/types';
 import { useAuth, type AccountProfile } from '../context/AuthContext';
 import { AvatarAchievementShowcase } from './AchievementBadge';
 import { EmailOtpModal } from './EmailOtpModal';
@@ -28,6 +27,7 @@ interface TitleScreenProps {
   initialAvatar: string;
   isDesktop?: boolean;
   rooms: RoomSummary[];
+  leaderboard?: LeaderboardEntry[];
   errorMessage: string | null;
   onEnterTable: (playerName: string, roomId: string, avatar: string) => void;
   onCreateRoom: (params: {
@@ -94,6 +94,7 @@ export function TitleScreen({
   initialAvatar,
   isDesktop = true,
   rooms,
+  leaderboard = [],
   errorMessage,
   onEnterTable,
   onCreateRoom,
@@ -104,13 +105,13 @@ export function TitleScreen({
   const { profile, authError, signOutUser, clearAuthError } = useAuth();
   const [name, setName] = useState(initialName);
   const [roomId, setRoomId] = useState(initialRoom || 'CLUB01');
+  const [customCodeOpen, setCustomCodeOpen] = useState(false);
   const [avatar, setAvatar] = useState(() => sanitizeAvatar(initialAvatar));
   const [localError, setLocalError] = useState<string | null>(null);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newTableName, setNewTableName] = useState('');
-  const [newRoomCode, setNewRoomCode] = useState('');
   const [customSb, setCustomSb] = useState(10);
   const [customBb, setCustomBb] = useState(20);
   const [startingChips, setStartingChips] = useState<number>(2000);
@@ -180,7 +181,6 @@ export function TitleScreen({
     try {
       const created = await onCreateRoom({
         tableName: newTableName.trim(),
-        roomId: newRoomCode.trim().toUpperCase() || undefined,
         smallBlind: sb,
         bigBlind: bb,
         startingChips: safeStarting,
@@ -188,7 +188,6 @@ export function TitleScreen({
       if (created) {
         setRoomId(created.roomId);
         setNewTableName('');
-        setNewRoomCode('');
         setCreateOpen(false);
       }
     } finally {
@@ -245,13 +244,35 @@ export function TitleScreen({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <nav
+          aria-label="大厅导航"
+          className="flex items-center gap-3 sm:gap-5 text-xs font-medium shrink-0"
+        >
+          <button
+            type="button"
+            data-testid="open-card-gallery-btn"
+            onClick={onOpenCardGallery}
+            className="touch-manipulation py-1.5 text-[#A8B2AD] hover:text-[#F5F2EB] transition-colors whitespace-nowrap shrink-0"
+          >
+            牌面图鉴
+          </button>
+
+          <button
+            type="button"
+            data-testid="open-achievements-btn"
+            onClick={onOpenAchievements}
+            className="touch-manipulation py-1.5 text-[#A8B2AD] hover:text-[#F5F2EB] transition-colors whitespace-nowrap shrink-0"
+          >
+            成就勋章
+          </button>
+
+          <span aria-hidden="true" className="h-3.5 w-px bg-white/[0.1]" />
+
           {profile ? (
-            <div className="flex items-center gap-1.5 sm:gap-2 rounded-md border border-white/[0.1] bg-[#101315]/90 px-2 sm:px-2.5 py-1.5 text-[11px] sm:text-xs">
-              <Mail className="h-3.5 w-3.5 text-[#D4A853] shrink-0" aria-hidden="true" />
+            <div className="flex items-center gap-2 text-xs">
               <span
                 title={profile.email}
-                className="hidden sm:inline truncate max-w-[160px] text-[#E8CF96] font-medium"
+                className="hidden sm:inline truncate max-w-[150px] text-[#E6CF96]"
               >
                 {profile.email}
               </span>
@@ -259,11 +280,9 @@ export function TitleScreen({
                 type="button"
                 data-testid="email-signout-btn"
                 onClick={() => void signOutUser()}
-                title="退出邮箱登录"
-                className="inline-flex items-center gap-1 text-[#9AA5A0] hover:text-white transition-colors whitespace-nowrap"
+                className="touch-manipulation py-1.5 text-[#8E9993] hover:text-white transition-colors whitespace-nowrap shrink-0"
               >
-                <SignOutIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="hidden md:inline">退出</span>
+                退出
               </button>
             </div>
           ) : (
@@ -274,34 +293,12 @@ export function TitleScreen({
                 clearAuthError();
                 setEmailModalOpen(true);
               }}
-              className="touch-manipulation inline-flex h-9 items-center gap-1 sm:gap-1.5 border border-white/[0.12] bg-[#0E1113]/85 px-2 sm:px-3 text-[11px] sm:text-xs font-medium text-[#E8CF96] hover:border-[#D4A853]/50 hover:bg-[#15191C] transition-colors whitespace-nowrap shrink-0 rounded-md"
+              className="touch-manipulation py-1.5 text-[#E6CF96] hover:text-[#F8E6B3] transition-colors whitespace-nowrap shrink-0"
             >
-              <Mail className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
-              <span>邮箱登录</span>
+              登录
             </button>
           )}
-
-          <button
-            type="button"
-            data-testid="open-card-gallery-btn"
-            onClick={onOpenCardGallery}
-            className="touch-manipulation inline-flex h-9 items-center gap-1 sm:gap-1.5 px-2 sm:px-3 text-[11px] sm:text-xs font-medium text-[#C8D0CC] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0 rounded-md"
-          >
-            <span className="font-serif font-bold text-[#C8A153]" aria-hidden="true">♠</span>
-            <span>牌面图鉴</span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="open-achievements-btn"
-            onClick={onOpenAchievements}
-            className="touch-manipulation inline-flex h-9 items-center gap-1 sm:gap-1.5 px-2 sm:px-3 text-[11px] sm:text-xs font-medium text-[#C8D0CC] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0 rounded-md"
-          >
-            <Award className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
-            <span>成就</span>
-            <span className="hidden sm:inline -ml-1">勋章</span>
-          </button>
-        </div>
+        </nav>
       </header>
 
       {/* Main Split Salon */}
@@ -352,41 +349,25 @@ export function TitleScreen({
                 onSubmit={handleCreateSubmit}
                 className="mt-4 border border-[#D4A853]/30 bg-[#0E1113]/95 p-4 sm:p-5 rounded-md space-y-4"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
                     <label
                       htmlFor="create-table-name"
-                      className="block text-[11px] font-medium text-[#A1ABA6] mb-1.5"
+                      className="text-[11px] font-medium text-[#A1ABA6]"
                     >
                       牌桌名称（可选）
                     </label>
-                    <input
-                      id="create-table-name"
-                      type="text"
-                      maxLength={24}
-                      placeholder="例：周末好友局"
-                      value={newTableName}
-                      onChange={(e) => setNewTableName(e.target.value)}
-                      className="h-10 sm:h-9 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#F3F1EC] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
-                    />
+                    <span className="text-[11px] text-[#78837E]">房间号将自动生成</span>
                   </div>
-                  <div>
-                    <label
-                      htmlFor="create-room-code"
-                      className="block text-[11px] font-medium text-[#A1ABA6] mb-1.5"
-                    >
-                      房间号（留空自动生成）
-                    </label>
-                    <input
-                      id="create-room-code"
-                      type="text"
-                      maxLength={12}
-                      placeholder="例：VIP88"
-                      value={newRoomCode}
-                      onChange={(e) => setNewRoomCode(e.target.value.toUpperCase())}
-                      className="font-mono-num h-10 sm:h-9 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#E8CF96] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
-                    />
-                  </div>
+                  <input
+                    id="create-table-name"
+                    type="text"
+                    maxLength={24}
+                    placeholder="例：周末好友局"
+                    value={newTableName}
+                    onChange={(e) => setNewTableName(e.target.value)}
+                    className="h-10 sm:h-9 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#F3F1EC] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
+                  />
                 </div>
 
                 <div>
@@ -582,38 +563,59 @@ export function TitleScreen({
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3.5 min-w-0">
                       {(() => {
-                        const previewAchievements = profile?.achievements ?? [];
-                        const previewDates = profile?.achievementDates ?? {};
-                        const previewStreak = profile?.currentWinStreak ?? 0;
+                        const previewProfile = resolvePlayerAvatarProfile(
+                          {
+                            name: name.trim() || 'V',
+                            avatar,
+                            achievements: profile?.achievements ?? [],
+                            achievementDates: profile?.achievementDates ?? {},
+                            winStreak: profile?.currentWinStreak ?? 0,
+                            isBot: false,
+                          },
+                          leaderboard
+                        );
 
                         return (
-                          <div className="relative shrink-0 overflow-visible">
-                            <PlayerAvatar
-                              avatar={avatar}
-                              name={name || 'V'}
-                              size="xl"
-                            />
-                            <AvatarAchievementShowcase
-                              achievements={previewAchievements}
-                              achievementDates={previewDates}
-                              winStreak={previewStreak}
-                              maxVisible={3}
-                              size="xs"
-                              tooltipPlacement="top"
-                              onOpenAchievements={onOpenAchievements}
-                              className="absolute -top-2 -right-2.5 z-20"
-                            />
-                          </div>
+                          <>
+                            <div className="relative shrink-0 overflow-visible">
+                              <PlayerAvatar
+                                avatar={previewProfile.avatar}
+                                name={name || 'V'}
+                                size="xl"
+                                level={previewProfile.levelInfo.level}
+                                levelTier={previewProfile.levelInfo.tier}
+                                levelTitle={previewProfile.levelInfo.title}
+                                rankTier={previewProfile.rankTier}
+                                showLevelBadge
+                                showRankAura
+                              />
+                              <AvatarAchievementShowcase
+                                achievements={previewProfile.achievements}
+                                achievementDates={previewProfile.achievementDates}
+                                winStreak={previewProfile.winStreak}
+                                maxVisible={3}
+                                size="xs"
+                                tooltipPlacement="top"
+                                onOpenAchievements={onOpenAchievements}
+                                className="absolute -top-2 -right-2.5 z-20"
+                              />
+                            </div>
+                            <div className="min-w-0 pl-1">
+                              <div className="flex items-center gap-2">
+                                <p className="truncate text-sm font-semibold text-[#F3F1EC]">
+                                  {name.trim() || '未命名牌手'}
+                                </p>
+                                <span className="font-mono-num text-[11px] text-[#C8B27A] shrink-0">
+                                  {previewProfile.rankTierLabel}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[11px] text-[#7E8782]">
+                                {profile ? profile.email : '选择徽章或上传头像'}
+                              </p>
+                            </div>
+                          </>
                         );
                       })()}
-                      <div className="min-w-0 pl-1">
-                        <p className="truncate text-sm font-semibold text-[#F3F1EC]">
-                          {name.trim() || '未命名牌手'}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-[#7E8782]">
-                          {profile ? profile.email : '选择徽章或上传头像'}
-                        </p>
-                      </div>
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -703,23 +705,36 @@ export function TitleScreen({
                   />
                 </div>
 
-                <div>
-                  <label
-                    htmlFor="room-code-input"
-                    className="block text-xs font-medium text-[#B3BCB7] mb-1.5"
+                <div className="flex items-center justify-between gap-2 pt-0.5 text-xs">
+                  <div className="min-w-0 flex items-center gap-2 text-[#9AA5A0]">
+                    <span className="shrink-0">目标牌桌</span>
+                    <span className="truncate font-medium text-[#F3F1EC]">
+                      {rooms.find((r) => r.roomId === roomId.toUpperCase())?.tableName ?? '私人牌桌'}
+                    </span>
+                    <span className="font-mono-num shrink-0 font-semibold text-[#D4A853]">
+                      {roomId}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCustomCodeOpen((prev) => !prev)}
+                    className="shrink-0 text-[11px] text-[#8A948F] hover:text-[#E8CF96] transition-colors"
                   >
-                    当前选定房间号
-                  </label>
+                    {customCodeOpen ? '收起' : '输房号加入'}
+                  </button>
+                </div>
+
+                {customCodeOpen && (
                   <input
                     id="room-code-input"
                     type="text"
                     maxLength={12}
-                    placeholder="输入或选择左侧房间号"
+                    placeholder="输入好友分享的房间号"
                     value={roomId}
                     onChange={(e) => setRoomId(e.target.value.toUpperCase())}
-                    className="font-mono-num h-11 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3.5 text-sm text-[#E8CF96] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
+                    className="font-mono-num h-10 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#E8CF96] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
                   />
-                </div>
+                )}
 
                 {displayError && (
                   <p role="alert" className="text-xs font-medium text-[#F87171]">

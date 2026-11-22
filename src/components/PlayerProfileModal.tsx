@@ -8,6 +8,7 @@ import {
 } from '../shared/achievements';
 import {
   resolvePlayerAvatarProfile,
+  type RankTier,
   type ResolvedPlayerAvatarProfile,
 } from '../shared/playerProfile';
 import type {
@@ -37,6 +38,13 @@ const TIER_TEXT_CLASS: Record<AchievementTier, string> = {
   silver: 'text-[#C8D4E0]',
   gold: 'text-[#E8CF96]',
   obsidian: 'text-[#F3DA8B]',
+};
+
+const RANK_TIER_TEXT_CLASS: Record<RankTier, string> = {
+  bronze: 'text-[#DFAA80]',
+  silver: 'text-[#D4E0EC]',
+  gold: 'text-[#F0D68F]',
+  diamond: 'text-[#9CE2FF]',
 };
 
 export function PlayerProfileModal({
@@ -119,7 +127,9 @@ export function PlayerProfileModal({
               level={levelInfo.level}
               levelTier={levelInfo.tier}
               levelTitle={levelInfo.title}
+              rankTier={resolved.rankTier}
               showLevelBadge
+              showRankAura
             />
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -128,9 +138,9 @@ export function PlayerProfileModal({
                 </h2>
                 <span
                   data-testid="profile-level-label"
-                  className={`font-mono-num text-xs font-semibold shrink-0 ${TIER_TEXT_CLASS[levelInfo.tier]}`}
+                  className={`font-mono-num text-xs font-semibold shrink-0 ${RANK_TIER_TEXT_CLASS[resolved.rankTier]}`}
                 >
-                  Lv.{levelInfo.level} · {levelInfo.title}
+                  {resolved.rankTierLabel} · Lv.{levelInfo.level}
                 </span>
                 {winStreak >= 2 && (
                   <span className="font-mono-num inline-flex items-center gap-0.5 text-xs font-semibold text-[#E8CF96] shrink-0">

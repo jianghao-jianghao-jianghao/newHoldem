@@ -129,3 +129,76 @@ test('getBotClubPreset and buildBotInitialStats hydrate named club bots with syn
   assert.ok(init.level >= 5);
   assert.equal(Object.keys(init.achievementDates).length, init.achievements.length);
 });
+
+test('resolvePlayerAvatarProfile updates dynamic rankTier (bronze/silver/gold/diamond) from leaderboard', () => {
+  const basePlayer = {
+    name: '新牌手',
+    avatar: 'default',
+    achievements: [] as [],
+    achievementDates: {},
+    winStreak: 0,
+    isBot: false,
+  };
+
+  const bronze = resolvePlayerAvatarProfile(basePlayer, []);
+  assert.equal(bronze.rankTier, 'bronze');
+  assert.equal(bronze.rankTierLabel, '青铜');
+
+  const silver = resolvePlayerAvatarProfile(basePlayer, [
+    {
+      playerName: '新牌手',
+      points: 1220,
+      netChips: 220,
+      handsPlayed: 8,
+      handsWon: 3,
+      bestHandName: '两对',
+      bestHandScore: 2000,
+      updatedAt: 1000,
+    },
+  ]);
+  assert.equal(silver.rankTier, 'silver');
+  assert.equal(silver.rankTierLabel, '白银');
+  assert.equal(silver.leaderboardRank, 1);
+
+  const gold = resolvePlayerAvatarProfile(basePlayer, [
+    {
+      playerName: '林深',
+      points: 1700,
+      netChips: 700,
+      handsPlayed: 20,
+      handsWon: 11,
+      bestHandName: '葫芦',
+      bestHandScore: 6000,
+      updatedAt: 1000,
+    },
+    {
+      playerName: '新牌手',
+      points: 1450,
+      netChips: 450,
+      handsPlayed: 15,
+      handsWon: 7,
+      bestHandName: '同花',
+      bestHandScore: 5000,
+      updatedAt: 1000,
+    },
+  ]);
+  assert.equal(gold.rankTier, 'gold');
+  assert.equal(gold.rankTierLabel, '黄金');
+  assert.equal(gold.leaderboardRank, 2);
+
+  const diamond = resolvePlayerAvatarProfile(basePlayer, [
+    {
+      playerName: '新牌手',
+      points: 1860,
+      netChips: 860,
+      handsPlayed: 28,
+      handsWon: 16,
+      bestHandName: '四条',
+      bestHandScore: 8000,
+      updatedAt: 1000,
+    },
+  ]);
+  assert.equal(diamond.rankTier, 'diamond');
+  assert.equal(diamond.rankTierLabel, '钻石');
+  assert.equal(diamond.leaderboardRank, 1);
+});

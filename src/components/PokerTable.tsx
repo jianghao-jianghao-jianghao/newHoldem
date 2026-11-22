@@ -1,18 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BarChart3,
   Check,
   Copy,
   Eye,
-  HelpCircle,
   LogOut,
-  MessageSquare,
-  Music,
   Play,
   RefreshCw,
   SlidersHorizontal,
-  SmilePlus,
-  Trophy,
   UserPlus,
   Volume2,
   VolumeX,
@@ -39,14 +33,14 @@ import type {
   PlayerNudgeEvent,
 } from '../shared/types';
 import { ActionDock } from './ActionDock';
-import { BlindSettingsModal } from './BlindSettingsModal';
+import { BlindSettingsModal, type BotChatConfigRequest } from './BlindSettingsModal';
 import { ChipStackVisual2D } from './ChipStack2D';
 import { PlayerProfileModal } from './PlayerProfileModal';
 import { PlayingCard } from './PlayingCard';
 import type { CameraPreset } from './PokerScene3D';
 import { type ActionFxTone, type SeatActionFx, type SeatNudgeFx, SeatNode } from './SeatNode';
 import { type AnalyticsTab, TableAnalyticsDrawer } from './TableAnalyticsDrawer';
-import { type BotChatConfigRequest, TableChatPanel } from './TableChatPanel';
+import { TableChatPanel } from './TableChatPanel';
 
 interface PokerTableProps {
   table: ClientTableView;
@@ -139,7 +133,6 @@ export function PokerTable({
   const [copied, setCopied] = useState(false);
   const [inspectedPlayerId, setInspectedPlayerId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
-  const [quickEmojiOpen, setQuickEmojiOpen] = useState(false);
   const [blindModalOpen, setBlindModalOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [requestedAnalyticsTab, setRequestedAnalyticsTab] = useState<{
@@ -349,7 +342,6 @@ export function PokerTable({
       }
       if (e.key.toLowerCase() === 't') {
         e.preventDefault();
-        setQuickEmojiOpen(false);
         setChatOpen((prev) => !prev);
       }
     };
@@ -481,67 +473,47 @@ export function PokerTable({
 
   return (
     <div className="pointer-events-none relative z-10 flex min-h-dvh flex-col justify-between text-[#F3F1EC]">
-      {/* Slim Perimeter Top Bar */}
-      <header className="pointer-events-auto flex items-center justify-between gap-1.5 border-b border-white/[0.06] bg-[#0A0C0E]/86 backdrop-blur-md px-2.5 py-2 sm:gap-4 sm:px-6">
-        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+      {/* Slim Perimeter Top Bar (clean unboxed luxury nav, zero duplicate chat/emoji buttons) */}
+      <header className="pointer-events-auto flex items-center justify-between gap-2 border-b border-white/[0.06] bg-[#0A0C0E]/82 backdrop-blur-md px-3 py-2 sm:gap-4 sm:px-6">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
             onClick={onLeaveRoom}
             aria-label="退出房间"
-            className="touch-manipulation flex h-8 items-center gap-1.5 rounded px-2 sm:px-2.5 text-xs font-medium text-[#A9B3AE] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="touch-manipulation flex h-8 items-center gap-1.5 px-1.5 text-xs text-[#9BA6A1] hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
-            <span className="hidden sm:inline">退出</span>
+            <span className="hidden sm:inline">离桌</span>
           </button>
 
           <span aria-hidden="true" className="h-3.5 w-px bg-white/[0.09] hidden sm:inline-block" />
 
-          <div className="flex items-center gap-1.5 sm:gap-2.5 text-[11px] sm:text-sm min-w-0">
-            <span className="font-mono-num font-bold tracking-wide text-[#E5C989] whitespace-nowrap truncate max-w-[68px] sm:max-w-none">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs min-w-0">
+            <span className="font-mono-num font-semibold tracking-wider text-[#E5C989] whitespace-nowrap truncate max-w-[74px] sm:max-w-none">
               {table.roomId}
             </span>
             <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
-            {isHost ? (
-              <button
-                type="button"
-                data-testid="open-blind-settings-btn"
-                onClick={() => setBlindModalOpen(true)}
-                title="设置大小盲注与盲位（房主）"
-                className="touch-manipulation inline-flex h-7 items-center gap-1.5 rounded bg-white/[0.04] px-2 font-mono-num text-[11px] sm:text-xs font-medium text-[#DCE2DF] hover:bg-white/[0.09] hover:text-[#F0DFB3] transition-colors whitespace-nowrap shrink-0"
-              >
-                <SlidersHorizontal className="h-3 w-3 text-[#C8A153] shrink-0" aria-hidden="true" />
-                <span>
-                  <span className="hidden sm:inline text-[#9AA5A0]">盲注 </span>
-                  {table.smallBlind}/{table.bigBlind}
-                </span>
-                {table.pendingBlinds && (
-                  <span className="text-[10px] text-[#8CC9AA]">
-                    → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <span
-                title="仅房主可调整盲注"
-                className="inline-flex h-7 items-center gap-1 rounded bg-white/[0.03] px-2 font-mono-num text-[11px] sm:text-xs font-medium text-[#B8C2BD] whitespace-nowrap shrink-0"
-              >
-                <span className="hidden sm:inline text-[#85908B]">盲注</span>
-                <span>{table.smallBlind}/{table.bigBlind}</span>
-                {table.pendingBlinds && (
-                  <span className="text-[10px] text-[#8CC9AA]">
-                    → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
-                  </span>
-                )}
+            <button
+              type="button"
+              data-testid="open-blind-settings-btn"
+              onClick={() => setBlindModalOpen(true)}
+              title="查看或调整牌桌盲注与设置"
+              className="touch-manipulation inline-flex items-center gap-1 font-mono-num text-[11px] sm:text-xs text-[#CBD3CF] hover:text-[#F0DFB3] transition-colors whitespace-nowrap shrink-0"
+            >
+              <span className="hidden sm:inline text-[#7D8883]">盲注</span>
+              <span>
+                {table.smallBlind}/{table.bigBlind}
               </span>
-            )}
-            <span aria-hidden="true" className="text-white/15 hidden md:inline">·</span>
-            <span className="font-mono-num text-xs text-[#8A948F] whitespace-nowrap hidden md:inline">
-              初始 {table.startingChips.toLocaleString()}
-            </span>
+              {table.pendingBlinds && (
+                <span className="text-[10px] text-[#8CC9AA]">
+                  → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
+                </span>
+              )}
+            </button>
             {table.handNumber > 0 && (
               <>
-                <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
-                <span className="font-mono-num text-xs text-[#8A948F] whitespace-nowrap hidden sm:inline">
+                <span aria-hidden="true" className="text-white/15 hidden md:inline">·</span>
+                <span className="font-mono-num text-xs text-[#7D8883] whitespace-nowrap hidden md:inline">
                   第 {table.handNumber} 局
                 </span>
               </>
@@ -552,7 +524,7 @@ export function PokerTable({
             type="button"
             onClick={handleCopyInvite}
             aria-label="复制邀请链接"
-            className="touch-manipulation flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-[#A9B3AE] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="touch-manipulation flex h-7 items-center gap-1 px-1.5 text-xs text-[#939E99] hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             {copied ? (
               <>
@@ -568,153 +540,77 @@ export function PokerTable({
           </button>
         </div>
 
-        <div className="hidden xl:block font-display text-xs tracking-[0.18em] text-[#7D8782]/85 uppercase select-none">
+        <div className="hidden xl:block font-display text-xs tracking-[0.2em] text-[#7D8782]/80 uppercase select-none">
           VELVET HOLD&apos;EM
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Primary Panels Group */}
-          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-md border border-white/[0.08] bg-[#101416]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+        {/* Clean Unboxed Right Controls */}
+        <nav aria-label="牌桌工具" className="flex items-center gap-1 sm:gap-3 shrink-0">
+          {isDesktop && (
             <button
               type="button"
-              onClick={() => {
-                if (!analyticsOpen) {
-                  setRequestedAnalyticsTab((prev) => ({
-                    tab: 'trends',
-                    nonce: (prev?.nonce ?? 0) + 1,
-                  }));
-                }
-                setAnalyticsOpen((prev) => !prev);
-              }}
-              aria-label={analyticsOpen ? '收起牌局数据' : '打开牌局数据'}
-              aria-expanded={analyticsOpen}
-              data-testid="toggle-analytics-btn"
-              className={`touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                analyticsOpen
-                  ? 'bg-[#D4A853]/14 text-[#F0DFB3]'
-                  : 'text-[#C5CECA] hover:bg-white/[0.05] hover:text-white'
-              }`}
+              data-testid="camera-toggle-btn"
+              onClick={onToggleCameraPreset}
+              aria-label={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
+              className="touch-manipulation h-8 px-2 text-xs text-[#B5C0BA] hover:text-white transition-colors whitespace-nowrap"
             >
-              <BarChart3 className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-              <span className="hidden md:inline">牌局数据</span>
+              {cameraPreset === 'classic' ? '俯瞰视角' : '经典视角'}
             </button>
+          )}
 
-            <button
-              type="button"
-              onClick={() => {
-                setChatOpen(false);
-                setQuickEmojiOpen((prev) => !prev);
-              }}
-              aria-label={quickEmojiOpen ? '收起快捷表情' : '快捷表情与短语'}
-              aria-expanded={quickEmojiOpen}
-              data-testid="toggle-quick-emoji-btn"
-              className={`touch-manipulation flex xl:hidden h-8 items-center justify-center px-2 text-xs font-medium transition-colors whitespace-nowrap ${
-                quickEmojiOpen
-                  ? 'bg-[#D4A853]/14 text-[#F0DFB3]'
-                  : 'text-[#C5CECA] hover:bg-white/[0.05] hover:text-white'
-              }`}
-            >
-              <SmilePlus className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setQuickEmojiOpen(false);
-                setChatOpen((prev) => !prev);
-              }}
-              aria-label={chatOpen ? '关闭牌桌对话' : '打开牌桌对话'}
-              aria-expanded={chatOpen}
-              data-testid="toggle-chat-btn"
-              className={`touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                chatOpen
-                  ? 'bg-[#D4A853]/14 text-[#F0DFB3]'
-                  : 'text-[#C5CECA] hover:bg-white/[0.05] hover:text-white'
-              }`}
-            >
-              <MessageSquare className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-              <span className="hidden lg:inline">对话</span>
-              {unreadCount > 0 && (
-                <span className="font-mono-num text-[11px] font-bold text-[#E8CF96]">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Audio & Camera Group */}
-          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-md border border-white/[0.08] bg-[#101416]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-            {isDesktop && (
-              <button
-                type="button"
-                onClick={onToggleCameraPreset}
-                aria-label={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
-                title={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
-                className="touch-manipulation flex h-8 items-center gap-1.5 px-2.5 text-xs font-medium text-[#C5CECA] hover:bg-white/[0.05] hover:text-white transition-colors whitespace-nowrap"
-              >
-                <Eye className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-                <span className="hidden lg:inline">
-                  {cameraPreset === 'classic' ? '视角' : '俯瞰'}
-                </span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={onToggleBgm}
-              data-testid="toggle-bgm-btn"
-              aria-label={bgmEnabled ? '关闭爵士音乐' : '播放爵士音乐'}
-              title={bgmEnabled ? '关闭爵士酒吧环境音乐' : '播放爵士酒吧环境音乐'}
-              className={`touch-manipulation flex h-8 items-center gap-1 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                bgmEnabled
-                  ? 'text-[#E8CF96] hover:bg-white/[0.05]'
-                  : 'text-[#6F7873] hover:bg-white/[0.05] hover:text-white'
-              }`}
-            >
-              <Music className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden xl:inline">{bgmEnabled ? '爵士' : '无声'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onToggleMute}
-              aria-label={muted ? '开启桌面音效' : '静音桌面音效'}
-              title={muted ? '开启桌面音效' : '静音桌面音效'}
-              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.05] hover:text-white transition-colors"
-            >
-              {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-
-          {/* Reference & In-Table Standings Group */}
-          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-md border border-white/[0.08] bg-[#101416]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-            <button
-              type="button"
-              onClick={onOpenRankings}
-              aria-label="牌型大小说明"
-              title="牌型大小说明"
-              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.05] hover:text-white transition-colors"
-            >
-              <HelpCircle className="h-3.5 w-3.5" />
-            </button>
-
-            <button
-              type="button"
-              data-testid="open-standings-btn"
-              onClick={() => {
+          <button
+            type="button"
+            onClick={() => {
+              if (!analyticsOpen) {
                 setRequestedAnalyticsTab((prev) => ({
-                  tab: 'standings',
+                  tab: 'trends',
                   nonce: (prev?.nonce ?? 0) + 1,
                 }));
-                setAnalyticsOpen(true);
-              }}
-              className="touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-3 text-xs font-semibold text-[#E8CF96] hover:bg-[#D4A853]/14 transition-colors whitespace-nowrap shrink-0"
-            >
-              <Trophy className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-              <span className="hidden sm:inline">局内排行</span>
-            </button>
-          </div>
-        </div>
+              }
+              setAnalyticsOpen((prev) => !prev);
+            }}
+            aria-label={analyticsOpen ? '收起牌局数据' : '打开牌局数据与局内排行'}
+            aria-expanded={analyticsOpen}
+            data-testid="toggle-analytics-btn"
+            className={`touch-manipulation h-8 px-2 text-xs transition-colors whitespace-nowrap ${
+              analyticsOpen
+                ? 'text-[#F0DFB3] font-medium'
+                : 'text-[#B5C0BA] hover:text-white'
+            }`}
+          >
+            数据
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenRankings}
+            aria-label="牌型大小说明"
+            className="touch-manipulation hidden sm:inline-flex h-8 items-center px-2 text-xs text-[#B5C0BA] hover:text-white transition-colors whitespace-nowrap"
+          >
+            牌型
+          </button>
+
+          <button
+            type="button"
+            data-testid="open-table-settings-btn"
+            onClick={() => setBlindModalOpen(true)}
+            aria-label="打开牌桌设置"
+            className="touch-manipulation flex h-8 items-center gap-1 px-2 text-xs text-[#B5C0BA] hover:text-[#F0DFB3] transition-colors whitespace-nowrap"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
+            <span className="hidden sm:inline">设置</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleMute}
+            aria-label={muted ? '开启声音' : '静音'}
+            title={muted ? '开启声音' : '静音'}
+            className="touch-manipulation flex h-8 w-8 items-center justify-center rounded-full text-[#A7B2AC] hover:bg-white/[0.06] hover:text-white transition-colors"
+          >
+            {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+          </button>
+        </nav>
       </header>
 
       {/* Main Spatial Overlay */}
@@ -1065,7 +961,6 @@ export function PokerTable({
               externalModalOpen ||
               inspectedPlayerId !== null ||
               chatOpen ||
-              quickEmojiOpen ||
               blindModalOpen ||
               analyticsOpen
             }
@@ -1076,22 +971,12 @@ export function PokerTable({
 
       <TableChatPanel
         open={chatOpen}
-        quickPickerOpen={quickEmojiOpen}
         messages={chatMessages}
         myPlayerId={myPlayerId}
         unreadCount={unreadCount}
         nowMs={chatNow}
-        botChatStatus={botChatStatus}
-        onOpenChange={(next) => {
-          if (next) setQuickEmojiOpen(false);
-          setChatOpen(next);
-        }}
-        onQuickPickerChange={(next) => {
-          if (next) setChatOpen(false);
-          setQuickEmojiOpen(next);
-        }}
+        onOpenChange={setChatOpen}
         onSendChat={onSendChat}
-        onConfigureBotChat={onConfigureBotChat}
       />
 
       <TableAnalyticsDrawer
@@ -1105,7 +990,14 @@ export function PokerTable({
       <BlindSettingsModal
         open={blindModalOpen}
         table={table}
+        isHost={isHost}
+        botChatStatus={botChatStatus}
+        bgmEnabled={bgmEnabled}
+        muted={muted}
+        onToggleBgm={onToggleBgm}
+        onToggleMute={onToggleMute}
         onSave={onUpdateBlindSettings}
+        onConfigureBotChat={onConfigureBotChat}
         onClose={() => setBlindModalOpen(false)}
       />
 

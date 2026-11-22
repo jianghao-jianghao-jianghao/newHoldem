@@ -109,7 +109,21 @@ export const EMOJI_CATEGORIES: readonly EmojiCategory[] = [
   },
 ] as const;
 
-export const QUICK_BAR_EMOJIS = ['👏', '🔥', '😎', '🤣', '🤔'] as const;
+export const QUICK_BAR_EMOJIS = ['👏', '🔥', '😎', '😂', '🤔'] as const;
+
+export const CURATED_TABLE_EMOJIS = [
+  '👏', '🔥', '😎', '😂', '🤔', '😱', '😅', '🫡',
+  '♠️', '👑', '💰', '💎', '🙏', '💀', '👀', '🥂',
+] as const;
+
+export const CURATED_QUICK_PHRASES = [
+  '好牌',
+  '承让了',
+  '容我想想',
+  '这手有意思',
+  '河牌见',
+  '干杯 🥂',
+] as const;
 
 export const CHAT_EMOJIS: readonly string[] = EMOJI_CATEGORIES.flatMap(
   (category) => [...category.emojis]

@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/Multiplayer-WebSocket-141718?style=flat-square&labelColor=0B0E10&color=2A332E" alt="Real-Time Multiplayer" />
   <img src="https://img.shields.io/badge/Audio-Physics_Chips_+_Jazz-141718?style=flat-square&labelColor=0B0E10&color=2A332E" alt="Physics Chip Audio" />
   <img src="https://img.shields.io/badge/AI_Banter-DeepSeek_Optional-141718?style=flat-square&labelColor=0B0E10&color=2A332E" alt="Optional DeepSeek" />
-  <img src="https://img.shields.io/badge/Rules-WSOP_Verified_(65_Tests)-141718?style=flat-square&labelColor=0B0E10&color=1E6B4B" alt="65 Passing Tests" />
+  <img src="https://img.shields.io/badge/Rules-WSOP_Verified_(76_Tests)-141718?style=flat-square&labelColor=0B0E10&color=1E6B4B" alt="76 Passing Tests" />
 </p>
 
 <p>
@@ -90,21 +90,21 @@
 
 ### 2. 严谨规则与有性格的 AI 陪练（可选 DeepSeek 对话）
 
-内置符合 WSOP / TDA 标准的德州结算核心，支持 2–10 人大桌、多人全下多级边池清算、中途离桌死钱守恒、短全下不重开加注（Rule 47）以及局间补码与出局重买。人不够时一键邀请策略型 AI 陪练开局；还可在聊天栏**非强制**开启 DeepSeek 对话，让陪练在摊牌、被催促或闲聊时自然接话发表情。
+内置符合 WSOP / TDA 标准的德州结算核心，支持 2–10 人大桌、多人全下多级边池清算、中途离桌死钱守恒、短全下不重开加注（Rule 47）以及局间补码与出局重买。人不够时一键邀请策略型 AI 陪练开局；还可在「牌桌设置」中**非强制**开启 DeepSeek 互动，让陪练在摊牌、被催促或闲聊时自然接话发表情。
 
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/media/showdown.png" alt="摊牌结算、赢牌亮出与陪练气泡互动" width="100%" />
+      <img src="docs/media/showdown.png" alt="摊牌结算、赢牌亮出与动态段位光环" width="100%" />
       <br />
-      <strong>摊牌亮牌与陪练即时反应</strong><br />
-      <sub>自动亮出成牌与赢池筹码，支持自动开局与局间一键补满筹码</sub>
+      <strong>摊牌亮牌与动态段位光环</strong><br />
+      <sub>自动亮出成牌与赢池筹码，头像外围随排行榜实时呈现青铜/白银/黄金/钻石光环</sub>
     </td>
     <td width="50%" align="center">
-      <img src="docs/media/chat.png" alt="轻量化牌桌聊天与可选 DeepSeek 陪练开关" width="100%" />
+      <img src="docs/media/chat.png" alt="精简牌桌闲聊与一键表情短语托盘" width="100%" />
       <br />
-      <strong>轻量沙龙聊天 · 可选 DeepSeek 接入</strong><br />
-      <sub>不填 Key 完全不影响牌局；密钥仅存本桌内存，绝不泄露任何未摊牌底牌</sub>
+      <strong>极简沙龙闲聊 · 一键表情与短语</strong><br />
+      <sub>左下角轻巧胶囊一键展开，16 枚精选牌桌表情与快捷短语合一，不遮挡牌面</sub>
     </td>
   </tr>
 </table>
@@ -145,10 +145,11 @@
 
 | 亮点 | 实际带来的体验提升 |
 | :--- | :--- |
+| **动态段位光环与同步头像档案** | 玩家头像外围依据排行榜实时流转 **青铜 / 白银 / 黄金 / 钻石** 动态光环，同步展示牌手等级与成就勋章；单击头像查数据，双击轻敲提醒。 |
 | **物理筹码声效 + 爵士 BGM** | 基于筹码面值（5 / 25 / 100 / 500 / 1000+）合成不同厚重感的碰撞音，小跟注清脆、重注与 All-in 沉稳厚实，一键静音同步控管音效与配乐。 |
-| **两人即开，随时凑桌** | 既支持发邀请链接与好友联机，也支持随时增减多风格 AI 陪练，不再因凑不齐人干等；输光筹码无需退房，局中亦可随时重买续战。 |
-| **克制不遮挡的桌面排版** | 顶栏、底池状态条、座位气泡、操作坞与聊天抽屉严格分层避让；折叠态聊天仅占左下角一条轻巧表情胶囊，视线始终聚焦牌面。 |
-| **按真赛标准算每一枚筹码** | 密码学真随机洗牌、多级边池、超额未跟注筹码退还、死钱守恒、WSOP Rule 47 全部经 65 条自动化单元测试验证，不错账、不卡局。 |
+| **自动开房，两人即开** | 创建房间自动生成房号无需手填；发链接邀好友或随时增减多风格 AI 陪练，输光筹码无需退房，局中亦可随时重买续战。 |
+| **克制不遮挡的桌面排版** | 顶栏、底池状态条、座位气泡、操作坞与聊天抽屉严格分层避让；设置项统一收纳至「牌桌设置」，视线始终聚焦牌面。 |
+| **按真赛标准算每一枚筹码** | 密码学真随机洗牌、多级边池、超额未跟注筹码退还、死钱守恒、WSOP Rule 47 全部经 76 条自动化单元测试验证，不错账、不卡局。 |
 | **联机防冒充与断线守护** | 座位凭证校验杜绝顶号与恶意删房；双向心跳自动清理僵尸连接；网络波动重连期间自动锁定下注按钮防误操作，重连后无损恢复成就与座位。 |
 | **零配置启动，隐私克制** | 无需任何 API Key 即可体验完整联机与陪练；DeepSeek 陪练聊天完全可选，手动填入的密钥仅驻留本桌运行内存，不落盘、不回显，离桌删房即清。 |
 
@@ -204,7 +205,7 @@ npm run dev
 # 类型检查
 npm run lint
 
-# 运行 65 条德州引擎、3D 模型、AI、声效与鉴权单元测试
+# 运行 76 条德州引擎、段位光环、3D 模型、AI、声效与鉴权单元测试
 npx tsx --test src/shared/*.test.ts src/utils/*.test.ts src/three/*.test.ts server/*.test.ts
 
 # 生产构建

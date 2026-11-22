@@ -337,7 +337,9 @@ export function SeatNode({
                   level={resolved.levelInfo.level}
                   levelTier={resolved.levelInfo.tier}
                   levelTitle={resolved.levelInfo.title}
+                  rankTier={resolved.rankTier}
                   showLevelBadge
+                  showRankAura
                   className="group-hover:border-[#E8CF96] transition-colors"
                 />
               </button>
@@ -548,7 +550,9 @@ export function SeatNode({
                 level={resolved.levelInfo.level}
                 levelTier={resolved.levelInfo.tier}
                 levelTitle={resolved.levelInfo.title}
+                rankTier={resolved.rankTier}
                 showLevelBadge
+                showRankAura
                 className="group-hover:border-[#E8CF96] group-hover:ring-2 group-hover:ring-[#D4A853]/30 transition-all"
               />
             </button>

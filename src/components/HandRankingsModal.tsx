@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { HelpCircle, Sparkles, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { Card, Suit } from '../shared/types';
 import { PlayingCard } from './PlayingCard';
 
@@ -45,6 +45,15 @@ export function HandRankingsModal({
     }
   }, [open, initialTab]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const showcaseCards: Array<{ key: string; title: string; subtitle: string; card: Card }> = [
@@ -82,58 +91,62 @@ export function HandRankingsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/78 p-4 backdrop-blur-[3px]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="rankings-title"
+      onClick={onClose}
     >
-      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded-md border border-white/[0.12] bg-[#0E1113] shadow-2xl">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 sm:px-6 py-3.5">
-          <div className="flex items-center gap-3">
-            <HelpCircle className="h-5 w-5 text-[#D4A853] shrink-0" aria-hidden="true" />
-            <h2 id="rankings-title" className="text-base sm:text-lg font-bold text-[#F4F3EE]">
-              {tab === 'rankings' ? '德州扑克牌型大小' : '经典宫廷人像与大小鬼牌面图鉴'}
-            </h2>
-          </div>
+      <div
+        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-white/[0.11] bg-[#0C0F11] shadow-[0_28px_72px_rgba(0,0,0,0.85)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-3">
+          <h2 id="rankings-title" className="font-display text-lg font-medium tracking-wide text-[#F4EFE4]">
+            {tab === 'rankings' ? '德州扑克牌型大小' : '宫廷人像与大小鬼牌面图鉴'}
+          </h2>
 
-          <div className="flex items-center gap-2">
-            <div className="inline-flex rounded-md border border-white/10 bg-[#080A0B] p-0.5 text-xs">
-              <button
-                type="button"
-                data-testid="tab-rankings"
-                onClick={() => setTab('rankings')}
-                className={`rounded px-3 py-1.5 font-medium transition-colors ${
-                  tab === 'rankings'
-                    ? 'bg-[#D4A853] text-[#0F1210] font-semibold'
-                    : 'text-[#9AA6A1] hover:text-white'
-                }`}
-              >
-                牌型大小
-              </button>
-              <button
-                type="button"
-                data-testid="tab-card-gallery"
-                onClick={() => setTab('gallery')}
-                className={`inline-flex items-center gap-1 rounded px-3 py-1.5 font-medium transition-colors ${
-                  tab === 'gallery'
-                    ? 'bg-[#D4A853] text-[#0F1210] font-semibold'
-                    : 'text-[#9AA6A1] hover:text-white'
-                }`}
-              >
-                <Sparkles className="h-3 w-3" aria-hidden="true" />
-                <span>牌面图鉴</span>
-              </button>
-            </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭牌型说明"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-[#8B9691] hover:bg-white/[0.07] hover:text-white transition-colors"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="关闭牌型说明"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-[#9AA6A1] hover:bg-white/5 hover:text-white transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+        <div className="flex items-center gap-6 border-b border-white/[0.08] px-6 text-xs">
+          <button
+            type="button"
+            data-testid="tab-rankings"
+            onClick={() => setTab('rankings')}
+            className={`relative pb-2.5 font-medium transition-colors ${
+              tab === 'rankings'
+                ? 'text-[#F0DFB3]'
+                : 'text-[#87928C] hover:text-[#D5DDD8]'
+            }`}
+          >
+            牌型大小
+            {tab === 'rankings' && (
+              <span className="absolute inset-x-0 bottom-0 h-[2px] bg-[#D4A853]" />
+            )}
+          </button>
+          <button
+            type="button"
+            data-testid="tab-card-gallery"
+            onClick={() => setTab('gallery')}
+            className={`relative pb-2.5 font-medium transition-colors ${
+              tab === 'gallery'
+                ? 'text-[#F0DFB3]'
+                : 'text-[#87928C] hover:text-[#D5DDD8]'
+            }`}
+          >
+            牌面图鉴
+            {tab === 'gallery' && (
+              <span className="absolute inset-x-0 bottom-0 h-[2px] bg-[#D4A853]" />
+            )}
+          </button>
         </div>
 
         {tab === 'rankings' ? (
@@ -190,7 +203,7 @@ export function HandRankingsModal({
                   key={item.key}
                   className="flex flex-col items-center rounded-md border border-white/[0.08] bg-[#090B0C] p-3.5 text-center"
                 >
-                  <PlayingCard card={item.card} size="xl" />
+                  <PlayingCard card={item.card} size="xl" animate={false} />
                   <div className="mt-3 text-xs font-semibold text-[#F4F3EE]">{item.title}</div>
                   <div className="mt-0.5 text-[11px] text-[#8E9893]">{item.subtitle}</div>
                 </div>

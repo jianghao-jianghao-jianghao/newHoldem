@@ -859,6 +859,7 @@ export default function App() {
           initialAvatar={playerAvatar}
           isDesktop={use3D}
           rooms={rooms}
+          leaderboard={leaderboard}
           errorMessage={errorMsg}
           onEnterTable={handleEnterTable}
           onCreateRoom={handleCreateRoom}

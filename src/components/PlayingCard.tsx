@@ -8,6 +8,7 @@ interface PlayingCardProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   highlighted?: boolean;
   dimmed?: boolean;
+  animate?: boolean;
 }
 
 const SUIT_LABELS: Record<Suit, string> = {
@@ -51,6 +52,7 @@ export function PlayingCard({
   size = 'md',
   highlighted = false,
   dimmed = false,
+  animate = true,
 }: PlayingCardProps) {
   const sizeClass = SIZE_CLASSES[size];
 
@@ -127,7 +129,7 @@ export function PlayingCard({
 
   return (
     <div
-      className={`${sizeClass} animate-deal relative flex flex-col justify-between overflow-hidden select-none bg-[#FAF8F3] p-[3px] sm:p-1.5 transition-transform duration-150 ${
+      className={`${sizeClass} ${animate ? 'animate-deal' : ''} relative flex flex-col justify-between overflow-hidden select-none bg-[#FAF8F3] p-[3px] sm:p-1.5 transition-transform duration-150 ${
         highlighted
           ? 'ring-2 ring-[#D4A853] -translate-y-1.5 shadow-[0_2px_0_#C8A24A,0_10px_22px_rgba(0,0,0,0.62)]'
           : 'border border-[#B7AF9E] shadow-[0_2px_0_#D5CEC0,0_6px_15px_rgba(0,0,0,0.48)]'

@@ -19,6 +19,15 @@ function sortAchievementsByPrestige(ids: AchievementId[]): AchievementId[] {
   );
 }
 
+export type RankTier = 'bronze' | 'silver' | 'gold' | 'diamond';
+
+export const RANK_TIER_LABELS: Record<RankTier, string> = {
+  bronze: '青铜',
+  silver: '白银',
+  gold: '黄金',
+  diamond: '钻石',
+};
+
 export interface PlayerLevelInfo {
   level: number;
   title: string;
@@ -32,6 +41,9 @@ export interface ResolvedPlayerAvatarProfile {
   achievementDates: AchievementDatesMap;
   winStreak: number;
   levelInfo: PlayerLevelInfo;
+  rankTier: RankTier;
+  rankTierLabel: string;
+  leaderboardRank: number | null;
   points: number;
   handsPlayed: number;
   handsWon: number;
@@ -274,6 +286,36 @@ export function computePlayerLevel(input: {
   return { level, title, tier, xp };
 }
 
+export function computeLeaderboardRankTier(params: {
+  leaderboardRank: number | null;
+  points: number;
+  level: number;
+  achievements?: AchievementId[];
+}): { rankTier: RankTier; rankTierLabel: string } {
+  const hasObsidian = (params.achievements ?? []).some(
+    (id) => ACHIEVEMENT_MAP.get(id)?.tier === 'obsidian'
+  );
+  if (
+    hasObsidian ||
+    (params.leaderboardRank === 1 && params.points >= 1600) ||
+    params.points >= 1800 ||
+    params.level >= 10
+  ) {
+    return { rankTier: 'diamond', rankTierLabel: RANK_TIER_LABELS.diamond };
+  }
+  if (
+    (params.leaderboardRank !== null && params.leaderboardRank <= 3 && params.points >= 1300) ||
+    params.points >= 1400 ||
+    params.level >= 6
+  ) {
+    return { rankTier: 'gold', rankTierLabel: RANK_TIER_LABELS.gold };
+  }
+  if (params.points >= 1150 || params.level >= 3) {
+    return { rankTier: 'silver', rankTierLabel: RANK_TIER_LABELS.silver };
+  }
+  return { rankTier: 'bronze', rankTierLabel: RANK_TIER_LABELS.bronze };
+}
+
 export function resolvePlayerAvatarProfile(
   player: Pick<
     ClientPlayerView,
@@ -287,8 +329,14 @@ export function resolvePlayerAvatarProfile(
   }
 ): ResolvedPlayerAvatarProfile {
   const cleanName = player.name.trim();
-  const lbEntry =
-    leaderboard.find((entry) => entry.playerName.trim() === cleanName) ?? null;
+  const rankedList = [...leaderboard].sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.handsWon !== a.handsWon) return b.handsWon - a.handsWon;
+    return b.updatedAt - a.updatedAt;
+  });
+  const lbIndex = rankedList.findIndex((entry) => entry.playerName.trim() === cleanName);
+  const lbEntry = lbIndex >= 0 ? rankedList[lbIndex] : null;
+  const leaderboardRank = lbIndex >= 0 ? lbIndex + 1 : null;
 
   const mergedAchievements = sortAchievementsByPrestige(
     sanitizeAchievementIds([
@@ -339,12 +387,22 @@ export function resolvePlayerAvatarProfile(
     explicitLevel: Math.max(player.level ?? 0, lbEntry?.level ?? 0) || undefined,
   });
 
+  const { rankTier, rankTierLabel } = computeLeaderboardRankTier({
+    leaderboardRank,
+    points,
+    level: levelInfo.level,
+    achievements: mergedAchievements,
+  });
+
   return {
     avatar,
     achievements: mergedAchievements,
     achievementDates: mergedDates,
     winStreak,
     levelInfo,
+    rankTier,
+    rankTierLabel,
+    leaderboardRank,
     points,
     handsPlayed,
     handsWon,
