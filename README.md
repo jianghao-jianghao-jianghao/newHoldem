@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="docs/media/promo.mp4">
+  <a href="#宣传片">
     <img src="docs/media/banner-poster.jpg" alt="Velvet Hold'em" width="100%" />
   </a>
 </p>
@@ -36,14 +36,15 @@
 
 <br />
 
-<!-- 提示：若希望在 GitHub 主页直接内联播放视频，可在 GitHub 网页端编辑 README 时将 promo-video/out/promo-under10mb.mp4 拖入编辑框，用生成的 https://github.com/user-attachments/assets/... 链接替换下方封面块即可 -->
-
 ## 宣传片
 
 <p align="center">
-  <a href="docs/media/promo.mp4">
-    <img src="docs/media/video-cover.jpg" alt="点击观看 Velvet Hold'em 1 分钟实机宣传片（含游戏原声）" width="100%" />
-  </a>
+  <img src="docs/media/promo.webp" alt="Velvet Hold'em 完整 1 分钟实机宣传片（Three.js 3D 渲染 + 实机对局）" width="100%" />
+  <br />
+  <sub>
+    完整 65 秒实机宣传片（真彩动态 WebP 主页直播） · 需要 1080p 含爵士 BGM 与物理筹码原声版请
+    <a href="https://github.com/jianghao-jianghao-jianghao/newHoldem/raw/main/docs/media/promo.mp4"><strong>直接下载 / 播放原片（MP4）</strong></a>
+  </sub>
 </p>
 
 <br />
