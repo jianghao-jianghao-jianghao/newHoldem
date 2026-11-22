@@ -7,21 +7,25 @@
 <h3>把私人德州俱乐部的克制质感，搬进浏览器</h3>
 
 <p>
-  3D 丝绒牌桌 · WSOP / TDA 严谨结算 · Canvas 动态打击特效 · 物理筹码声效 · 24 枚荣誉与趣事成就
+  3D 丝绒牌桌 · WSOP / TDA 严谨结算 · GTO v2 陪练引擎 · SQLite 持久化 · 邮箱验证码与游客免登录并行 · Docker 一键部署
 </p>
 
 <p>
   <a href="#实机演示">实机演示</a> &nbsp;·&nbsp;
   <a href="#核心亮点">核心亮点</a> &nbsp;·&nbsp;
-  <a href="#体验优势">体验优势</a> &nbsp;·&nbsp;
+  <a href="#技术架构与安全特性">架构特性</a> &nbsp;·&nbsp;
   <a href="#快捷键与手势">操作指南</a> &nbsp;·&nbsp;
-  <a href="#快速运行">快速运行</a> &nbsp;·&nbsp;
+  <a href="#快速部署">快速部署</a> &nbsp;·&nbsp;
   <a href="#免责与合规说明">合规说明</a>
 </p>
 
 <p>
   <img src="https://img.shields.io/badge/Three.js-3D_WebGL-0F1314?style=flat-square&labelColor=0B0E10&color=D4A853" alt="Three.js" />
-  <img src="https://img.shields.io/badge/WSOP_Engine-81_Tests_Passing-0F1314?style=flat-square&labelColor=0B0E10&color=1E6B4B" alt="Tests" />
+  <img src="https://img.shields.io/badge/Bot_Engine-GTO_v2-0F1314?style=flat-square&labelColor=0B0E10&color=9B6B2F" alt="GTO v2" />
+  <img src="https://img.shields.io/badge/Persistence-SQLite_WAL-0F1314?style=flat-square&labelColor=0B0E10&color=2E5C6E" alt="SQLite WAL" />
+  <img src="https://img.shields.io/badge/Tests-92_Passing-0F1314?style=flat-square&labelColor=0B0E10&color=1E6B4B" alt="92 Tests Passing" />
+  <img src="https://img.shields.io/badge/Docker-Compose_Ready-0F1314?style=flat-square&labelColor=0B0E10&color=2496ED" alt="Docker Ready" />
+  <img src="https://img.shields.io/badge/Node.js-%3E%3D22.5-0F1314?style=flat-square&labelColor=0B0E10&color=3C873A" alt="Node.js >= 22.5" />
   <img src="https://img.shields.io/badge/License-MIT-0F1314?style=flat-square&labelColor=0B0E10&color=2A332E" alt="MIT License" />
 </p>
 
@@ -29,7 +33,7 @@
 
 ---
 
-**Velvet Hold'em** 是一款为亲友约局与个人练牌打造的 3D 实时多人无上限德州扑克。没有花哨廉价的棋牌弹窗，也没有含糊其辞的简化规则——从高对比度原创宫廷牌面、全下与赢池时的 Canvas 动态打击与筹码溅射特效，到按面值实时合成的物理筹码声效与多人全下边池清算，每个细节都围绕「打开即入局，久玩不累眼」打磨。
+**Velvet Hold'em** 是一款面向亲友约局与个人 GTO 练牌打造的 3D 实时多人无上限德州扑克。没有花哨廉价的棋牌弹窗，也没有含糊其辞的简化规则——从高对比度原创宫廷牌面、全下与赢池时的 Canvas 动态打击特效、按面值合成的物理筹码声效，到内置 169 手牌矩阵与蒙特卡洛胜率估算的 **GTO v2 陪练引擎**、SQLite WAL 持久化与 Docker 生产化部署，每个细节都围绕「打开即入局，久玩不累眼」打磨。
 
 ## 实机演示
 
@@ -83,9 +87,11 @@
 
 ---
 
-### 2. 严谨规则、策略陪练与动态段位光环
+### 2. WSOP / TDA 严谨清算与 GTO v2 陪练引擎
 
-内置符合 WSOP / TDA 标准的德州结算核心，支持 2–10 人桌、多人全下多级边池清算、中途离桌死钱守恒、短全下不重开加注（Rule 47）以及局间补码与出局重买。人不够时可随时增减策略型 AI 陪练，亦可在「牌桌设置」中**非强制**接入 DeepSeek API，让陪练在摊牌或闲聊时自然接梗。
+- **严谨德州规则核心**：支持 2–10 人桌、密码学安全洗牌（`crypto.randomInt`）、多人全下多级边池清算、超额未跟注退还、中途离桌死钱守恒、短全下不重开加注（WSOP Rule 47）、局间补码与出局重买。
+- **GTO v2 陪练策略引擎**：内置 169 手牌 6-max / HU 翻前频率矩阵、≤15BB Nash 推/弃表、零分配 O(1) 7 张牌评估、蒙特卡洛范围加权胜率估算、最小防守频率（MDF）、河牌最优诈唬比、阻断牌（Blockers）与几何下注尺度，并提供多种风格陪练（含 `gto_pro` 平衡型大师）。
+- **可选 DeepSeek 能力**：支持在环境变量或「牌桌设置」中**非强制**接入 DeepSeek API，驱动牌桌陪练自然对话接梗与 `POST /api/gto/evaluate` GTO 复盘点评。
 
 <table>
   <tr>
@@ -108,7 +114,7 @@
 
 ### 3. 分街底池曲线、24 枚荣誉/趣事成就与物理筹码声效
 
-右侧数据抽屉以折线图追踪当前牌局从**翻牌前 → 翻牌 → 转牌 → 河牌**的底池变化及多玩家筹码走势；牌桌上**单击任意头像**即可翻看实时盈亏、VPIP、摊牌胜率与已解锁勋章。成就馆收录 **24 枚** 荣誉与牌桌趣事勋章（包括「7-2 传说」「火箭坠毁」「空气赢家」「残血反杀」「天选倒霉蛋」「交完学费」等真实牌局彩蛋），每次下注均触发按面值建模的物理筹码声效。
+右侧数据抽屉以折线图追踪当前牌局从**翻牌前 → 翻牌 → 转牌 → 河牌**的底池变化及多玩家筹码走势；牌桌上**单击任意头像**即可翻看实时盈亏、VPIP、摊牌胜率与已解锁勋章。成就馆收录 **24 枚** 荣誉与牌桌趣事勋章（包括「7-2 传说」「火箭坠毁」「空气赢家」「残血反杀」「天选倒霉蛋」「交完学费」等真实牌局彩蛋），每次下注均触发按面值（5 / 25 / 100 / 500 / 1000+）建模的物理筹码声效。
 
 <table>
   <tr>
@@ -127,24 +133,63 @@
   </tr>
 </table>
 
+---
+
+### 4. 游客免登录直玩 × 纯邮箱验证码个人中心
+
+- **零门槛入局**：无需注册或登录，打开大厅即可一键加入牌桌、自定义盲注/初始筹码创建私人房间，或输入房号与好友约局。
+- **邮箱验证码账号体系**：点击右上角「登录」通过 6 位邮箱验证码（支持 SMTP / Resend 真实发信）验证身份后，即可解锁跨设备同步的个人中心——保存积分、净盈亏、胜率、连胜、等级头像与成就勋章；登录前以游客身份获得的本地成就也会自动合并入账号。
+
 <p align="center">
   <img src="docs/media/lobby.png" alt="牌室大厅、多房间盲注配置与入座登记" width="84%" />
   <br />
-  <sub>牌室大厅 · 自动生成房号 · 自定义盲注与初始筹码深度 · 支持可选邮箱登录</sub>
+  <sub>牌室大厅 · 自动生成房号 · 自定义盲注与初始筹码深度 · 游客直玩与邮箱验证码登录并行</sub>
 </p>
 
 ---
 
-## 体验优势
+## 技术架构与安全特性
 
-| 维度 | 具体实现 |
+| 模块 | 实现细节 |
 | :--- | :--- |
-| **Canvas 打击与筹码溅射** | 全押触发强力打击光刃与微震回弹，赢取底池绽放多面额立体筹码喷泉，悬停头像可实时互动。 |
-| **24 枚真实触发的成就体系** | 覆盖连胜、边池、大盲守门员、杂色 7-2 赢池、AA 爆冷、高牌摊牌胜、残血逆袭等德州经典桥段。 |
-| **动态段位光环与头像同步** | 头像外围根据排行榜段位（青铜 / 白银 / 黄金 / 钻石）实时变幻光效，同步展示等级与勋章。 |
-| **物理筹码声效 + 爵士 BGM** | 按筹码面值（5 / 25 / 100 / 500 / 1000+）合成不同质感的碰撞音，一键静音同步控管音效与配乐。 |
-| **WSOP / TDA 严谨清算** | 密码学随机洗牌、多级边池、超额未跟注退还、死钱守恒、Rule 47 经 81 项自动化测试校验。 |
-| **联机鉴权与断线保护** | 座位凭证防冒充与防恶意删房、心跳清理僵尸连接、重连态锁定下注防误点并无损恢复成就与座位。 |
+| **前端渲染** | React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + Three.js 3D WebGL（移动端自动回退 2D 丝绒牌桌） |
+| **实时通信** | Express + `ws` 同源单端口服务，客户端自动心跳检测、僵尸连接回收与断线重连态锁定下注 |
+| **数据持久化** | Node.js 22 原生 `node:sqlite`（WAL 模式），持久化账号档案、排行榜与手牌回放（`hand_history`，自动脱敏未亮出的底牌），优雅停机自动执行 `WAL checkpoint` |
+| **GTO 引擎** | `server/gtoRanges.ts`（169 手牌频率矩阵 + Nash 推/弃）+ `server/botAi.ts`（蒙特卡洛范围胜率 + 几何下注）+ `server/gtoCoach.ts`（局面复盘与可选 LLM 点评） |
+| **鉴权与防作弊** | 纯邮箱 6 位 OTP 校验（60 秒冷却 + 5 次试错锁定 + 滑动窗口限流）、HMAC 签名会话 Token、登出服务端吊销、`X-Seat-Secret` 座位防冒充/防恶意删房、服务端权威战绩结算防伪造 |
+| **前后端协同** | 维护 [UI_CONTRACT.md](UI_CONTRACT.md) 接口与事件契约，方便前端 UI 迭代与后端逻辑独立演进 |
+
+<details>
+<summary>目录结构速览</summary>
+
+```text
+.
+├── server.ts                  # Express + WebSocket 主服务、房间生命周期与安全中间件
+├── server/
+│   ├── db.ts                  # Node 22 原生 SQLite (WAL) 初始化、迁移与 hand_history
+│   ├── authStore.ts           # 邮箱 6 位 OTP 鉴权、SMTP/Resend 发信与会话管理
+│   ├── roomAuth.ts            # X-Seat-Secret 常量时间校验与房主删房鉴权
+│   ├── leaderboard.ts         # 排行榜与陪练局归一化统计持久化
+│   ├── rateLimiter.ts         # 滑动窗口限流器（HTTP / OTP / WebSocket）
+│   ├── gtoRanges.ts           # 6-max / HU 169 手牌 GTO 翻前矩阵与 Nash 推/弃表
+│   ├── botAi.ts               # GTO v2 决策引擎、O(1) 7 张牌评估与蒙特卡洛胜率
+│   ├── gtoCoach.ts            # GTO 局面评估与可选 DeepSeek 中文复盘点评
+│   └── botChat.ts             # 牌桌 AI 陪练对话上下文与脱敏过滤
+├── src/
+│   ├── shared/                # 前后端共享德州核心规则引擎、牌力评估、成就与段位模型
+│   ├── context/               # AuthContext（邮箱验证码会话与个人档案同步）
+│   ├── components/            # 大厅、3D/2D 牌桌、个人中心、邮箱登录弹窗与数据抽屉
+│   ├── three/                 # Three.js 丝绒牌桌、筹码与镜头动画
+│   └── utils/                 # 物理筹码合成音效、爵士 BGM 与 Canvas 打击特效
+├── deploy/
+│   └── nginx.conf.example     # Nginx HTTPS + WebSocket 反向代理模板
+├── Dockerfile                 # 多阶段构建（node:22-slim 非 root 生产镜像）
+├── docker-compose.yml         # 一键编排与 /app/data 持久化卷配置
+├── UI_CONTRACT.md             # 前后端 REST / WebSocket 协同契约
+└── .env.example               # 环境变量模板
+```
+
+</details>
 
 ---
 
@@ -165,13 +210,39 @@
 
 ---
 
-## 快速运行
+## 快速部署
 
-环境要求：**Node.js >= 20**，零配置即可本地启动完整联机与 AI 陪练：
+### 方式一：Docker Compose 一键部署（推荐）
+
+内置多阶段 `node:22-slim` 非 root 镜像、健康检查（`/api/health`）与 `./data` SQLite 持久化挂载：
 
 ```bash
-git clone https://github.com/<your-username>/velvet-holdem.git
-cd velvet-holdem
+git clone https://github.com/jianghao-jianghao-jianghao/newHoldem.git
+cd newHoldem
+
+# 复制环境变量模板（按需填写 SMTP/Resend 与 DeepSeek 密钥；留空亦可直接游客畅玩）
+cp .env.example .env
+
+# 构建并后台启动
+docker compose up -d --build
+
+# 验证服务健康状态
+curl http://localhost:3000/api/health
+```
+
+启动后访问 `http://localhost:3000`。如需绑定公网域名与 HTTPS / WSS，可参考 [deploy/nginx.conf.example](deploy/nginx.conf.example) 配置反向代理（记得在 `.env` 中设置 `TRUST_PROXY=1` 与强随机 `AUTH_SESSION_SECRET`）。
+
+> **Windows + WSL2 提示**：若 Docker 运行在 WSL2 内，请保持至少一个 WSL 终端在线（或在 `C:\Users\<用户名>\.wslconfig` 的 `[wsl2]` 下配置 `vmIdleTimeout=-1`），避免 WSL2 自动休眠导致 `localhost:3000` 断开。
+
+---
+
+### 方式二：本地开发运行
+
+环境要求：**Node.js >= 22.5.0**（使用原生 `node:sqlite`）：
+
+```bash
+git clone https://github.com/jianghao-jianghao-jianghao/newHoldem.git
+cd newHoldem
 npm install
 npm run dev
 ```
@@ -179,29 +250,54 @@ npm run dev
 启动后访问 `http://localhost:3000`。
 
 <details>
-<summary>可选环境变量与常用校验命令</summary>
+<summary>环境变量参考、测试与构建命令</summary>
 
 <br />
 
-如需启用服务端默认 DeepSeek 密钥或真实邮件发信，可复制 `.env.example` 为 `.env` 按需配置（全部均为可选项）：
+复制 `.env.example` 为 `.env` 按需配置（未配置邮件与 DeepSeek 时，游客游玩与本地 GTO 陪练均可完整运行）：
 
-| 环境变量 | 说明 |
-| :--- | :--- |
-| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | 服务端默认 DeepSeek 陪练配置（不配置时也可在牌桌设置中临时填入） |
-| `AUTH_SESSION_SECRET` | 邮箱登录会话签名密钥（公网部署建议替换为随机长串） |
-| `RESEND_API_KEY` / `SMTP_*` | 邮箱验证码发信服务（留空时自动使用本地开发预览码） |
-| `VITE_SERVER_URL` | 前后端分离部署时的服务端地址（同源部署留空） |
+| 环境变量 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `PORT` | `3000` | 服务监听端口（同源承载前端静态资源、REST API 与 `/ws`） |
+| `DATA_DIR` | `./data` | SQLite 数据库与会话密钥存放目录（Docker 内自动挂载至 `/app/data`） |
+| `AUTH_SESSION_SECRET` | 自动生成 | 登录 Token HMAC 签名密钥（生产环境建议设置 ≥32 位随机十六进制串） |
+| `ALLOW_OTP_PREVIEW` | `false` | 仅限本地无邮件服务测试时设为 `true`，生产环境保持 `false` |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | — | SMTP 邮箱验证码发信配置（支持 QQ 邮箱 `smtp.qq.com:465` 等） |
+| `RESEND_API_KEY` | — | 可选 Resend 邮件 API 密钥（优先级高于 SMTP） |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | `deepseek-chat` | 可选服务端默认 DeepSeek 配置，用于 AI 陪练聊天与 GTO 复盘点评 |
+| `TRUST_PROXY` / `CORS_ORIGIN` | `0` / `*` | 反向代理跳数（Nginx 后置请设 `1`）与允许的跨域来源 |
+| `VITE_SERVER_URL` | 留空 | 前后端分离部署时的后端地址（同源部署留空即可） |
+
+常用开发校验命令：
 
 ```bash
-# 类型检查
+# TypeScript 类型检查
 npm run lint
 
-# 运行全部 81 项单元测试
-npx tsx --test src/shared/*.test.ts src/utils/*.test.ts src/three/*.test.ts server/*.test.ts
+# 运行全部 15 个测试套件（92 项单元测试）
+npm test
 
-# 生产构建
+# 生产构建（Vite 前端 + esbuild 后端）
 npm run build
+
+# 启动生产产物
+npm start
 ```
+
+</details>
+
+<details>
+<summary>核心 HTTP 与 WebSocket 接口速览</summary>
+
+| 接口 | 说明 |
+| :--- | :--- |
+| `GET /api/health` | 运行状态、在线桌数、内存占用、持久化引擎与 `botEngine: "gto-v2"` 探针 |
+| `GET /api/rooms` · `POST /api/rooms` · `DELETE /api/rooms/:roomId` | 获取大厅房间列表、免登录创建私人牌桌、凭 `X-Player-Id` + `X-Seat-Secret` 删除自定义牌桌 |
+| `POST /api/auth/send-code` · `POST /api/auth/verify-code` | 发送 6 位邮箱验证码与验证登录（自动关联游客本地成就） |
+| `GET /api/auth/session` · `PATCH /api/auth/profile` · `POST /api/auth/logout` | 获取/更新个人资料、吊销当前登录会话 |
+| `POST /api/gto/evaluate` | GTO 局面分析接口（支持可选 `useLlm: true` 生成 DeepSeek 中文复盘建议） |
+| `GET /api/hands` · `GET /api/hands/:id` | 查询 SQLite 已记录的手牌历史与脱敏回放 |
+| `WS /ws` | 牌桌入座、下注、聊天、轻敲提醒、AI 陪练增减与实时广播 |
 
 </details>
 
