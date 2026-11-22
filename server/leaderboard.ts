@@ -6,11 +6,15 @@ import {
   mergeAchievementDates,
   sanitizeAchievementDates,
   sanitizeAchievementIds,
+  sanitizeEquippedAchievement,
   type AchievementDatesMap,
   type AchievementId,
+  type EquippedAchievementPref,
   type PlayerAchievementStats,
 } from '../src/shared/achievements';
-import type { HandCategory, LeaderboardEntry } from '../src/shared/types';
+import { sanitizeAvatar } from '../src/shared/avatarUtils';
+import { computePlayerLevel } from '../src/shared/playerProfile';
+import type { Card, HandCategory, LeaderboardEntry } from '../src/shared/types';
 import { getSharedDatabase, resolveDataDir, type HoldemDatabase } from './db';
 
 function getLegacyLeaderboardFile(): string {
@@ -29,6 +33,7 @@ interface StoredLeaderboardEntry extends LeaderboardEntry {
 const SEED_ENTRIES: LeaderboardEntry[] = [
   {
     playerName: '林深',
+    avatar: 'crown',
     points: 1680,
     netChips: 680,
     handsPlayed: 18,
@@ -45,6 +50,7 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
     },
     currentWinStreak: 2,
     maxWinStreak: 3,
+    level: 5,
     stats: {
       handsPlayed: 18,
       handsWon: 9,
@@ -61,6 +67,7 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
   },
   {
     playerName: '陆行舟',
+    avatar: 'spade',
     points: 1420,
     netChips: 420,
     handsPlayed: 14,
@@ -76,6 +83,7 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
     },
     currentWinStreak: 1,
     maxWinStreak: 2,
+    level: 4,
     stats: {
       handsPlayed: 14,
       handsWon: 6,
@@ -92,6 +100,7 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
   },
   {
     playerName: '苏晚',
+    avatar: 'phoenix',
     points: 1240,
     netChips: 240,
     handsPlayed: 11,
@@ -106,6 +115,7 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
     },
     currentWinStreak: 0,
     maxWinStreak: 2,
+    level: 3,
     stats: {
       handsPlayed: 11,
       handsWon: 5,
@@ -122,6 +132,7 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
   },
   {
     playerName: '顾北',
+    avatar: 'lion',
     points: 1090,
     netChips: 90,
     handsPlayed: 9,
@@ -136,6 +147,7 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
     },
     currentWinStreak: 1,
     maxWinStreak: 1,
+    level: 2,
     stats: {
       handsPlayed: 9,
       handsWon: 3,
@@ -188,6 +200,9 @@ export class LeaderboardStore {
   private toPublic(entry: StoredLeaderboardEntry): LeaderboardEntry {
     return {
       playerName: entry.playerName,
+      avatar: entry.avatar,
+      equippedAchievement: entry.equippedAchievement,
+      level: entry.level,
       points: entry.points,
       netChips: entry.netChips,
       handsPlayed: entry.handsPlayed,
@@ -238,6 +253,18 @@ export class LeaderboardStore {
               stats = undefined;
             }
 
+            const handsPlayed = Number(row.hands_played) || 0;
+            const handsWon = Number(row.hands_won) || 0;
+            const points = Number(row.points) || 1000;
+            const explicitLevel = Number(row.level) || 1;
+            const level = computePlayerLevel({
+              achievements: ach,
+              handsPlayed,
+              handsWon,
+              points,
+              explicitLevel,
+            }).level;
+
             this.entries.set(entryKey, {
               entryKey,
               uid: row.uid ? String(row.uid) : null,
@@ -247,10 +274,13 @@ export class LeaderboardStore {
                   ? row.mode
                   : 'all',
               playerName,
-              points: Number(row.points) || 1000,
+              avatar: row.avatar ? sanitizeAvatar(String(row.avatar)) : undefined,
+              equippedAchievement: sanitizeEquippedAchievement(row.equipped_achievement),
+              level,
+              points,
               netChips: Number(row.net_chips) || 0,
-              handsPlayed: Number(row.hands_played) || 0,
-              handsWon: Number(row.hands_won) || 0,
+              handsPlayed,
+              handsWon,
               bestHandName: String(row.best_hand_name ?? '高牌'),
               bestHandScore: Number(row.best_hand_score) || 0,
               updatedAt: Number(row.updated_at) || Date.now(),
@@ -296,14 +326,24 @@ export class LeaderboardStore {
         for (const item of parsed) {
           if (!item || typeof item.playerName !== 'string' || !item.playerName.trim()) continue;
           const cleanName = item.playerName.trim();
+          const ach = sanitizeAchievementIds(item.achievements);
           const stored: StoredLeaderboardEntry = {
             ...item,
             playerName: cleanName,
+            avatar: item.avatar ? sanitizeAvatar(item.avatar) : undefined,
+            equippedAchievement: sanitizeEquippedAchievement(item.equippedAchievement),
+            level: computePlayerLevel({
+              achievements: ach,
+              handsPlayed: item.handsPlayed,
+              handsWon: item.handsWon,
+              points: item.points,
+              explicitLevel: item.level,
+            }).level,
             entryKey: `name:${cleanName}`,
             uid: null,
             isVerified: false,
             mode: 'all',
-            achievements: sanitizeAchievementIds(item.achievements),
+            achievements: ach,
             achievementDates: sanitizeAchievementDates(item.achievementDates),
             currentWinStreak: item.currentWinStreak ?? 0,
             maxWinStreak: item.maxWinStreak ?? 0,
@@ -331,16 +371,20 @@ export class LeaderboardStore {
         .prepare(
           `INSERT INTO leaderboard_entries (
             entry_key, uid, player_name, is_verified, mode,
+            avatar, equipped_achievement, level,
             points, net_chips, hands_played, hands_won,
             best_hand_name, best_hand_score,
             achievements_json, achievement_dates_json,
             current_win_streak, max_win_streak, stats_json, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(entry_key) DO UPDATE SET
             uid = excluded.uid,
             player_name = excluded.player_name,
             is_verified = excluded.is_verified,
             mode = excluded.mode,
+            avatar = excluded.avatar,
+            equipped_achievement = excluded.equipped_achievement,
+            level = excluded.level,
             points = excluded.points,
             net_chips = excluded.net_chips,
             hands_played = excluded.hands_played,
@@ -360,6 +404,9 @@ export class LeaderboardStore {
           entry.playerName,
           entry.isVerified ? 1 : 0,
           entry.mode,
+          entry.avatar ?? null,
+          entry.equippedAchievement ?? null,
+          entry.level ?? 1,
           entry.points,
           entry.netChips,
           entry.handsPlayed,
@@ -390,29 +437,110 @@ export class LeaderboardStore {
     return `name:${playerName.trim()}`;
   }
 
+  private findExistingByNameOrUid(
+    playerName: string,
+    uid?: string | null
+  ): StoredLeaderboardEntry | undefined {
+    const cleanName = playerName.trim();
+    if (uid && uid.trim()) {
+      const byUid = this.entries.get(`uid:${uid.trim()}`);
+      if (byUid) return byUid;
+    }
+    return this.entries.get(`name:${cleanName}`);
+  }
+
+  public syncPlayerAvatar(
+    playerName: string,
+    avatar?: string,
+    uid?: string | null
+  ): boolean {
+    const cleanName = playerName.trim();
+    if (!cleanName || !avatar) return false;
+    const cleanAvatar = sanitizeAvatar(avatar);
+    if (cleanAvatar === 'default') return false;
+    const existing = this.findExistingByNameOrUid(cleanName, uid);
+    if (!existing) return false;
+    if (existing.avatar === cleanAvatar) return false;
+    existing.avatar = cleanAvatar;
+    this.persistEntry(existing);
+    return true;
+  }
+
+  public syncPlayerEquippedAchievement(
+    playerName: string,
+    equippedAchievement?: EquippedAchievementPref,
+    uid?: string | null
+  ): boolean {
+    const cleanName = playerName.trim();
+    if (!cleanName || equippedAchievement === undefined) return false;
+    const safe = sanitizeEquippedAchievement(equippedAchievement);
+    if (!safe) return false;
+    const existing = this.findExistingByNameOrUid(cleanName, uid);
+    if (!existing) return false;
+    if (existing.equippedAchievement === safe) return false;
+    existing.equippedAchievement = safe;
+    this.persistEntry(existing);
+    return true;
+  }
+
   public getPlayerProfile(
     playerName: string,
     uid?: string | null
   ): {
+    avatar?: string;
+    equippedAchievement?: EquippedAchievementPref;
+    level: number;
+    points: number;
+    netChips: number;
+    handsPlayed: number;
+    handsWon: number;
+    bestHandName: string;
+    bestHandScore: number;
     achievements: AchievementId[];
     achievementDates: AchievementDatesMap;
     currentWinStreak: number;
+    maxWinStreak: number;
     stats: PlayerAchievementStats;
   } {
-    const key = this.resolveEntryKey(playerName, uid);
-    const existing = this.entries.get(key) ?? this.entries.get(`name:${playerName.trim()}`);
+    const existing = this.findExistingByNameOrUid(playerName, uid);
     if (!existing) {
       return {
+        level: 1,
+        points: 1000,
+        netChips: 0,
+        handsPlayed: 0,
+        handsWon: 0,
+        bestHandName: '高牌',
+        bestHandScore: 0,
         achievements: [],
         achievementDates: {},
         currentWinStreak: 0,
+        maxWinStreak: 0,
         stats: createEmptyAchievementStats(),
       };
     }
+    const achievements = existing.achievements ?? [];
+    const level = computePlayerLevel({
+      achievements,
+      handsPlayed: existing.handsPlayed,
+      handsWon: existing.handsWon,
+      points: existing.points,
+      explicitLevel: existing.level,
+    }).level;
     return {
-      achievements: existing.achievements ?? [],
+      avatar: existing.avatar,
+      equippedAchievement: sanitizeEquippedAchievement(existing.equippedAchievement),
+      level,
+      points: existing.points,
+      netChips: existing.netChips ?? existing.stats?.netChips ?? 0,
+      handsPlayed: existing.handsPlayed,
+      handsWon: existing.handsWon,
+      bestHandName: existing.bestHandName || '高牌',
+      bestHandScore: existing.bestHandScore ?? 0,
+      achievements,
       achievementDates: existing.achievementDates ?? {},
       currentWinStreak: existing.currentWinStreak ?? existing.stats?.currentWinStreak ?? 0,
+      maxWinStreak: existing.maxWinStreak ?? existing.stats?.maxWinStreak ?? 0,
       stats: existing.stats ?? {
         ...createEmptyAchievementStats(),
         handsPlayed: existing.handsPlayed,
@@ -426,6 +554,7 @@ export class LeaderboardStore {
 
   public recordHandOutcome(params: {
     playerName: string;
+    avatar?: string;
     uid?: string | null;
     isPracticeWithBots?: boolean;
     netChips: number;
@@ -439,6 +568,12 @@ export class LeaderboardStore {
     currentChips?: number;
     startingChips?: number;
     bigBlind?: number;
+    holeCards?: Card[];
+    communityCardsCount?: number;
+    wasSplitPot?: boolean;
+    isBigBlind?: boolean;
+    startingHandChips?: number;
+    reachedShowdown?: boolean;
   }): { entry: LeaderboardEntry; newlyUnlocked: AchievementId[]; pointsDelta: number } {
     const cleanName = params.playerName.trim();
     if (!cleanName) {
@@ -482,6 +617,7 @@ export class LeaderboardStore {
       achievementDates: {},
       currentWinStreak: 0,
       maxWinStreak: 0,
+      level: 1,
     };
 
     const baseStats: PlayerAchievementStats = existing.stats ?? {
@@ -503,6 +639,12 @@ export class LeaderboardStore {
       currentChips: params.currentChips ?? 0,
       startingChips: params.startingChips ?? 2000,
       bigBlind: params.bigBlind ?? 20,
+      holeCards: params.holeCards,
+      communityCardsCount: params.communityCardsCount,
+      wasSplitPot: params.wasSplitPot,
+      isBigBlind: params.isBigBlind,
+      startingHandChips: params.startingHandChips,
+      reachedShowdown: params.reachedShowdown,
     });
 
     const pointsDelta = computeNormalizedPointsDelta({
@@ -544,8 +686,19 @@ export class LeaderboardStore {
       achResult.newlyUnlocked,
       nowMs
     );
+    const cleanAvatar = params.avatar ? sanitizeAvatar(params.avatar) : undefined;
+    if (cleanAvatar && cleanAvatar !== 'default') {
+      existing.avatar = cleanAvatar;
+    }
     existing.currentWinStreak = achResult.nextStats.currentWinStreak;
     existing.maxWinStreak = achResult.nextStats.maxWinStreak;
+    existing.level = computePlayerLevel({
+      achievements: existing.achievements,
+      handsPlayed: existing.handsPlayed,
+      handsWon: existing.handsWon,
+      points: existing.points,
+      explicitLevel: existing.level,
+    }).level;
     existing.updatedAt = nowMs;
 
     this.entries.set(entryKey, existing);

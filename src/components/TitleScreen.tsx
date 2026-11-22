@@ -1,33 +1,34 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   ArrowRight,
-  Award,
   Plus,
-  RotateCcw,
   Trash2,
-  Upload,
   Users,
   X,
 } from 'lucide-react';
-import {
-  AVATAR_PRESETS,
-  isCustomAvatarDataUrl,
-  MAX_CUSTOM_AVATAR_BYTES,
-  sanitizeAvatar,
-} from '../shared/avatarUtils';
-import type { RoomSummary } from '../shared/types';
-import { LogOut as SignOutIcon, Mail } from 'lucide-react';
-import { useAuth, type AccountProfile } from '../context/AuthContext';
-import { AvatarAchievementShowcase } from './AchievementBadge';
-import { EmailOtpModal } from './EmailOtpModal';
+import type {
+  AchievementDatesMap,
+  AchievementId,
+  EquippedAchievementPref,
+} from '../shared/achievements';
+import { sanitizeAvatar } from '../shared/avatarUtils';
+import { resolvePlayerAvatarProfile } from '../shared/playerProfile';
+import type { LeaderboardEntry, RoomSummary } from '../shared/types';
+import { useAuth } from '../context/AuthContext';
+import type { PersonalCenterTab } from './PersonalCenterModal';
 import { PlayerAvatar } from './PlayerAvatar';
+import { SeatEntryModal } from './SeatEntryModal';
 
 interface TitleScreenProps {
   initialName: string;
   initialRoom: string;
   initialAvatar: string;
+  achievements?: AchievementId[];
+  achievementDates?: AchievementDatesMap;
+  equippedPref?: EquippedAchievementPref;
   isDesktop?: boolean;
   rooms: RoomSummary[];
+  leaderboard?: LeaderboardEntry[];
   errorMessage: string | null;
   onEnterTable: (playerName: string, roomId: string, avatar: string) => void;
   onCreateRoom: (params: {
@@ -38,7 +39,8 @@ interface TitleScreenProps {
     startingChips: number;
   }) => Promise<RoomSummary | null>;
   onDeleteRoom: (roomId: string) => Promise<void> | void;
-  onOpenAchievements: () => void;
+  onOpenPersonalCenter: (tab?: PersonalCenterTab) => void;
+  onOpenEmailLogin: () => void;
   onOpenCardGallery: () => void;
 }
 
@@ -51,119 +53,71 @@ const BLIND_PRESETS = [
 
 const CHIP_PRESETS = [1000, 2000, 5000, 10000] as const;
 
-async function resizeAvatarImage(file: File): Promise<string | null> {
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('load_failed'));
-      el.src = objectUrl;
-    });
-
-    const size = 128;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    const minSide = Math.min(img.width, img.height);
-    const sx = (img.width - minSide) / 2;
-    const sy = (img.height - minSide) / 2;
-    ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
-
-    for (const quality of [0.82, 0.64, 0.45]) {
-      const dataUrl = canvas.toDataURL('image/jpeg', quality);
-      if (dataUrl.length <= MAX_CUSTOM_AVATAR_BYTES) {
-        const clean = sanitizeAvatar(dataUrl);
-        if (clean !== 'default') return clean;
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
 export function TitleScreen({
   initialName,
   initialRoom,
   initialAvatar,
+  achievements = [],
+  achievementDates = {},
+  equippedPref,
   isDesktop = true,
   rooms,
+  leaderboard = [],
   errorMessage,
   onEnterTable,
   onCreateRoom,
   onDeleteRoom,
-  onOpenAchievements,
+  onOpenPersonalCenter,
+  onOpenEmailLogin,
   onOpenCardGallery,
 }: TitleScreenProps) {
-  const { profile, authError, signOutUser, clearAuthError } = useAuth();
-  const [name, setName] = useState(initialName);
-  const [roomId, setRoomId] = useState(initialRoom || 'CLUB01');
-  const [avatar, setAvatar] = useState(() => sanitizeAvatar(initialAvatar));
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const { profile, authError, clearAuthError } = useAuth();
+  const [customCodeOpen, setCustomCodeOpen] = useState(false);
+  const [customRoomCode, setCustomRoomCode] = useState(initialRoom || '');
+  const [pendingSeatRoom, setPendingSeatRoom] = useState<{
+    roomId: string;
+    tableName: string;
+  } | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newTableName, setNewTableName] = useState('');
-  const [newRoomCode, setNewRoomCode] = useState('');
   const [customSb, setCustomSb] = useState(10);
   const [customBb, setCustomBb] = useState(20);
   const [startingChips, setStartingChips] = useState<number>(2000);
   const [creating, setCreating] = useState(false);
 
-  const nameInputRef = useRef<HTMLInputElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const avatar = sanitizeAvatar(initialAvatar);
 
-  const handleEmailAuthSuccess = (loaded: AccountProfile) => {
-    if (!name.trim() && loaded.displayName) {
-      setName(loaded.displayName);
-    }
-    if (loaded.avatar && avatar === 'default') {
-      setAvatar(loaded.avatar);
-    }
+  const previewProfile = resolvePlayerAvatarProfile(
+    {
+      name: initialName.trim() || profile?.displayName || 'V',
+      avatar,
+      achievements: achievements.length > 0 ? achievements : (profile?.achievements ?? []),
+      achievementDates:
+        Object.keys(achievementDates).length > 0
+          ? achievementDates
+          : (profile?.achievementDates ?? {}),
+      equippedAchievement: equippedPref ?? profile?.equippedAchievement,
+      winStreak: profile?.currentWinStreak ?? 0,
+      isBot: false,
+    },
+    leaderboard
+  );
+
+  const openSeatModalForRoom = (roomId: string, tableName?: string) => {
+    const cleanId = roomId.trim().toUpperCase() || 'CLUB01';
+    const matched = rooms.find((r) => r.roomId === cleanId);
+    setPendingSeatRoom({
+      roomId: cleanId,
+      tableName: tableName || matched?.tableName || '私人牌桌',
+    });
   };
 
-  const tryEnterRoom = (targetRoomId: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setLocalError('请先输入您的牌手昵称');
-      setRoomId(targetRoomId);
-      nameInputRef.current?.focus();
-      return;
-    }
-    setLocalError(null);
-    onEnterTable(
-      trimmed,
-      targetRoomId.trim().toUpperCase() || 'CLUB01',
-      sanitizeAvatar(avatar)
-    );
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleCustomCodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    tryEnterRoom(roomId);
-  };
-
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setLocalError('请选择 PNG、JPG 或 WebP 格式的头像图片');
-      return;
-    }
-    const processed = await resizeAvatarImage(file);
-    if (!processed) {
-      setLocalError('头像图片处理失败或体积过大，请换一张图片');
-      return;
-    }
-    setLocalError(null);
-    setAvatar(processed);
+    const cleanCode = customRoomCode.trim().toUpperCase();
+    if (!cleanCode) return;
+    openSeatModalForRoom(cleanCode);
   };
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
@@ -172,7 +126,6 @@ export function TitleScreen({
     const sb = Math.max(1, Math.min(5000, Math.floor(Number(customSb) || 10)));
     const bb = Math.max(sb + 1, Math.min(10000, Math.floor(Number(customBb) || sb * 2)));
     setCreating(true);
-    setLocalError(null);
     const safeStarting = Math.max(
       bb * 10,
       Math.min(200_000, Math.floor(Number(startingChips) || 2000))
@@ -180,46 +133,33 @@ export function TitleScreen({
     try {
       const created = await onCreateRoom({
         tableName: newTableName.trim(),
-        roomId: newRoomCode.trim().toUpperCase() || undefined,
         smallBlind: sb,
         bigBlind: bb,
         startingChips: safeStarting,
       });
       if (created) {
-        setRoomId(created.roomId);
         setNewTableName('');
-        setNewRoomCode('');
         setCreateOpen(false);
+        openSeatModalForRoom(created.roomId, created.tableName);
       }
     } finally {
       setCreating(false);
     }
   };
 
-  const handleDelete = (targetId: string) => {
-    if (roomId.toUpperCase() === targetId.toUpperCase()) {
-      const next = rooms.find((r) => r.roomId !== targetId);
-      setRoomId(next?.roomId ?? 'CLUB01');
-    }
-    onDeleteRoom(targetId);
-  };
-
-  const displayError = localError || authError || errorMessage;
-  const activePresetLabel = isCustomAvatarDataUrl(avatar)
-    ? '自定义图片'
-    : AVATAR_PRESETS.find((p) => p.id === avatar)?.label ?? '默认';
+  const displayError = authError || errorMessage;
 
   return (
     <main
       className={`relative z-10 flex min-h-dvh flex-col justify-between overflow-x-hidden ${
         isDesktop
-          ? 'bg-gradient-to-b from-[#080A0B]/78 via-[#080A0B]/42 to-[#080A0B]/84 lg:bg-gradient-to-r lg:from-[#080A0B]/86 lg:via-[#080A0B]/48 lg:to-[#080A0B]/82'
+          ? 'bg-gradient-to-b from-[#080A0B]/74 via-[#080A0B]/34 to-[#080A0B]/78 lg:bg-gradient-to-r lg:from-[#080A0B]/92 lg:via-[#080A0B]/58 lg:to-[#080A0B]/12'
           : 'bg-[radial-gradient(ellipse_at_top,#10261E_0%,#090B0C_68%)]'
       }`}
     >
       {/* Slim Architectural Header */}
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 border-b border-white/[0.06] px-3 py-3.5 sm:gap-4 sm:px-8 sm:py-4">
-        <div className="flex items-center gap-2 sm:gap-3 whitespace-nowrap shrink-0">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 border-b border-white/[0.06] px-4 py-3.5 sm:gap-4 sm:px-8 sm:py-4">
+        <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
           <svg
             viewBox="0 0 36 36"
             className="h-6 w-6 sm:h-7 sm:w-7 shrink-0"
@@ -245,92 +185,87 @@ export function TitleScreen({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <nav
+          aria-label="大厅导航"
+          className="flex items-center gap-3.5 sm:gap-5 text-xs font-medium shrink-0"
+        >
+          <button
+            type="button"
+            data-testid="open-card-gallery-btn"
+            onClick={onOpenCardGallery}
+            className="touch-manipulation py-1.5 text-[#A8B2AD] hover:text-[#F5F2EB] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            牌面图鉴
+          </button>
+
+          <span aria-hidden="true" className="h-3.5 w-px bg-white/[0.1]" />
+
           {profile ? (
-            <div className="flex items-center gap-1.5 sm:gap-2 rounded-md border border-white/[0.1] bg-[#101315]/90 px-2 sm:px-2.5 py-1.5 text-[11px] sm:text-xs">
-              <Mail className="h-3.5 w-3.5 text-[#D4A853] shrink-0" aria-hidden="true" />
-              <span
-                title={profile.email}
-                className="hidden sm:inline truncate max-w-[160px] text-[#E8CF96] font-medium"
-              >
-                {profile.email}
-              </span>
-              <button
-                type="button"
-                data-testid="email-signout-btn"
-                onClick={() => void signOutUser()}
-                title="退出邮箱登录"
-                className="inline-flex items-center gap-1 text-[#9AA5A0] hover:text-white transition-colors whitespace-nowrap"
-              >
-                <SignOutIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="hidden md:inline">退出</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              data-testid="open-personal-center-btn"
+              onClick={() => onOpenPersonalCenter('achievements')}
+              className="touch-manipulation inline-flex items-center gap-2 py-1 text-[#E6CF96] hover:text-[#F8E6B3] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <PlayerAvatar
+                avatar={previewProfile.avatar}
+                name={initialName.trim() || profile.displayName || 'V'}
+                size="xs"
+              />
+              <span>个人中心</span>
+            </button>
           ) : (
             <button
               type="button"
               data-testid="email-signin-btn"
               onClick={() => {
                 clearAuthError();
-                setEmailModalOpen(true);
+                onOpenEmailLogin();
               }}
-              className="touch-manipulation inline-flex h-9 items-center gap-1 sm:gap-1.5 border border-white/[0.12] bg-[#0E1113]/85 px-2 sm:px-3 text-[11px] sm:text-xs font-medium text-[#E8CF96] hover:border-[#D4A853]/50 hover:bg-[#15191C] transition-colors whitespace-nowrap shrink-0 rounded-md"
+              className="touch-manipulation py-1.5 text-[#E6CF96] hover:text-[#F8E6B3] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Mail className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
-              <span>邮箱登录</span>
+              登录
             </button>
           )}
-
-          <button
-            type="button"
-            data-testid="open-card-gallery-btn"
-            onClick={onOpenCardGallery}
-            className="touch-manipulation inline-flex h-9 items-center gap-1 sm:gap-1.5 px-2 sm:px-3 text-[11px] sm:text-xs font-medium text-[#C8D0CC] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0 rounded-md"
-          >
-            <span className="font-serif font-bold text-[#C8A153]" aria-hidden="true">♠</span>
-            <span>牌面图鉴</span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="open-achievements-btn"
-            onClick={onOpenAchievements}
-            className="touch-manipulation inline-flex h-9 items-center gap-1 sm:gap-1.5 px-2 sm:px-3 text-[11px] sm:text-xs font-medium text-[#C8D0CC] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0 rounded-md"
-          >
-            <Award className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
-            <span>成就</span>
-            <span className="hidden sm:inline -ml-1">勋章</span>
-          </button>
-        </div>
+        </nav>
       </header>
 
-      {/* Main Split Salon */}
+      {/* Open Salon Canvas: Left Editorial Directory, Right Open 3D Table */}
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-5 py-6 sm:px-8 sm:py-8">
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-12 lg:items-start">
-          {/* Left 7 Cols: Editorial Title + Table Directory */}
-          <section className="lg:col-span-7 lg:border-r lg:border-white/[0.07] lg:pr-12">
-            <h1
-              className="font-display text-3xl sm:text-5xl font-bold tracking-tight text-[#F5F2EB] leading-[1.15]"
-              style={{ textWrap: 'balance' }}
-            >
-              德州扑克私人牌室
-            </h1>
-            <p className="mt-2.5 max-w-md text-sm tracking-wide text-[#9DA7A2]">
-              无上限德州扑克 · 两人即开，自定义盲注与筹码深度
-            </p>
+        <section className="w-full max-w-[540px]">
+          <h1
+            className="font-display text-3xl sm:text-5xl font-bold tracking-tight text-[#F5F2EB] leading-[1.15]"
+            style={{ textWrap: 'balance' }}
+          >
+            德州扑克私人牌室
+          </h1>
+          <p className="mt-2.5 max-w-md text-sm tracking-wide text-[#9DA7A2]">
+            无上限德州扑克 · 两人即开，自定义盲注与筹码深度
+          </p>
 
-            {/* Directory Toolbar */}
-            <div className="mt-7 flex items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
-              <div className="flex items-center gap-2 text-xs text-[#8D9792]">
-                <span className="font-medium text-[#DEDAD2]">牌桌大厅</span>
-                <span aria-hidden="true">·</span>
-                <span className="font-mono-num">{rooms.length} 桌在线</span>
-              </div>
+          {/* Directory Toolbar */}
+          <div className="mt-8 flex items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
+            <div className="flex items-center gap-2 text-xs text-[#8D9792]">
+              <span className="font-medium text-[#DEDAD2]">牌桌大厅</span>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono-num">{rooms.length} 桌在线</span>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                type="button"
+                data-testid="toggle-room-code-btn"
+                onClick={() => setCustomCodeOpen((prev) => !prev)}
+                className="touch-manipulation text-xs text-[#9AA5A0] hover:text-[#E8CF96] transition-colors whitespace-nowrap cursor-pointer"
+              >
+                {customCodeOpen ? '收起房号' : '输房号加入'}
+              </button>
 
               <button
                 type="button"
+                data-testid="toggle-create-room-btn"
                 onClick={() => setCreateOpen((prev) => !prev)}
-                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded-md border border-[#D4A853]/45 bg-[#D4A853]/10 px-3 text-xs font-semibold text-[#E8CF96] hover:bg-[#D4A853]/20 transition-colors whitespace-nowrap shrink-0"
+                className="touch-manipulation inline-flex h-8 items-center gap-1.5 rounded-md border border-[#D4A853]/50 bg-[#0D1012]/85 px-3 text-xs font-semibold text-[#F0D99F] backdrop-blur-sm hover:border-[#D4A853]/75 hover:bg-[#191710]/95 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 {createOpen ? (
                   <>
@@ -345,400 +280,240 @@ export function TitleScreen({
                 )}
               </button>
             </div>
+          </div>
 
-            {/* Inline Create Table Form */}
-            {createOpen && (
-              <form
-                onSubmit={handleCreateSubmit}
-                className="mt-4 border border-[#D4A853]/30 bg-[#0E1113]/95 p-4 sm:p-5 rounded-md space-y-4"
+          {/* Compact Join-by-Room-Code Bar */}
+          {customCodeOpen && (
+            <form
+              onSubmit={handleCustomCodeSubmit}
+              className="mt-3 flex items-center gap-2"
+            >
+              <input
+                id="room-code-input"
+                type="text"
+                maxLength={12}
+                placeholder="输入好友分享的房间号"
+                value={customRoomCode}
+                onChange={(e) => setCustomRoomCode(e.target.value.toUpperCase())}
+                className="font-mono-num h-9 flex-1 rounded border border-white/[0.12] bg-[#080A0B]/95 px-3 text-sm text-[#E8CF96] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="touch-manipulation inline-flex h-9 items-center gap-1 rounded bg-[#D4A853] px-3.5 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap cursor-pointer"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label
-                      htmlFor="create-table-name"
-                      className="block text-[11px] font-medium text-[#A1ABA6] mb-1.5"
-                    >
-                      牌桌名称（可选）
-                    </label>
-                    <input
-                      id="create-table-name"
-                      type="text"
-                      maxLength={24}
-                      placeholder="例：周末好友局"
-                      value={newTableName}
-                      onChange={(e) => setNewTableName(e.target.value)}
-                      className="h-10 sm:h-9 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#F3F1EC] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="create-room-code"
-                      className="block text-[11px] font-medium text-[#A1ABA6] mb-1.5"
-                    >
-                      房间号（留空自动生成）
-                    </label>
-                    <input
-                      id="create-room-code"
-                      type="text"
-                      maxLength={12}
-                      placeholder="例：VIP88"
-                      value={newRoomCode}
-                      onChange={(e) => setNewRoomCode(e.target.value.toUpperCase())}
-                      className="font-mono-num h-10 sm:h-9 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#E8CF96] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
-                    />
-                  </div>
+                <span>进入</span>
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </form>
+          )}
+
+          {/* Inline Create Table Form */}
+          {createOpen && (
+            <form
+              onSubmit={handleCreateSubmit}
+              className="mt-4 border border-[#D4A853]/30 bg-[#0E1113]/95 p-4 sm:p-5 rounded-md space-y-4"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    htmlFor="create-table-name"
+                    className="text-[11px] font-medium text-[#A1ABA6]"
+                  >
+                    牌桌名称（可选）
+                  </label>
+                  <span className="text-[11px] text-[#78837E]">房间号将自动生成</span>
                 </div>
+                <input
+                  id="create-table-name"
+                  type="text"
+                  maxLength={24}
+                  placeholder="例：周末好友局"
+                  value={newTableName}
+                  onChange={(e) => setNewTableName(e.target.value)}
+                  className="h-9 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#F3F1EC] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
+                />
+              </div>
 
-                <div>
-                  <span className="block text-[11px] font-medium text-[#A1ABA6] mb-1.5">
-                    盲注级别（预设或自定义小盲 / 大盲）
-                  </span>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {BLIND_PRESETS.map((preset) => {
-                      const active = customSb === preset.sb && customBb === preset.bb;
-                      return (
-                        <button
-                          key={preset.label}
-                          type="button"
-                          onClick={() => {
-                            setCustomSb(preset.sb);
-                            setCustomBb(preset.bb);
-                          }}
-                          className={`touch-manipulation font-mono-num h-9 sm:h-8 rounded border text-xs font-semibold transition-colors ${
-                            active
-                              ? 'border-[#D4A853] bg-[#D4A853]/18 text-[#F5E4B8]'
-                              : 'border-white/[0.1] bg-[#080A0B] text-[#949E99] hover:text-white'
-                          }`}
-                        >
-                          {preset.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div className="flex items-center gap-2 rounded border border-white/[0.1] bg-[#080A0B] px-2.5 h-9 sm:h-8">
-                      <span className="text-[11px] text-[#8E9893] shrink-0">小盲</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={5000}
-                        aria-label="自定义小盲"
-                        value={customSb}
-                        onChange={(e) => setCustomSb(Number(e.target.value))}
-                        className="font-mono-num w-full bg-transparent text-right text-xs text-[#F3F1EC] focus:outline-none"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 rounded border border-white/[0.1] bg-[#080A0B] px-2.5 h-9 sm:h-8">
-                      <span className="text-[11px] text-[#8E9893] shrink-0">大盲</span>
-                      <input
-                        type="number"
-                        min={2}
-                        max={10000}
-                        aria-label="自定义大盲"
-                        value={customBb}
-                        onChange={(e) => setCustomBb(Number(e.target.value))}
-                        className="font-mono-num w-full bg-transparent text-right text-xs text-[#E8CF96] focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label
-                      htmlFor="create-starting-chips"
-                      className="text-[11px] font-medium text-[#A1ABA6]"
-                    >
-                      初始筹码
-                    </label>
-                    <span className="font-mono-num text-[11px] text-[#7D8782]">
-                      最低 {(Math.max(2, customBb) * 10).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-5 gap-1.5">
-                    {CHIP_PRESETS.map((chips) => (
+              <div>
+                <span className="block text-[11px] font-medium text-[#A1ABA6] mb-1.5">
+                  盲注级别
+                </span>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {BLIND_PRESETS.map((preset) => {
+                    const active = customSb === preset.sb && customBb === preset.bb;
+                    return (
                       <button
-                        key={chips}
+                        key={preset.label}
                         type="button"
-                        onClick={() => setStartingChips(chips)}
-                        className={`touch-manipulation font-mono-num h-9 sm:h-8 rounded border text-xs font-semibold transition-colors ${
-                          startingChips === chips
+                        onClick={() => {
+                          setCustomSb(preset.sb);
+                          setCustomBb(preset.bb);
+                        }}
+                        className={`touch-manipulation font-mono-num h-8 rounded border text-xs font-semibold transition-colors cursor-pointer ${
+                          active
                             ? 'border-[#D4A853] bg-[#D4A853]/18 text-[#F5E4B8]'
                             : 'border-white/[0.1] bg-[#080A0B] text-[#949E99] hover:text-white'
                         }`}
                       >
-                        {chips.toLocaleString()}
+                        {preset.label}
                       </button>
-                    ))}
+                    );
+                  })}
+                </div>
+
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="flex items-center gap-2 rounded border border-white/[0.1] bg-[#080A0B] px-2.5 h-8">
+                    <span className="text-[11px] text-[#8E9893] shrink-0">小盲</span>
                     <input
-                      id="create-starting-chips"
                       type="number"
-                      min={Math.max(2, customBb) * 10}
-                      max={200000}
-                      step={100}
-                      aria-label="自定义初始筹码"
-                      value={startingChips}
-                      onChange={(e) => setStartingChips(Number(e.target.value))}
-                      className="font-mono-num h-9 sm:h-8 w-full rounded border border-white/[0.12] bg-[#080A0B] px-2 text-center text-xs text-[#E8CF96] focus:border-[#D4A853] focus:outline-none"
+                      min={1}
+                      max={5000}
+                      aria-label="自定义小盲"
+                      value={customSb}
+                      onChange={(e) => setCustomSb(Number(e.target.value))}
+                      className="font-mono-num w-full bg-transparent text-right text-xs text-[#F3F1EC] focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 rounded border border-white/[0.1] bg-[#080A0B] px-2.5 h-8">
+                    <span className="text-[11px] text-[#8E9893] shrink-0">大盲</span>
+                    <input
+                      type="number"
+                      min={2}
+                      max={10000}
+                      aria-label="自定义大盲"
+                      value={customBb}
+                      onChange={(e) => setCustomBb(Number(e.target.value))}
+                      className="font-mono-num w-full bg-transparent text-right text-xs text-[#E8CF96] focus:outline-none"
                     />
                   </div>
                 </div>
-
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="touch-manipulation flex h-10 sm:h-9 w-full items-center justify-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] disabled:opacity-50 transition-colors"
-                >
-                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>{creating ? '创建中...' : '确认创建牌桌'}</span>
-                </button>
-              </form>
-            )}
-
-            {/* Architectural Hairline Table Directory */}
-            <div className="max-h-72 overflow-y-auto divide-y divide-white/[0.07]">
-              {rooms.length === 0 ? (
-                <div className="py-10 text-center text-xs text-[#7E8782]">
-                  暂无活跃牌桌，点击上方「创建牌桌」开设新桌。
-                </div>
-              ) : (
-                rooms.map((room) => {
-                  const selected = roomId.toUpperCase() === room.roomId;
-                  return (
-                    <div
-                      key={room.roomId}
-                      className={`flex items-center justify-between gap-3 py-3.5 px-2 transition-colors ${
-                        selected ? 'bg-[#D4A853]/[0.07]' : 'hover:bg-white/[0.02]'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setRoomId(room.roomId)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className="truncate text-sm font-semibold text-[#F3F1EC]">
-                            {room.tableName}
-                          </span>
-                          <span className="font-mono-num shrink-0 text-xs font-bold text-[#D4A853]">
-                            {room.roomId}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[#8D9792]">
-                          <span className="font-mono-num">
-                            盲注 {room.smallBlind}/{room.bigBlind}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span className="font-mono-num">
-                            初始 {room.startingChips.toLocaleString()}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span className="inline-flex items-center gap-1 font-mono-num text-[#B5BEB9]">
-                            <Users className="h-3 w-3" aria-hidden="true" />
-                            {room.playerCount}人
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span>{room.phase === 'waiting' ? '等待开局' : '对局中'}</span>
-                        </div>
-                      </button>
-
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => tryEnterRoom(room.roomId)}
-                          className="touch-manipulation h-9 sm:h-8 rounded border border-white/[0.14] bg-[#14181B] px-3 text-xs font-semibold text-[#E8CF96] hover:border-[#D4A853] hover:bg-[#D4A853] hover:text-[#0F1210] transition-colors whitespace-nowrap"
-                        >
-                          进入
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(room.roomId)}
-                          aria-label={`删除牌桌 ${room.tableName}`}
-                          title="删除牌桌"
-                          className="touch-manipulation flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded border border-white/[0.08] text-[#8E9893] hover:border-[#DC2626]/50 hover:bg-[#DC2626]/15 hover:text-[#FCA5A5] transition-colors"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
-          {/* Right 5 Cols: Restrained Seat Registration + Avatar Selector */}
-          <section className="lg:col-span-5">
-            <div className="border border-white/[0.08] bg-[#0B0E10]/86 backdrop-blur-md p-5 sm:p-6 rounded-md">
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-3 mb-4">
-                <h2 className="text-sm font-semibold tracking-wide text-[#F3F1EC]">入座登记</h2>
-                <span className="text-[11px] text-[#7D8782]">{activePresetLabel}</span>
               </div>
 
-              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                {/* Avatar Selector (single elevation, no nested box-in-box) */}
-                <div data-testid="avatar-selector" className="border-b border-white/[0.06] pb-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      {(() => {
-                        const previewAchievements = profile?.achievements ?? [];
-                        const previewDates = profile?.achievementDates ?? {};
-                        const previewStreak = profile?.currentWinStreak ?? 0;
-
-                        return (
-                          <div className="relative shrink-0 overflow-visible">
-                            <PlayerAvatar
-                              avatar={avatar}
-                              name={name || 'V'}
-                              size="xl"
-                            />
-                            <AvatarAchievementShowcase
-                              achievements={previewAchievements}
-                              achievementDates={previewDates}
-                              winStreak={previewStreak}
-                              maxVisible={3}
-                              size="xs"
-                              tooltipPlacement="top"
-                              onOpenAchievements={onOpenAchievements}
-                              className="absolute -top-2 -right-2.5 z-20"
-                            />
-                          </div>
-                        );
-                      })()}
-                      <div className="min-w-0 pl-1">
-                        <p className="truncate text-sm font-semibold text-[#F3F1EC]">
-                          {name.trim() || '未命名牌手'}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-[#7E8782]">
-                          {profile ? profile.email : '选择徽章或上传头像'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {isCustomAvatarDataUrl(avatar) && (
-                        <button
-                          type="button"
-                          onClick={() => setAvatar('default')}
-                          aria-label="恢复默认头像"
-                          title="恢复默认头像"
-                          className="touch-manipulation flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded border border-white/[0.1] bg-white/[0.03] text-[#A9B3AE] hover:text-white transition-colors"
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        data-testid="upload-avatar-btn"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded border border-white/[0.12] bg-white/[0.04] px-2.5 text-xs font-medium text-[#D5DDD8] hover:border-[#D4A853]/45 hover:text-[#F0DFB3] transition-colors whitespace-nowrap"
-                      >
-                        <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>上传</span>
-                      </button>
-                      <input
-                        ref={fileInputRef}
-                        data-testid="avatar-file-input"
-                        type="file"
-                        accept="image/*"
-                        onChange={handleAvatarUpload}
-                        className="hidden"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-4 sm:grid-cols-7 gap-1.5">
-                    {AVATAR_PRESETS.map((preset) => {
-                      const selected = avatar === preset.id;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          data-testid={`avatar-preset-${preset.id}`}
-                          aria-pressed={selected}
-                          onClick={() => {
-                            setLocalError(null);
-                            setAvatar(preset.id);
-                          }}
-                          className={`touch-manipulation flex flex-col items-center justify-center gap-1.5 rounded py-2 px-1 transition-colors ${
-                            selected
-                              ? 'bg-[#D4A853]/16 text-[#F5E4B8] ring-1 ring-[#D4A853]/65'
-                              : 'bg-white/[0.02] text-[#8E9893] hover:bg-white/[0.06] hover:text-white'
-                          }`}
-                        >
-                          <PlayerAvatar
-                            avatar={preset.id}
-                            name={name || 'V'}
-                            size="sm"
-                          />
-                          <span className="text-[11px] leading-none whitespace-nowrap">
-                            {preset.label}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
                   <label
-                    htmlFor="player-name-input"
-                    className="block text-xs font-medium text-[#B3BCB7] mb-1.5"
+                    htmlFor="create-starting-chips"
+                    className="text-[11px] font-medium text-[#A1ABA6]"
                   >
-                    玩家昵称
+                    初始筹码
                   </label>
+                  <span className="font-mono-num text-[11px] text-[#7D8782]">
+                    最低 {(Math.max(2, customBb) * 10).toLocaleString()}
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {CHIP_PRESETS.map((chips) => (
+                    <button
+                      key={chips}
+                      type="button"
+                      onClick={() => setStartingChips(chips)}
+                      className={`touch-manipulation font-mono-num h-8 rounded border text-xs font-semibold transition-colors cursor-pointer ${
+                        startingChips === chips
+                          ? 'border-[#D4A853] bg-[#D4A853]/18 text-[#F5E4B8]'
+                          : 'border-white/[0.1] bg-[#080A0B] text-[#949E99] hover:text-white'
+                      }`}
+                    >
+                      {chips.toLocaleString()}
+                    </button>
+                  ))}
                   <input
-                    ref={nameInputRef}
-                    id="player-name-input"
-                    type="text"
-                    maxLength={18}
-                    placeholder="输入昵称（例如：林深）"
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      if (localError) setLocalError(null);
-                    }}
-                    className="h-11 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3.5 text-sm text-[#F3F1EC] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
+                    id="create-starting-chips"
+                    type="number"
+                    min={Math.max(2, customBb) * 10}
+                    max={200000}
+                    step={100}
+                    aria-label="自定义初始筹码"
+                    value={startingChips}
+                    onChange={(e) => setStartingChips(Number(e.target.value))}
+                    className="font-mono-num h-8 w-full rounded border border-white/[0.12] bg-[#080A0B] px-2 text-center text-xs text-[#E8CF96] focus:border-[#D4A853] focus:outline-none"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label
-                    htmlFor="room-code-input"
-                    className="block text-xs font-medium text-[#B3BCB7] mb-1.5"
-                  >
-                    当前选定房间号
-                  </label>
-                  <input
-                    id="room-code-input"
-                    type="text"
-                    maxLength={12}
-                    placeholder="输入或选择左侧房间号"
-                    value={roomId}
-                    onChange={(e) => setRoomId(e.target.value.toUpperCase())}
-                    className="font-mono-num h-11 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3.5 text-sm text-[#E8CF96] placeholder:text-[#5B6460] focus:border-[#D4A853] focus:outline-none"
-                  />
-                </div>
+              <button
+                type="submit"
+                disabled={creating}
+                className="touch-manipulation flex h-9 w-full items-center justify-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{creating ? '创建中...' : '确认创建牌桌'}</span>
+              </button>
+            </form>
+          )}
 
-                {displayError && (
-                  <p role="alert" className="text-xs font-medium text-[#F87171]">
-                    {displayError}
-                  </p>
-                )}
+          {displayError && (
+            <p role="alert" className="mt-3 text-xs font-medium text-[#F87171]">
+              {displayError}
+            </p>
+          )}
 
-                <button
-                  type="submit"
-                  data-start="true"
-                  className="touch-manipulation mt-1 flex h-11 w-full items-center justify-center gap-2 rounded bg-[#D4A853] px-5 text-sm font-bold text-[#0F1210] hover:bg-[#E1B968] focus-visible:outline-2 focus-visible:outline-white transition-colors whitespace-nowrap"
+          {/* Architectural Hairline Table Directory */}
+          <div className="mt-1 max-h-80 overflow-y-auto divide-y divide-white/[0.07]">
+            {rooms.length === 0 ? (
+              <div className="py-10 text-center text-xs text-[#7E8782]">
+                暂无活跃牌桌，点击上方「创建牌桌」开设新桌。
+              </div>
+            ) : (
+              rooms.map((room) => (
+                <div
+                  key={room.roomId}
+                  className="flex items-center justify-between gap-3 py-4 px-1 hover:bg-white/[0.02] transition-colors"
                 >
-                  <span>进入牌桌</span>
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </button>
-              </form>
-            </div>
-          </section>
-        </div>
+                  <button
+                    type="button"
+                    onClick={() => openSeatModalForRoom(room.roomId, room.tableName)}
+                    className="min-w-0 flex-1 text-left cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="truncate text-sm font-semibold text-[#F3F1EC]">
+                        {room.tableName}
+                      </span>
+                      <span className="font-mono-num shrink-0 text-xs font-bold text-[#D4A853]">
+                        {room.roomId}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[#8D9792]">
+                      <span className="font-mono-num">
+                        盲注 {room.smallBlind}/{room.bigBlind}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-mono-num">
+                        初始 {room.startingChips.toLocaleString()}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span className="inline-flex items-center gap-1 font-mono-num text-[#B5BEB9]">
+                        <Users className="h-3 w-3" aria-hidden="true" />
+                        {room.playerCount}人
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>{room.phase === 'waiting' ? '等待开局' : '对局中'}</span>
+                    </div>
+                  </button>
+
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      data-testid={`enter-room-btn-${room.roomId}`}
+                      onClick={() => openSeatModalForRoom(room.roomId, room.tableName)}
+                      className="touch-manipulation h-8 rounded border border-[#D4A853]/40 bg-[#14181B]/90 px-3.5 text-xs font-semibold text-[#E8CF96] hover:border-[#D4A853] hover:bg-[#D4A853] hover:text-[#0F1210] transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      进入
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteRoom(room.roomId)}
+                      aria-label={`删除牌桌 ${room.tableName}`}
+                      title="删除牌桌"
+                      className="touch-manipulation flex h-8 w-8 items-center justify-center rounded border border-white/[0.08] text-[#8E9893] hover:border-[#DC2626]/50 hover:bg-[#DC2626]/15 hover:text-[#FCA5A5] transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
       </div>
 
       {/* Quiet Footer */}
@@ -748,12 +523,20 @@ export function TitleScreen({
           : '移动端极简 2D 牌桌模式 · 点击下方按钮操作'}
       </footer>
 
-      <EmailOtpModal
-        open={emailModalOpen}
-        defaultDisplayName={name.trim() || undefined}
-        defaultAvatar={avatar}
-        onClose={() => setEmailModalOpen(false)}
-        onSuccess={handleEmailAuthSuccess}
+      {/* Lightweight Pre-Table Seat Registration Popup */}
+      <SeatEntryModal
+        open={Boolean(pendingSeatRoom)}
+        roomId={pendingSeatRoom?.roomId ?? 'CLUB01'}
+        tableName={pendingSeatRoom?.tableName ?? '私人牌桌'}
+        initialName={initialName || profile?.displayName || ''}
+        initialAvatar={avatar}
+        onClose={() => setPendingSeatRoom(null)}
+        onConfirm={(chosenName, chosenAvatar) => {
+          if (!pendingSeatRoom) return;
+          const targetId = pendingSeatRoom.roomId;
+          setPendingSeatRoom(null);
+          onEnterTable(chosenName, targetId, chosenAvatar);
+        }}
       />
     </main>
   );

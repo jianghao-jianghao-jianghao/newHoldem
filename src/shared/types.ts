@@ -1,4 +1,9 @@
-import type { AchievementDatesMap, AchievementId, PlayerAchievementStats } from './achievements';
+import type {
+  AchievementDatesMap,
+  AchievementId,
+  EquippedAchievementPref,
+  PlayerAchievementStats,
+} from './achievements';
 
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 
@@ -77,7 +82,9 @@ export interface TablePlayer {
   lastActionLabel?: string;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
+  equippedAchievement?: EquippedAchievementPref;
   winStreak?: number;
+  level?: number;
 }
 
 export interface WinnerInfo {
@@ -236,7 +243,9 @@ export interface ClientPlayerView {
   handEvaluation?: HandEvaluation | null;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
+  equippedAchievement?: EquippedAchievementPref;
   winStreak?: number;
+  level?: number;
 }
 
 export interface ClientTableView {
@@ -274,6 +283,8 @@ export interface ClientTableView {
 
 export interface LeaderboardEntry {
   playerName: string;
+  avatar?: string;
+  level?: number;
   points: number;
   netChips: number;
   handsPlayed: number;
@@ -283,6 +294,7 @@ export interface LeaderboardEntry {
   updatedAt: number;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
+  equippedAchievement?: EquippedAchievementPref;
   currentWinStreak?: number;
   maxWinStreak?: number;
   stats?: PlayerAchievementStats;
@@ -306,6 +318,13 @@ export interface ChatMessage {
   playerName: string;
   text: string;
   createdAt: number;
+  isBot?: boolean;
+}
+
+export interface BotChatStatus {
+  enabled: boolean;
+  configured: boolean;
+  source: 'room' | 'server' | 'none';
 }
 
 export interface PlayerNudgeEvent {
@@ -329,7 +348,14 @@ export type ClientWsMessage =
         avatar?: string;
         achievements?: AchievementId[];
         achievementDates?: AchievementDatesMap;
+        equippedAchievement?: EquippedAchievementPref;
       }
+  | {
+      type: 'update_profile';
+      playerName?: string;
+      avatar?: string;
+      equippedAchievement?: EquippedAchievementPref;
+    }
   | {
       type: 'create_room';
       tableName?: string;
@@ -364,7 +390,9 @@ export type ServerWsMessage =
   | { type: 'room_deleted'; roomId: string; reason: string }
   | { type: 'chat_history'; roomId: string; messages: ChatMessage[] }
   | { type: 'chat_message'; message: ChatMessage }
+  | { type: 'bot_chat_status'; roomId: string; status: BotChatStatus }
   | { type: 'player_nudged'; nudge: PlayerNudgeEvent }
   | { type: 'achievement_unlocked'; achievementIds: AchievementId[] }
   | { type: 'error'; message: string }
   | { type: 'pong' };
+

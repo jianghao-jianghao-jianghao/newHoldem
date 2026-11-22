@@ -1,20 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AchievementMedalIcon } from './components/AchievementBadge';
-import { AchievementsModal } from './components/AchievementsModal';
+import { AchievementUnlockBanner } from './components/AchievementUnlockBanner';
+import { EmailOtpModal } from './components/EmailOtpModal';
 import { HandRankingsModal } from './components/HandRankingsModal';
+import {
+  PersonalCenterModal,
+  type PersonalCenterTab,
+} from './components/PersonalCenterModal';
 import { type CameraPreset, PokerScene3D } from './components/PokerScene3D';
 import { PokerTable } from './components/PokerTable';
 import { TitleScreen } from './components/TitleScreen';
-import { useAuth } from './context/AuthContext';
+import { type AccountProfile, useAuth } from './context/AuthContext';
 import {
   ACHIEVEMENT_MAP,
   sanitizeAchievementIds,
+  sanitizeEquippedAchievement,
   type AchievementDatesMap,
   type AchievementId,
+  type EquippedAchievementPref,
 } from './shared/achievements';
 import { sanitizeAvatar } from './shared/avatarUtils';
 import { appendChatHistory, MAX_CHAT_HISTORY } from './shared/chatUtils';
 import type {
+  BotChatStatus,
   ChatMessage,
   ClientTableView,
   ClientWsMessage,
@@ -24,6 +31,7 @@ import type {
   RoomSummary,
   ServerWsMessage,
 } from './shared/types';
+import type { BotChatConfigRequest } from './components/TableChatPanel';
 import { type ChipActionKind, soundFx } from './utils/soundFx';
 
 const SERVER_BASE_URL = (
@@ -85,6 +93,9 @@ export default function App() {
   const [playerAvatar, setPlayerAvatar] = useState<string>(() => {
     return sanitizeAvatar(localStorage.getItem('velvet_holdem_avatar') ?? 'default');
   });
+  const [equippedPref, setEquippedPref] = useState<EquippedAchievementPref | undefined>(() => {
+    return sanitizeEquippedAchievement(localStorage.getItem('velvet_holdem_equipped_medal'));
+  });
   const [activeRoomId, setActiveRoomId] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
     return (params.get('room') || 'CLUB01').toUpperCase();
@@ -110,7 +121,9 @@ export default function App() {
   ]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [achievementsOpen, setAchievementsOpen] = useState(false);
+  const [personalCenterOpen, setPersonalCenterOpen] = useState(false);
+  const [personalCenterTab, setPersonalCenterTab] = useState<PersonalCenterTab>('achievements');
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [rankingsOpen, setRankingsOpen] = useState(false);
   const [rankingsTab, setRankingsTab] = useState<'rankings' | 'gallery'>('rankings');
   const [unlockedToast, setUnlockedToast] = useState<AchievementId[]>([]);
@@ -120,6 +133,11 @@ export default function App() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('classic');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [botChatStatus, setBotChatStatus] = useState<BotChatStatus>({
+    enabled: false,
+    configured: false,
+    source: 'none',
+  });
   const [lastNudge, setLastNudge] = useState<PlayerNudgeEvent | null>(null);
   const [nudgePulse, setNudgePulse] = useState<{ targetPlayerId: string; key: number } | null>(null);
 
@@ -138,11 +156,19 @@ export default function App() {
     handNumber: number;
     step: number;
   } | null>(null);
-  const toastTimerRef = useRef<number | null>(null);
   const lastCloudSyncedStampRef = useRef<string>('');
   const hydratedProfileUidRef = useRef<string | null>(null);
+  const latestAchievementsRef = useRef<{
+    achievements?: AchievementId[];
+    achievementDates?: AchievementDatesMap;
+    equippedAchievement?: EquippedAchievementPref;
+  }>({});
+  const sessionUnlockedRef = useRef<{
+    achievements: AchievementId[];
+    achievementDates: AchievementDatesMap;
+  }>({ achievements: [], achievementDates: {} });
 
-  // Hydrate user profile preferences from verified email account
+  // Hydrate user profile preferences & auto-linked achievements from signed-in account
   useEffect(() => {
     if (!profile) {
       hydratedProfileUidRef.current = null;
@@ -151,18 +177,25 @@ export default function App() {
     if (hydratedProfileUidRef.current === profile.uid) return;
     hydratedProfileUidRef.current = profile.uid;
 
-    if (!playerName.trim() && profile.displayName) {
+    if (profile.displayName) {
       setPlayerName(profile.displayName);
       localStorage.setItem('velvet_holdem_name', profile.displayName);
     }
-    if (profile.avatar && playerAvatar === 'default') {
+    if (profile.avatar && profile.avatar !== 'default') {
       const safe = sanitizeAvatar(profile.avatar);
       setPlayerAvatar(safe);
       localStorage.setItem('velvet_holdem_avatar', safe);
     }
+    if (profile.equippedAchievement !== undefined) {
+      const safeEq = sanitizeEquippedAchievement(profile.equippedAchievement);
+      if (safeEq) {
+        setEquippedPref(safeEq);
+        localStorage.setItem('velvet_holdem_equipped_medal', safeEq);
+      }
+    }
     setBgmEnabled(profile.bgmEnabled);
     soundFx.setBgmEnabled(profile.bgmEnabled);
-  }, [profile, playerName, playerAvatar]);
+  }, [profile]);
 
   // Track desktop (>=768px) vs mobile (<768px) to keep mobile completely 2D
   useEffect(() => {
@@ -200,35 +233,95 @@ export default function App() {
     }
   }, []);
 
-  // Connect WebSocket with exponential backoff reconnection & 15s keepalive heartbeat
+  // Connect WebSocket with exponential backoff reconnection & active ping/pong zombie-socket cleanup
   useEffect(() => {
+    const HEARTBEAT_INTERVAL_MS = 15_000;
+    const PONG_TIMEOUT_MS = 5_000;
+
     let disposed = false;
     let reconnectTimer: number | null = null;
     let heartbeatTimer: number | null = null;
+    let pongTimeoutTimer: number | null = null;
     let reconnectAttempt = 0;
+
+    const clearPongTimeout = () => {
+      if (pongTimeoutTimer !== null) {
+        window.clearTimeout(pongTimeoutTimer);
+        pongTimeoutTimer = null;
+      }
+    };
 
     const clearHeartbeat = () => {
       if (heartbeatTimer !== null) {
         window.clearInterval(heartbeatTimer);
         heartbeatTimer = null;
       }
+      clearPongTimeout();
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer !== null) return;
+      setWsStatus('reconnecting');
+      const delayMs = Math.min(8000, 1000 * Math.pow(2, reconnectAttempt));
+      reconnectAttempt = Math.min(reconnectAttempt + 1, 4);
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delayMs);
+    };
+
+    const teardownZombieSocket = (ws: WebSocket, reason: string) => {
+      if (wsRef.current !== ws) return;
+      clearHeartbeat();
+      wsRef.current = null;
+      try {
+        ws.close(4000, reason);
+      } catch {
+        // Ignore close error on already-broken socket
+      }
+      scheduleReconnect();
+    };
+
+    const sendHeartbeatPing = (ws: WebSocket) => {
+      if (wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return;
+      if (pongTimeoutTimer !== null) {
+        teardownZombieSocket(ws, 'Heartbeat pong timeout');
+        return;
+      }
+      try {
+        ws.send(JSON.stringify({ type: 'ping' } satisfies ClientWsMessage));
+      } catch {
+        teardownZombieSocket(ws, 'Heartbeat ping send failed');
+        return;
+      }
+      pongTimeoutTimer = window.setTimeout(() => {
+        pongTimeoutTimer = null;
+        teardownZombieSocket(ws, 'Heartbeat pong timeout');
+      }, PONG_TIMEOUT_MS);
     };
 
     const connect = () => {
       if (disposed) return;
+      clearHeartbeat();
       const ws = new WebSocket(getWsUrl());
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (disposed || wsRef.current !== ws) {
+          try {
+            ws.close();
+          } catch {
+            // Ignore
+          }
+          return;
+        }
         reconnectAttempt = 0;
         setWsStatus('connected');
         setErrorMsg(null);
         clearHeartbeat();
         heartbeatTimer = window.setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' } satisfies ClientWsMessage));
-          }
-        }, 15_000);
+          sendHeartbeatPing(ws);
+        }, HEARTBEAT_INTERVAL_MS);
 
         if (joinedRoomRef.current) {
           const authToken = localStorage.getItem('velvet_holdem_auth_token') ?? undefined;
@@ -241,12 +334,18 @@ export default function App() {
               authToken,
               playerName: joinedRoomRef.current.name,
               avatar: joinedRoomRef.current.avatar,
+              achievements: latestAchievementsRef.current.achievements,
+              achievementDates: latestAchievementsRef.current.achievementDates,
+              equippedAchievement: latestAchievementsRef.current.equippedAchievement,
             } satisfies ClientWsMessage)
           );
         }
       };
 
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return;
+        // Any server frame (including explicit pong) confirms socket liveness
+        clearPongTimeout();
         let msg: ServerWsMessage;
         try {
           msg = JSON.parse(event.data) as ServerWsMessage;
@@ -254,7 +353,9 @@ export default function App() {
           return;
         }
 
-        if (msg.type === 'rooms_update') {
+        if (msg.type === 'pong') {
+          return;
+        } else if (msg.type === 'rooms_update') {
           setRooms(msg.rooms);
         } else if (msg.type === 'leaderboard_update') {
           setLeaderboard(msg.entries);
@@ -268,6 +369,8 @@ export default function App() {
           setChatMessages((prev) =>
             appendChatHistory(prev, msg.message, MAX_CHAT_HISTORY)
           );
+        } else if (msg.type === 'bot_chat_status') {
+          setBotChatStatus(msg.status);
         } else if (msg.type === 'player_nudged') {
           setLastNudge(msg.nudge);
           setNudgePulse({
@@ -276,15 +379,40 @@ export default function App() {
           });
           soundFx.playNudge();
         } else if (msg.type === 'achievement_unlocked') {
-          setUnlockedToast(msg.achievementIds);
-          if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-          toastTimerRef.current = window.setTimeout(() => {
-            setUnlockedToast([]);
-          }, 4800);
+          const unlockedAt = Date.now();
+          const mergedIds = sanitizeAchievementIds([
+            ...sessionUnlockedRef.current.achievements,
+            ...msg.achievementIds,
+          ]);
+          const mergedDates: AchievementDatesMap = { ...sessionUnlockedRef.current.achievementDates };
+          for (const id of msg.achievementIds) {
+            if (!mergedDates[id]) mergedDates[id] = unlockedAt;
+          }
+          sessionUnlockedRef.current = {
+            achievements: mergedIds,
+            achievementDates: mergedDates,
+          };
+          latestAchievementsRef.current = {
+            achievements: sanitizeAchievementIds([
+              ...(latestAchievementsRef.current.achievements ?? []),
+              ...mergedIds,
+            ]),
+            achievementDates: {
+              ...(latestAchievementsRef.current.achievementDates ?? {}),
+              ...mergedDates,
+            },
+          };
+          const sortedUnlocked = sanitizeAchievementIds(msg.achievementIds);
+          if (sortedUnlocked.length > 0) {
+            const topTier = ACHIEVEMENT_MAP.get(sortedUnlocked[0])?.tier ?? 'gold';
+            soundFx.playAchievementUnlock(topTier);
+            setUnlockedToast(sortedUnlocked);
+          }
         } else if (msg.type === 'room_deleted') {
           joinedRoomRef.current = null;
           setTable(null);
           setChatMessages([]);
+          setBotChatStatus({ enabled: false, configured: false, source: 'none' });
           setLastNudge(null);
           setScreen('title');
           setErrorMsg(msg.reason);
@@ -293,16 +421,36 @@ export default function App() {
         }
       };
 
+      ws.onerror = () => {
+        if (wsRef.current !== ws) return;
+        teardownZombieSocket(ws, 'WebSocket error');
+      };
+
       ws.onclose = () => {
+        if (wsRef.current !== ws) return;
         clearHeartbeat();
-        if (!disposed) {
-          setWsStatus('reconnecting');
-          const delayMs = Math.min(8000, 1000 * Math.pow(2, reconnectAttempt));
-          reconnectAttempt = Math.min(reconnectAttempt + 1, 4);
-          reconnectTimer = window.setTimeout(connect, delayMs);
-        }
+        wsRef.current = null;
+        scheduleReconnect();
       };
     };
+
+    const handleVisibilityOrOnline = () => {
+      if (disposed) return;
+      if (document.visibilityState === 'hidden') return;
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        sendHeartbeatPing(ws);
+      } else if (!ws || ws.readyState === WebSocket.CLOSED) {
+        if (reconnectTimer !== null) {
+          window.clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    window.addEventListener('online', handleVisibilityOrOnline);
 
     connect();
 
@@ -323,9 +471,12 @@ export default function App() {
     return () => {
       disposed = true;
       clearHeartbeat();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      wsRef.current?.close();
+      document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      window.removeEventListener('online', handleVisibilityOrOnline);
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      const current = wsRef.current;
+      wsRef.current = null;
+      current?.close();
     };
   }, [playerId, seatSecret]);
 
@@ -346,6 +497,9 @@ export default function App() {
         seatSecret,
         playerName: autoName,
         avatar: playerAvatar,
+        achievements: latestAchievementsRef.current.achievements,
+        achievementDates: latestAchievementsRef.current.achievementDates,
+        equippedAchievement: latestAchievementsRef.current.equippedAchievement,
       });
     }
   }, [playerId, seatSecret, playerName, playerAvatar, sendWs]);
@@ -516,12 +670,107 @@ export default function App() {
         authToken,
         playerName: cleanName,
         avatar: cleanAvatar,
-        achievements: profile?.achievements,
-        achievementDates: profile?.achievementDates,
+        achievements: latestAchievementsRef.current.achievements ?? profile?.achievements,
+        achievementDates:
+          latestAchievementsRef.current.achievementDates ?? profile?.achievementDates,
+        equippedAchievement: equippedPref ?? profile?.equippedAchievement,
       });
     },
-    [playerId, seatSecret, sendWs, profile, updatePreferences]
+    [playerId, seatSecret, sendWs, profile, updatePreferences, equippedPref]
   );
+
+  const handleOpenPersonalCenter = useCallback((tab: PersonalCenterTab = 'achievements') => {
+    setPersonalCenterTab(tab);
+    setPersonalCenterOpen(true);
+  }, []);
+
+  const handleUpdateName = useCallback(
+    (nextRaw: string) => {
+      const cleanName = nextRaw.trim().slice(0, 18);
+      if (!cleanName) return;
+      setPlayerName(cleanName);
+      localStorage.setItem('velvet_holdem_name', cleanName);
+      if (joinedRoomRef.current) {
+        joinedRoomRef.current.name = cleanName;
+        sendWs({ type: 'update_profile', playerName: cleanName });
+      }
+      if (profile) {
+        void updatePreferences({ displayName: cleanName });
+      }
+    },
+    [profile, sendWs, updatePreferences]
+  );
+
+  const handleUpdateAvatar = useCallback(
+    (nextRaw: string) => {
+      const cleanAvatar = sanitizeAvatar(nextRaw);
+      setPlayerAvatar(cleanAvatar);
+      try {
+        localStorage.setItem('velvet_holdem_avatar', cleanAvatar);
+      } catch {
+        // Ignore storage quota errors
+      }
+      if (joinedRoomRef.current) {
+        joinedRoomRef.current.avatar = cleanAvatar;
+        sendWs({ type: 'update_profile', avatar: cleanAvatar });
+      }
+      if (profile) {
+        void updatePreferences({ avatar: cleanAvatar });
+      }
+    },
+    [profile, sendWs, updatePreferences]
+  );
+
+  const handleEquipAchievement = useCallback(
+    (nextPref: EquippedAchievementPref) => {
+      const safe = sanitizeEquippedAchievement(nextPref);
+      if (!safe) return;
+      setEquippedPref(safe);
+      try {
+        localStorage.setItem('velvet_holdem_equipped_medal', safe);
+      } catch {
+        // Ignore storage errors
+      }
+      if (joinedRoomRef.current) {
+        sendWs({ type: 'update_profile', equippedAchievement: safe });
+      }
+      if (profile) {
+        void updatePreferences({ equippedAchievement: safe });
+      }
+    },
+    [profile, sendWs, updatePreferences]
+  );
+
+  const handleEmailAuthSuccess = useCallback((loaded: AccountProfile) => {
+    if (loaded.displayName) {
+      setPlayerName(loaded.displayName);
+      localStorage.setItem('velvet_holdem_name', loaded.displayName);
+    }
+    if (loaded.avatar && loaded.avatar !== 'default') {
+      const safe = sanitizeAvatar(loaded.avatar);
+      setPlayerAvatar(safe);
+      localStorage.setItem('velvet_holdem_avatar', safe);
+    }
+    if (loaded.equippedAchievement) {
+      const safeEq = sanitizeEquippedAchievement(loaded.equippedAchievement);
+      if (safeEq) {
+        setEquippedPref(safeEq);
+        localStorage.setItem('velvet_holdem_equipped_medal', safeEq);
+      }
+    }
+    if (loaded.achievements.length > 0) {
+      sessionUnlockedRef.current = {
+        achievements: sanitizeAchievementIds([
+          ...sessionUnlockedRef.current.achievements,
+          ...loaded.achievements,
+        ]),
+        achievementDates: {
+          ...sessionUnlockedRef.current.achievementDates,
+          ...loaded.achievementDates,
+        },
+      };
+    }
+  }, []);
 
   const handleCreateRoom = useCallback(
     async (params: {
@@ -537,6 +786,7 @@ export default function App() {
           headers: {
             'Content-Type': 'application/json',
             'X-Player-Id': playerId,
+            'X-Seat-Secret': seatSecret,
           },
           body: JSON.stringify(params),
         });
@@ -558,7 +808,7 @@ export default function App() {
         return null;
       }
     },
-    [playerId]
+    [playerId, seatSecret]
   );
 
   const handleDeleteRoom = useCallback(
@@ -590,18 +840,58 @@ export default function App() {
     sendWs({ type: 'leave_room' });
     setTable(null);
     setChatMessages([]);
+    setBotChatStatus({ enabled: false, configured: false, source: 'none' });
     setLastNudge(null);
     setScreen('title');
   }, [sendWs]);
 
+  const handleConfigureBotChat = useCallback(
+    async (
+      params: BotChatConfigRequest
+    ): Promise<{ ok: boolean; error?: string; status?: BotChatStatus }> => {
+      const targetRoomId = table?.roomId ?? joinedRoomRef.current?.roomId;
+      if (!targetRoomId) {
+        return { ok: false, error: '当前未加入牌桌' };
+      }
+      try {
+        const res = await fetch(
+          getApiUrl(`/api/rooms/${encodeURIComponent(targetRoomId)}/bot-chat/config`),
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Player-Id': playerId,
+              'X-Seat-Secret': seatSecret,
+            },
+            body: JSON.stringify(params),
+          }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          status?: BotChatStatus;
+        };
+        if (!res.ok || !data.status) {
+          return { ok: false, error: data.error ?? '保存陪练对话设置失败' };
+        }
+        setBotChatStatus(data.status);
+        return { ok: true, status: data.status };
+      } catch {
+        return { ok: false, error: '无法连接服务器，请稍后重试' };
+      }
+    },
+    [table?.roomId, playerId, seatSecret]
+  );
+
   const handleAction = useCallback(
     (action: PlayerAction) => {
+      if (wsStatus !== 'connected') return;
       soundFx.notifyUserInteraction();
       if (action.type === 'fold') soundFx.playFold();
       else if (action.type === 'check') soundFx.playCheck();
       sendWs({ type: 'player_action', action });
     },
-    [sendWs]
+    [sendWs, wsStatus]
   );
 
   const handleRevealCards = useCallback(() => {
@@ -619,6 +909,16 @@ export default function App() {
 
   const handleToggleBgm = useCallback(() => {
     soundFx.notifyUserInteraction();
+    if (muted) {
+      setMuted(false);
+      soundFx.setMuted(false);
+      setBgmEnabled(true);
+      soundFx.setBgmEnabled(true);
+      if (profile) {
+        void updatePreferences({ bgmEnabled: true });
+      }
+      return;
+    }
     setBgmEnabled((prev) => {
       const next = !prev;
       soundFx.setBgmEnabled(next);
@@ -627,10 +927,19 @@ export default function App() {
       }
       return next;
     });
-  }, [profile, updatePreferences]);
+  }, [muted, profile, updatePreferences]);
 
   const handleToggleCameraPreset = useCallback(() => {
     setCameraPreset((prev) => (prev === 'classic' ? 'overhead' : 'classic'));
+  }, []);
+
+  const handleInspectAchievementToast = useCallback(() => {
+    setUnlockedToast([]);
+    handleOpenPersonalCenter('achievements');
+  }, [handleOpenPersonalCenter]);
+
+  const handleDismissAchievementToast = useCallback(() => {
+    setUnlockedToast([]);
   }, []);
 
   const isLobby = screen === 'title' || !table;
@@ -642,17 +951,31 @@ export default function App() {
     ...(selfTablePlayer?.achievements ?? []),
     ...(profile?.achievements ?? []),
     ...(matchedLeaderboardEntry?.achievements ?? []),
+    ...sessionUnlockedRef.current.achievements,
   ]);
   const currentAchievementDates: AchievementDatesMap = {
     ...(matchedLeaderboardEntry?.achievementDates ?? {}),
     ...(profile?.achievementDates ?? {}),
     ...(selfTablePlayer?.achievementDates ?? {}),
+    ...sessionUnlockedRef.current.achievementDates,
   };
   const currentWinStreak =
     selfTablePlayer?.winStreak ??
     profile?.currentWinStreak ??
     matchedLeaderboardEntry?.currentWinStreak ??
     0;
+  const effectiveEquippedPref =
+    equippedPref ??
+    sanitizeEquippedAchievement(selfTablePlayer?.equippedAchievement) ??
+    sanitizeEquippedAchievement(profile?.equippedAchievement) ??
+    sanitizeEquippedAchievement(matchedLeaderboardEntry?.equippedAchievement);
+
+  latestAchievementsRef.current = {
+    achievements: currentAchievements.length > 0 ? currentAchievements : undefined,
+    achievementDates:
+      Object.keys(currentAchievementDates).length > 0 ? currentAchievementDates : undefined,
+    equippedAchievement: effectiveEquippedPref,
+  };
 
   const use3D = isDesktop && !webglFailed;
 
@@ -677,13 +1000,18 @@ export default function App() {
           initialName={playerName}
           initialRoom={activeRoomId}
           initialAvatar={playerAvatar}
+          achievements={currentAchievements}
+          achievementDates={currentAchievementDates}
+          equippedPref={effectiveEquippedPref}
           isDesktop={use3D}
           rooms={rooms}
+          leaderboard={leaderboard}
           errorMessage={errorMsg}
           onEnterTable={handleEnterTable}
           onCreateRoom={handleCreateRoom}
           onDeleteRoom={handleDeleteRoom}
-          onOpenAchievements={() => setAchievementsOpen(true)}
+          onOpenPersonalCenter={handleOpenPersonalCenter}
+          onOpenEmailLogin={() => setEmailModalOpen(true)}
           onOpenCardGallery={() => {
             setRankingsTab('gallery');
             setRankingsOpen(true);
@@ -693,21 +1021,26 @@ export default function App() {
         <PokerTable
           table={table}
           myPlayerId={playerId}
+          leaderboard={leaderboard}
+          selfProfileFallback={{
+            avatar: playerAvatar,
+            achievements: currentAchievements,
+            achievementDates: currentAchievementDates,
+            equippedAchievement: effectiveEquippedPref,
+          }}
           chatMessages={chatMessages}
           lastNudge={lastNudge}
+          botChatStatus={botChatStatus}
           muted={muted}
           bgmEnabled={bgmEnabled}
           isDesktop={use3D}
-          externalModalOpen={achievementsOpen || rankingsOpen}
+          externalModalOpen={personalCenterOpen || rankingsOpen || emailModalOpen}
+          isReconnecting={wsStatus === 'reconnecting'}
           cameraPreset={cameraPreset}
           onToggleCameraPreset={handleToggleCameraPreset}
           onToggleMute={handleToggleMute}
           onToggleBgm={handleToggleBgm}
-          onOpenAchievements={() => setAchievementsOpen(true)}
-          onOpenRankings={() => {
-            setRankingsTab('rankings');
-            setRankingsOpen(true);
-          }}
+          onOpenAchievements={() => handleOpenPersonalCenter('achievements')}
           onLeaveRoom={handleLeaveRoom}
           onStartHand={() => sendWs({ type: 'start_hand' })}
           onRevealCards={handleRevealCards}
@@ -726,38 +1059,16 @@ export default function App() {
           }
           onAction={handleAction}
           onSendChat={(text) => sendWs({ type: 'send_chat', text })}
+          onConfigureBotChat={handleConfigureBotChat}
         />
       )}
 
-      {/* Achievement Unlocked Celebration Toast */}
-      {unlockedToast.length > 0 && (
-        <div
-          role="status"
-          data-testid="achievement-toast"
-          className="fixed top-14 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2.5 rounded-md border border-[#D4A853]/65 bg-[#121614]/96 px-4 py-2.5 shadow-2xl animate-chip-impact"
-        >
-          <AchievementMedalIcon id={unlockedToast[0]} size="md" />
-          <div className="text-xs">
-            <div className="font-bold text-[#F5E4B8]">
-              解锁新成就 · {ACHIEVEMENT_MAP.get(unlockedToast[0])?.name}
-              {unlockedToast.length > 1 ? ` 等 ${unlockedToast.length} 项` : ''}
-            </div>
-            <div className="text-[11px] text-[#9EB0A6]">
-              {ACHIEVEMENT_MAP.get(unlockedToast[0])?.description}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setUnlockedToast([]);
-              setAchievementsOpen(true);
-            }}
-            className="ml-1 rounded border border-[#D4A853]/40 bg-[#D4A853]/15 px-2 py-1 text-[11px] font-semibold text-[#F5E4B8] hover:bg-[#D4A853]/25 transition-colors whitespace-nowrap"
-          >
-            查看
-          </button>
-        </div>
-      )}
+      {/* Dynamic Achievement Unlocked Celebration Banner */}
+      <AchievementUnlockBanner
+        achievementIds={unlockedToast}
+        onInspect={handleInspectAchievementToast}
+        onDismiss={handleDismissAchievementToast}
+      />
 
       {/* Subtle transient reconnecting banner when connection drops mid-table */}
       {screen === 'playing' && wsStatus === 'reconnecting' && (
@@ -787,14 +1098,32 @@ export default function App() {
         </div>
       )}
 
-      <AchievementsModal
-        open={achievementsOpen}
+      <PersonalCenterModal
+        open={personalCenterOpen}
+        initialTab={personalCenterTab}
         playerName={playerName}
+        playerAvatar={playerAvatar}
         unlockedIds={currentAchievements}
         achievementDates={currentAchievementDates}
+        equippedPref={effectiveEquippedPref}
         winStreak={currentWinStreak}
         stats={matchedLeaderboardEntry?.stats ?? null}
-        onClose={() => setAchievementsOpen(false)}
+        leaderboard={leaderboard}
+        onUpdateName={handleUpdateName}
+        onUpdateAvatar={handleUpdateAvatar}
+        onEquipAchievement={handleEquipAchievement}
+        onRequestEmailLogin={() => setEmailModalOpen(true)}
+        onClose={() => setPersonalCenterOpen(false)}
+      />
+
+      <EmailOtpModal
+        open={emailModalOpen}
+        defaultDisplayName={playerName.trim() || undefined}
+        defaultAvatar={playerAvatar}
+        localAchievements={currentAchievements}
+        localAchievementDates={currentAchievementDates}
+        onClose={() => setEmailModalOpen(false)}
+        onSuccess={handleEmailAuthSuccess}
       />
 
       <HandRankingsModal

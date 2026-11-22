@@ -7,7 +7,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { AchievementDatesMap, AchievementId } from '../shared/achievements';
+import type {
+  AchievementDatesMap,
+  AchievementId,
+  EquippedAchievementPref,
+} from '../shared/achievements';
 import type { LeaderboardEntry } from '../shared/types';
 
 export interface AccountProfile {
@@ -23,6 +27,7 @@ export interface AccountProfile {
   bestHandScore: number;
   achievements: AchievementId[];
   achievementDates: AchievementDatesMap;
+  equippedAchievement?: EquippedAchievementPref;
   currentWinStreak: number;
   maxWinStreak: number;
   bgmEnabled: boolean;
@@ -42,7 +47,15 @@ interface AuthContextValue {
   profile: AccountProfile | null;
   sendingCode: boolean;
   verifyingCode: boolean;
+  loggingIn: boolean;
   authError: string | null;
+  quickLogin: (params: {
+    identifier: string;
+    displayName?: string;
+    avatar?: string;
+    localAchievements?: AchievementId[];
+    localAchievementDates?: AchievementDatesMap;
+  }) => Promise<AccountProfile | null>;
   sendEmailCode: (email: string) => Promise<SendOtpResponse>;
   verifyEmailCode: (params: {
     email: string;
@@ -55,6 +68,7 @@ interface AuthContextValue {
     displayName?: string;
     avatar?: string;
     bgmEnabled?: boolean;
+    equippedAchievement?: EquippedAchievementPref;
   }) => Promise<void>;
   syncMatchOutcomeToCloud: (entry: LeaderboardEntry, avatar?: string) => Promise<void>;
   clearAuthError: () => void;
@@ -85,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [sendingCode, setSendingCode] = useState(false);
   const [verifyingCode, setVerifyingCode] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -125,6 +140,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [token]);
+
+  const quickLogin = useCallback(
+    async (params: {
+      identifier: string;
+      displayName?: string;
+      avatar?: string;
+      localAchievements?: AchievementId[];
+      localAchievementDates?: AchievementDatesMap;
+    }): Promise<AccountProfile | null> => {
+      setLoggingIn(true);
+      setAuthError(null);
+      try {
+        const res = await fetch(getApiUrl('/api/auth/quick-login'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          token?: string;
+          profile?: AccountProfile;
+        };
+        if (!res.ok || !data.ok || !data.token || !data.profile) {
+          setAuthError(data.error ?? '登录失败，请稍后重试');
+          return null;
+        }
+        try {
+          localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
+        } catch {
+          // Ignore storage quota issues
+        }
+        setToken(data.token);
+        setProfile(data.profile);
+        return data.profile;
+      } catch {
+        setAuthError('无法连接服务器，请稍后重试');
+        return null;
+      } finally {
+        setLoggingIn(false);
+      }
+    },
+    []
+  );
 
   const sendEmailCode = useCallback(async (email: string): Promise<SendOtpResponse> => {
     setSendingCode(true);
@@ -211,7 +270,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updatePreferences = useCallback(
-    async (patch: { displayName?: string; avatar?: string; bgmEnabled?: boolean }) => {
+    async (patch: {
+      displayName?: string;
+      avatar?: string;
+      bgmEnabled?: boolean;
+      equippedAchievement?: EquippedAchievementPref;
+    }) => {
       if (!token) return;
       try {
         const res = await fetch(getApiUrl('/api/auth/profile'), {
@@ -260,7 +324,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       sendingCode,
       verifyingCode,
+      loggingIn,
       authError,
+      quickLogin,
       sendEmailCode,
       verifyEmailCode,
       signOutUser,
@@ -273,7 +339,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       sendingCode,
       verifyingCode,
+      loggingIn,
       authError,
+      quickLogin,
       sendEmailCode,
       verifyEmailCode,
       signOutUser,

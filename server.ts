@@ -8,10 +8,17 @@ import { fileURLToPath } from 'url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { EmailAuthStore } from './server/authStore';
 import { BOT_PERSONALITY_PROFILES, chooseBotAction } from './server/botAi';
+import {
+  buildBotChatMessages,
+  requestDeepSeekReply,
+  selectRespondingBot,
+  type BotChatTrigger,
+} from './server/botChat';
 import { getSharedDatabase } from './server/db';
 import { evaluateGtoSpotWithCoach, type GtoCoachRequest } from './server/gtoCoach';
 import { LeaderboardStore, type LeaderboardMode } from './server/leaderboard';
 import { SlidingWindowRateLimiter } from './server/rateLimiter';
+import { authorizeRoomDeletion, secretsMatch } from './server/roomAuth';
 import {
   addPlayerToTable,
   advanceAllInRunoutStep,
@@ -42,11 +49,18 @@ import {
   mergeAchievementDates,
   sanitizeAchievementDates,
   sanitizeAchievementIds,
+  sanitizeEquippedAchievement,
   type AchievementDatesMap,
   type AchievementId,
   type PlayerAchievementStats,
 } from './src/shared/achievements';
+import {
+  buildBotInitialStats,
+  computePlayerLevel,
+  getBotClubPreset,
+} from './src/shared/playerProfile';
 import type {
+  BotChatStatus,
   ChatMessage,
   ClientWsMessage,
   HandCategory,
@@ -73,8 +87,7 @@ const ALLOWED_CORS_ORIGINS =
       );
 
 const MAX_CUSTOM_ROOMS = 60;
-const EMPTY_ROOM_IDLE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const CREATOR_GRACE_WINDOW_MS = 60 * 1000; // 60s before empty room can be deleted by non-creator
+const EMPTY_ROOM_IDLE_TTL_MS = 30 * 60 * 1000;
 const AFK_MAX_CONSECUTIVE_TIMEOUTS = 3;
 const SERVER_STARTED_AT = Date.now();
 
@@ -101,8 +114,9 @@ interface RoomContext {
   tableName: string;
   createdAt: number;
   lastActivityAt: number;
-  creatorId: string | null;
   isDefault: boolean;
+  creatorId: string | null;
+  creatorSecret: string | null;
   state: TableState;
   chatHistory: ChatMessage[];
   seatSecrets: Map<string, string>;
@@ -120,6 +134,12 @@ interface RoomContext {
   botTimer: NodeJS.Timeout | null;
   allInTimer: NodeJS.Timeout | null;
   autoNextTimer: NodeJS.Timeout | null;
+  botChatTimer: NodeJS.Timeout | null;
+  botChatEnabled: boolean;
+  deepseekApiKey: string | null;
+  lastBotChatAt: number;
+  lastBotChatSpeakerId: string | null;
+  botChatInFlight: boolean;
   handRecordedForHandNumber: number;
 }
 
@@ -166,7 +186,6 @@ function getClientIp(req: express.Request): string {
 }
 
 function resolveDistDir(): string {
-  // Supports both `tsx server.ts` (root dir -> ./dist) and bundled `node dist/server.mjs` (__dirname === dist)
   if (fs.existsSync(path.resolve(__dirname, 'index.html'))) {
     return __dirname;
   }
@@ -207,12 +226,14 @@ function ensureDefaultClubRoom(): RoomContext {
   let ctx = rooms.get('CLUB01');
   if (!ctx) {
     const now = Date.now();
+    const hasServerKey = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
     ctx = {
       tableName: '俱乐部大厅桌',
       createdAt: now,
       lastActivityAt: now,
-      creatorId: null,
       isDefault: true,
+      creatorId: null,
+      creatorSecret: null,
       state: createTableState('CLUB01', DEFAULT_SMALL_BLIND, DEFAULT_BIG_BLIND, STARTING_CHIPS),
       chatHistory: [],
       seatSecrets: new Map(),
@@ -223,6 +244,12 @@ function ensureDefaultClubRoom(): RoomContext {
       botTimer: null,
       allInTimer: null,
       autoNextTimer: null,
+      botChatTimer: null,
+      botChatEnabled: hasServerKey,
+      deepseekApiKey: null,
+      lastBotChatAt: 0,
+      lastBotChatSpeakerId: null,
+      botChatInFlight: false,
       handRecordedForHandNumber: 0,
     };
     rooms.set('CLUB01', ctx);
@@ -239,6 +266,7 @@ function createCustomRoom(params: {
   bigBlind?: number;
   startingChips?: number;
   creatorId?: string | null;
+  creatorSecret?: string | null;
 }): { ok: true; ctx: RoomContext } | { ok: false; error: string } {
   const id = normalizeRoomId(params.roomId) || generateRoomId();
   const existing = rooms.get(id);
@@ -273,14 +301,18 @@ function createCustomRoom(params: {
     Math.min(200_000, Math.floor(Number(params.startingChips) || STARTING_CHIPS))
   );
   const cleanName = (params.tableName ?? '').trim().slice(0, 24) || `牌桌 ${id}`;
+  const hasServerKey = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
+  const cleanCreatorId = params.creatorId?.trim().slice(0, 48) || null;
+  const cleanCreatorSecret = params.creatorSecret?.trim().slice(0, 64) || null;
   const now = Date.now();
 
   const ctx: RoomContext = {
     tableName: cleanName,
     createdAt: now,
     lastActivityAt: now,
-    creatorId: params.creatorId?.trim().slice(0, 48) || null,
     isDefault: id === 'CLUB01',
+    creatorId: cleanCreatorId && cleanCreatorSecret ? cleanCreatorId : null,
+    creatorSecret: cleanCreatorId && cleanCreatorSecret ? cleanCreatorSecret : null,
     state: createTableState(id, sb, bb, startingChips),
     chatHistory: [],
     seatSecrets: new Map(),
@@ -291,6 +323,12 @@ function createCustomRoom(params: {
     botTimer: null,
     allInTimer: null,
     autoNextTimer: null,
+    botChatTimer: null,
+    botChatEnabled: hasServerKey,
+    deepseekApiKey: null,
+    lastBotChatAt: 0,
+    lastBotChatSpeakerId: null,
+    botChatInFlight: false,
     handRecordedForHandNumber: 0,
   };
   rooms.set(id, ctx);
@@ -312,31 +350,22 @@ function canRequesterDeleteRoom(
   ctx: RoomContext,
   requesterPlayerId: string | null | undefined,
   requesterSeatSecret?: string | null,
-  fromVerifiedWsSession: boolean = false
+  requireSecretCheck = false
 ): { ok: boolean; status?: number; error?: string } {
-  if (ctx.isDefault || ctx.state.roomId === 'CLUB01') {
-    return { ok: false, status: 403, error: '默认俱乐部大厅桌不可删除' };
-  }
-  const hasActiveHumans = ctx.state.players.some((p) => !p.isBot && p.connected);
-  if (hasActiveHumans && ctx.state.hostId) {
-    if (requesterPlayerId !== ctx.state.hostId) {
-      return { ok: false, status: 403, error: '仅房主或空桌时可删除牌桌' };
-    }
-    if (!fromVerifiedWsSession) {
-      const expectedSecret = ctx.seatSecrets.get(ctx.state.hostId);
-      if (expectedSecret && requesterSeatSecret !== expectedSecret) {
-        return { ok: false, status: 403, error: '房主身份校验失败，无法删除牌桌' };
-      }
-    }
-  } else if (
-    !hasActiveHumans &&
-    ctx.creatorId &&
-    Date.now() - ctx.createdAt < CREATOR_GRACE_WINDOW_MS &&
-    requesterPlayerId !== ctx.creatorId
-  ) {
-    return { ok: false, status: 403, error: '该牌桌刚刚创建，暂仅创建者可删除' };
-  }
-  return { ok: true };
+  return authorizeRoomDeletion(
+    {
+      isDefault: ctx.isDefault,
+      roomId: ctx.state.roomId,
+      hostId: ctx.state.hostId,
+      hasAnyHumanPlayer: ctx.state.players.some((p) => !p.isBot),
+      creatorId: ctx.creatorId,
+      creatorSecret: ctx.creatorSecret,
+      seatSecrets: ctx.seatSecrets,
+    },
+    requesterPlayerId,
+    requesterSeatSecret,
+    requireSecretCheck
+  );
 }
 
 function clearRoomTimers(ctx: RoomContext): void {
@@ -352,6 +381,10 @@ function clearRoomTimers(ctx: RoomContext): void {
     clearTimeout(ctx.autoNextTimer);
     ctx.autoNextTimer = null;
   }
+  if (ctx.botChatTimer) {
+    clearTimeout(ctx.botChatTimer);
+    ctx.botChatTimer = null;
+  }
 }
 
 function deleteRoomById(roomId: string): { ok: boolean; error?: string } {
@@ -365,6 +398,7 @@ function deleteRoomById(roomId: string): { ok: boolean; error?: string } {
   }
 
   clearRoomTimers(ctx);
+  ctx.deepseekApiKey = null;
 
   for (const [key, timer] of disconnectTimers.entries()) {
     if (key.startsWith(`${id}:`)) {
@@ -446,6 +480,121 @@ function broadcastRoomChat(ctx: RoomContext, message: ChatMessage): void {
   }
 }
 
+function getEffectiveDeepSeekKey(ctx: RoomContext): string | null {
+  const roomKey = ctx.deepseekApiKey?.trim();
+  if (roomKey) return roomKey;
+  const envKey = process.env.DEEPSEEK_API_KEY?.trim();
+  return envKey || null;
+}
+
+function getBotChatStatus(ctx: RoomContext): BotChatStatus {
+  const hasRoomKey = Boolean(ctx.deepseekApiKey?.trim());
+  const hasServerKey = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
+  const source: BotChatStatus['source'] = hasRoomKey
+    ? 'room'
+    : hasServerKey
+      ? 'server'
+      : 'none';
+  const configured = source !== 'none';
+  return {
+    enabled: ctx.botChatEnabled && configured,
+    configured,
+    source,
+  };
+}
+
+function broadcastBotChatStatus(ctx: RoomContext): void {
+  const status = getBotChatStatus(ctx);
+  for (const session of sessions.values()) {
+    if (session.roomId === ctx.state.roomId && session.playerId) {
+      sendJson(session.ws, {
+        type: 'bot_chat_status',
+        roomId: ctx.state.roomId,
+        status,
+      });
+    }
+  }
+}
+
+function scheduleBotChatReaction(ctx: RoomContext, trigger: BotChatTrigger): void {
+  if (!ctx.botChatEnabled) return;
+  const apiKey = getEffectiveDeepSeekKey(ctx);
+  if (!apiKey) return;
+  if (ctx.botChatInFlight) return;
+  if (!ctx.state.players.some((p) => p.isBot)) return;
+
+  const now = Date.now();
+  const minCooldownMs = trigger.kind === 'nudge' ? 2800 : 4500;
+  if (now - ctx.lastBotChatAt < minCooldownMs) return;
+
+  const bot = selectRespondingBot(
+    ctx.state.players,
+    trigger,
+    ctx.lastBotChatSpeakerId,
+    cryptoRng
+  );
+  if (!bot) return;
+
+  if (ctx.botChatTimer) {
+    clearTimeout(ctx.botChatTimer);
+    ctx.botChatTimer = null;
+  }
+
+  const delayMs =
+    trigger.kind === 'nudge'
+      ? 750 + crypto.randomInt(0, 750)
+      : trigger.kind === 'showdown'
+        ? 1100 + crypto.randomInt(0, 900)
+        : 900 + crypto.randomInt(0, 1100);
+
+  ctx.botChatTimer = setTimeout(() => {
+    ctx.botChatTimer = null;
+    const activeKey = getEffectiveDeepSeekKey(ctx);
+    if (!ctx.botChatEnabled || !activeKey || ctx.botChatInFlight) return;
+    if (!rooms.has(ctx.state.roomId)) return;
+    const stillSeated = ctx.state.players.find((p) => p.id === bot.id && p.isBot);
+    if (!stillSeated) return;
+
+    ctx.botChatInFlight = true;
+    const messages = buildBotChatMessages({
+      bot: stillSeated,
+      table: ctx.state,
+      recentChat: ctx.chatHistory,
+      trigger,
+    });
+
+    void requestDeepSeekReply({
+      apiKey: activeKey,
+      messages,
+      botName: stillSeated.name,
+      timeoutMs: 9000,
+    })
+      .then((reply) => {
+        if (!rooms.has(ctx.state.roomId)) return;
+        const sentAt = Date.now();
+        ctx.lastBotChatAt = sentAt;
+        ctx.lastBotChatSpeakerId = stillSeated.id;
+        const chatMsg: ChatMessage = {
+          id: `chat_${sentAt.toString(36)}_${crypto.randomBytes(3).toString('hex')}`,
+          roomId: ctx.state.roomId,
+          playerId: stillSeated.id,
+          playerName: stillSeated.name,
+          text: reply,
+          createdAt: sentAt,
+          isBot: true,
+        };
+        ctx.chatHistory = appendChatHistory(ctx.chatHistory, chatMsg, MAX_CHAT_HISTORY);
+        broadcastRoomChat(ctx, chatMsg);
+      })
+      .catch(() => {
+        // Silent graceful degradation if DeepSeek fails or times out
+      })
+      .finally(() => {
+        ctx.botChatInFlight = false;
+      });
+  }, delayMs);
+}
+
 function broadcastRoomNudge(ctx: RoomContext, nudge: PlayerNudgeEvent): void {
   for (const session of sessions.values()) {
     if (session.roomId === ctx.state.roomId && session.playerId) {
@@ -468,12 +617,10 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
   const newlyUnlockedToNotify: Array<{ playerId: string; ids: AchievementId[] }> = [];
 
   leaderboard.runBatch(() => {
-    // Persist completed hand snapshot to SQLite hand_history
     if (state.handHistory.length > 0 && state.handHistory[0].handNumber === state.handNumber) {
       sharedDb.recordHandHistory(state.roomId, state.handHistory[0]);
     }
 
-    // Account for human players who left mid-hand after committing chips
     const handDeparted = ctx.departedContributors.filter(
       (d) => d.handNumber === state.handNumber && d.totalContributed > 0
     );
@@ -524,6 +671,12 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
         handCategory = ev.category;
       }
 
+      const reachedShowdown =
+        !p.folded && !wonByFoldOnly && state.communityCards.length === 5;
+      const wasSplitPot = state.winners.length > 1;
+      const isBigBlind = p.seatIndex === state.bigBlindSeatIndex;
+      const startingHandChips = Math.max(0, p.chips + p.totalContributed - potWon);
+
       if (p.isBot) {
         const prevBot = ctx.botStats.get(p.id);
         const botRes = applyHandToAchievementStats(prevBot?.stats, prevBot?.achievements, {
@@ -536,6 +689,12 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
           currentChips: p.chips,
           startingChips: state.startingChips,
           bigBlind: state.bigBlind,
+          holeCards: p.holeCards,
+          communityCardsCount: state.communityCards.length,
+          wasSplitPot,
+          isBigBlind,
+          startingHandChips,
+          reachedShowdown,
         });
         const botDates = mergeAchievementDates(
           prevBot?.achievementDates,
@@ -550,12 +709,20 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
         p.achievements = botRes.unlocked;
         p.achievementDates = botDates;
         p.winStreak = botRes.nextStats.currentWinStreak;
+        p.level = computePlayerLevel({
+          achievements: botRes.unlocked,
+          handsPlayed: botRes.nextStats.handsPlayed,
+          handsWon: botRes.nextStats.handsWon,
+          points: 1000 + botRes.nextStats.netChips + botRes.nextStats.handsWon * 20,
+          explicitLevel: p.level,
+        }).level;
         continue;
       }
 
       const verifiedUid = ctx.playerUids.get(p.id) ?? null;
       const outcome = leaderboard.recordHandOutcome({
         playerName: p.name,
+        avatar: p.avatar,
         uid: verifiedUid,
         isPracticeWithBots,
         netChips,
@@ -569,6 +736,12 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
         currentChips: p.chips,
         startingChips: state.startingChips,
         bigBlind: state.bigBlind,
+        holeCards: p.holeCards,
+        communityCardsCount: state.communityCards.length,
+        wasSplitPot,
+        isBigBlind,
+        startingHandChips,
+        reachedShowdown,
       });
 
       let authoritativeAch = outcome.entry.achievements ?? [];
@@ -590,6 +763,12 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
           currentChips: p.chips,
           startingChips: state.startingChips,
           bigBlind: state.bigBlind,
+          holeCards: p.holeCards,
+          communityCardsCount: state.communityCards.length,
+          wasSplitPot,
+          isBigBlind,
+          startingHandChips,
+          reachedShowdown,
         });
         if (authRes) {
           authoritativeAch = authRes.profile.achievements;
@@ -614,6 +793,13 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
       p.achievements = mergedPlayerAch;
       p.achievementDates = mergedPlayerDates;
       p.winStreak = authoritativeStreak;
+      p.level = computePlayerLevel({
+        achievements: mergedPlayerAch,
+        handsPlayed: outcome.entry.handsPlayed,
+        handsWon: outcome.entry.handsWon,
+        points: outcome.entry.points,
+        explicitLevel: outcome.entry.level,
+      }).level;
 
       if (newlyUnlocked.length > 0) {
         newlyUnlockedToNotify.push({ playerId: p.id, ids: newlyUnlocked });
@@ -633,6 +819,18 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
   }
 
   broadcastLeaderboard();
+
+  if (ctx.botChatEnabled && state.players.some((p) => p.isBot)) {
+    const isBigPot = state.pot >= state.bigBlind * 8;
+    const chance = isBigPot ? 0.78 : 0.45;
+    if (cryptoRng() < chance) {
+      scheduleBotChatReaction(ctx, {
+        kind: 'showdown',
+        winnerNames: state.winners.map((w) => w.playerName),
+        pot: state.pot,
+      });
+    }
+  }
 }
 
 function broadcastRoomState(ctx: RoomContext): void {
@@ -841,7 +1039,6 @@ async function startServer() {
   }
   app.use(express.json({ limit: '128kb' }));
 
-  // Security headers + configurable CORS
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -876,7 +1073,7 @@ async function startServer() {
         else if (p.connected) humans++;
       }
     }
-    const payload = {
+    res.status(dbOk ? 200 : 503).json({
       ok: dbOk,
       uptimeSec: Math.floor((Date.now() - SERVER_STARTED_AT) / 1000),
       rooms: rooms.size,
@@ -886,8 +1083,7 @@ async function startServer() {
       memoryRssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
       persistence: 'sqlite',
       botEngine: 'gto-v2',
-    };
-    res.status(dbOk ? 200 : 503).json(payload);
+    });
   });
 
   app.get('/api/metrics', (_req, res) => {
@@ -936,6 +1132,76 @@ async function startServer() {
     return raw.slice(7).trim() || null;
   };
 
+  const buildLinkedProfile = (
+    lookupName: string | undefined,
+    localAchievements?: unknown,
+    localAchievementDates?: unknown
+  ) => {
+    const cleanName = (lookupName ?? '').trim();
+    const lbProfile = cleanName ? leaderboard.getPlayerProfile(cleanName) : null;
+    const hasLbRecord = Boolean(
+      lbProfile && (lbProfile.handsPlayed > 0 || lbProfile.achievements.length > 0 || lbProfile.avatar)
+    );
+    const extraAchievements = sanitizeAchievementIds(localAchievements);
+    const extraDates = sanitizeAchievementDates(localAchievementDates);
+    const mergedAch = sanitizeAchievementIds([
+      ...(hasLbRecord && lbProfile ? lbProfile.achievements : []),
+      ...extraAchievements,
+    ]);
+    const mergedDates = {
+      ...(hasLbRecord && lbProfile ? lbProfile.achievementDates : {}),
+      ...extraDates,
+    };
+    if (!hasLbRecord && mergedAch.length === 0) return undefined;
+    return {
+      avatar: hasLbRecord ? lbProfile?.avatar : undefined,
+      equippedAchievement: hasLbRecord ? lbProfile?.equippedAchievement : undefined,
+      points: hasLbRecord ? lbProfile?.points : undefined,
+      netChips: hasLbRecord ? lbProfile?.netChips : undefined,
+      handsPlayed: hasLbRecord ? lbProfile?.handsPlayed : undefined,
+      handsWon: hasLbRecord ? lbProfile?.handsWon : undefined,
+      bestHandName: hasLbRecord ? lbProfile?.bestHandName : undefined,
+      bestHandScore: hasLbRecord ? lbProfile?.bestHandScore : undefined,
+      achievements: mergedAch,
+      achievementDates: mergedDates,
+      currentWinStreak: hasLbRecord ? lbProfile?.currentWinStreak : undefined,
+      maxWinStreak: hasLbRecord ? lbProfile?.maxWinStreak : undefined,
+    };
+  };
+
+  app.post('/api/auth/quick-login', (req, res) => {
+    const ip = getClientIp(req);
+    const rate = otpVerifyLimiter.consume(ip);
+    if (!rate.allowed) {
+      runtimeMetrics.rateLimitRejections += 1;
+      res.status(429).json({ ok: false, error: `登录过于频繁，请 ${rate.retryAfterSec} 秒后再试` });
+      return;
+    }
+    const { identifier, displayName, avatar, localAchievements, localAchievementDates } =
+      req.body ?? {};
+    const rawId = typeof identifier === 'string' ? identifier.trim() : '';
+    const lookupName =
+      typeof displayName === 'string' && displayName.trim()
+        ? displayName.trim()
+        : rawId.includes('@')
+          ? rawId.split('@')[0]
+          : rawId;
+    const linked = buildLinkedProfile(lookupName, localAchievements, localAchievementDates);
+    const result = authStore.quickLogin(
+      rawId,
+      {
+        displayName: typeof displayName === 'string' ? displayName : undefined,
+        avatar: typeof avatar === 'string' ? avatar : undefined,
+      },
+      linked
+    );
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  });
+
   app.post('/api/auth/send-code', async (req, res) => {
     const ip = getClientIp(req);
     const rate = otpSendLimiter.consume(ip);
@@ -968,14 +1234,23 @@ async function startServer() {
       });
       return;
     }
-    const { email, code, displayName, avatar } = req.body ?? {};
+    const { email, code, displayName, avatar, localAchievements, localAchievementDates } =
+      req.body ?? {};
+    const rawEmail = typeof email === 'string' ? email : '';
+    const lookupName =
+      typeof displayName === 'string' && displayName.trim()
+        ? displayName.trim()
+        : rawEmail.split('@')[0];
+    const linked = buildLinkedProfile(lookupName, localAchievements, localAchievementDates);
     const result = authStore.verifyOtp(
-      typeof email === 'string' ? email : '',
+      rawEmail,
       typeof code === 'string' ? code : '',
       {
         displayName: typeof displayName === 'string' ? displayName : undefined,
         avatar: typeof avatar === 'string' ? avatar : undefined,
-      }
+      },
+      Date.now(),
+      linked
     );
     if (!result.ok) {
       res.status(400).json(result);
@@ -988,10 +1263,12 @@ async function startServer() {
     const token = extractBearerToken(req);
     const profile = authStore.verifySessionToken(token);
     if (!profile) {
-      res.status(401).json({ error: '登录状态已失效，请重新验证邮箱' });
+      res.status(401).json({ error: '登录状态已失效，请重新登录' });
       return;
     }
-    res.json({ profile });
+    const linked = buildLinkedProfile(profile.displayName);
+    const hydrated = linked ? (authStore.mergeLinkedProfile(profile.uid, linked) ?? profile) : profile;
+    res.json({ profile: hydrated });
   });
 
   app.patch('/api/auth/profile', (req, res) => {
@@ -1001,11 +1278,15 @@ async function startServer() {
       res.status(401).json({ error: '请先登录邮箱账号' });
       return;
     }
-    const { displayName, avatar, bgmEnabled } = req.body ?? {};
+    const { displayName, avatar, bgmEnabled, equippedAchievement } = req.body ?? {};
     const updated = authStore.updatePreferences(existing.uid, {
       displayName: typeof displayName === 'string' ? displayName : undefined,
       avatar: typeof avatar === 'string' ? avatar : undefined,
       bgmEnabled: typeof bgmEnabled === 'boolean' ? bgmEnabled : undefined,
+      equippedAchievement:
+        equippedAchievement === null
+          ? 'none'
+          : sanitizeEquippedAchievement(equippedAchievement),
     });
     res.json({ profile: updated });
   });
@@ -1072,7 +1353,13 @@ async function startServer() {
       return;
     }
     const creatorId =
-      typeof req.headers['x-player-id'] === 'string' ? req.headers['x-player-id'].trim() : null;
+      typeof req.headers['x-player-id'] === 'string'
+        ? req.headers['x-player-id'].trim().slice(0, 48)
+        : null;
+    const creatorSecret =
+      typeof req.headers['x-seat-secret'] === 'string'
+        ? req.headers['x-seat-secret'].trim().slice(0, 64)
+        : null;
     const { tableName, roomId, smallBlind, bigBlind, startingChips } = req.body ?? {};
     const created = createCustomRoom({
       tableName,
@@ -1081,6 +1368,7 @@ async function startServer() {
       bigBlind,
       startingChips,
       creatorId,
+      creatorSecret,
     });
     if (!created.ok) {
       res.status(429).json({ error: created.error });
@@ -1099,15 +1387,13 @@ async function startServer() {
     }
     const requesterId =
       typeof req.headers['x-player-id'] === 'string'
-        ? req.headers['x-player-id'].trim()
-        : typeof req.query.playerId === 'string'
-          ? req.query.playerId.trim()
-          : null;
+        ? req.headers['x-player-id'].trim().slice(0, 48)
+        : null;
     const requesterSecret =
       typeof req.headers['x-seat-secret'] === 'string'
         ? req.headers['x-seat-secret'].trim().slice(0, 64)
         : null;
-    const authCheck = canRequesterDeleteRoom(ctx, requesterId, requesterSecret, false);
+    const authCheck = canRequesterDeleteRoom(ctx, requesterId, requesterSecret, true);
     if (!authCheck.ok) {
       res.status(authCheck.status ?? 403).json({ error: authCheck.error });
       return;
@@ -1120,7 +1406,97 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  // Clean JSON body parse error handler (avoids leaking Express HTML stack traces)
+  app.get('/api/rooms/:roomId/bot-chat/status', (req, res) => {
+    const id = normalizeRoomId(req.params.roomId);
+    const ctx = rooms.get(id);
+    if (!ctx) {
+      res.status(404).json({ error: '牌桌不存在' });
+      return;
+    }
+    res.json({ status: getBotChatStatus(ctx) });
+  });
+
+  app.post('/api/rooms/:roomId/bot-chat/config', async (req, res) => {
+    const id = normalizeRoomId(req.params.roomId);
+    const ctx = rooms.get(id);
+    if (!ctx) {
+      res.status(404).json({ error: '牌桌不存在' });
+      return;
+    }
+
+    const requesterId =
+      typeof req.headers['x-player-id'] === 'string'
+        ? req.headers['x-player-id'].trim()
+        : null;
+    const requesterSecret =
+      typeof req.headers['x-seat-secret'] === 'string'
+        ? req.headers['x-seat-secret'].trim().slice(0, 64)
+        : null;
+
+    const seatedPlayer = requesterId
+      ? ctx.state.players.find((p) => p.id === requesterId && !p.isBot)
+      : null;
+    if (!seatedPlayer || !requesterId) {
+      res.status(403).json({ error: '仅在座玩家可配置当前牌桌的陪练对话' });
+      return;
+    }
+    const storedSecret = ctx.seatSecrets.get(requesterId) ?? null;
+    if (!storedSecret || !secretsMatch(storedSecret, requesterSecret)) {
+      res.status(403).json({ error: '座位身份校验失败' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      enabled?: unknown;
+      apiKey?: unknown;
+      clearKey?: unknown;
+      testConnection?: unknown;
+    };
+
+    const nextClearKey = body.clearKey === true;
+    const rawKey =
+      typeof body.apiKey === 'string' ? body.apiKey.trim().slice(0, 160) : '';
+    const nextEnabled =
+      typeof body.enabled === 'boolean' ? body.enabled : ctx.botChatEnabled;
+
+    const candidateKey = nextClearKey
+      ? process.env.DEEPSEEK_API_KEY?.trim() || null
+      : rawKey || getEffectiveDeepSeekKey(ctx);
+
+    if (nextEnabled && !candidateKey) {
+      res.status(400).json({ error: '启用陪练对话前，请先填入 DeepSeek API Key' });
+      return;
+    }
+
+    if (body.testConnection === true && candidateKey) {
+      try {
+        await requestDeepSeekReply({
+          apiKey: candidateKey,
+          messages: [
+            { role: 'system', content: '你是一名德州扑克牌友，只回复一个简短的打招呼表情或词。' },
+            { role: 'user', content: '打个招呼' },
+          ],
+          timeoutMs: 8000,
+        });
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : 'DeepSeek 连通性校验失败',
+        });
+        return;
+      }
+    }
+
+    if (nextClearKey) {
+      ctx.deepseekApiKey = null;
+    } else if (rawKey) {
+      ctx.deepseekApiKey = rawKey;
+    }
+
+    ctx.botChatEnabled = nextEnabled && Boolean(getEffectiveDeepSeekKey(ctx));
+    broadcastBotChatStatus(ctx);
+    res.json({ ok: true, status: getBotChatStatus(ctx) });
+  });
+
   app.use(
     (
       err: unknown,
@@ -1231,7 +1607,7 @@ async function startServer() {
             sendJson(ws, { type: 'error', message: '牌桌不存在或已被删除' });
             return;
           }
-          const authCheck = canRequesterDeleteRoom(targetCtx, session.playerId, null, true);
+          const authCheck = canRequesterDeleteRoom(targetCtx, session.playerId, null, false);
           if (!authCheck.ok) {
             sendJson(ws, { type: 'error', message: authCheck.error ?? '无权删除牌桌' });
             return;
@@ -1278,7 +1654,7 @@ async function startServer() {
           const storedSecret = ctx.seatSecrets.get(cleanId);
 
           if (existingPlayer) {
-            if (storedSecret && incomingSecret !== storedSecret) {
+            if (storedSecret && !secretsMatch(storedSecret, incomingSecret)) {
               sendJson(ws, { type: 'error', message: '该座位已被其他会话占用' });
               return;
             }
@@ -1355,13 +1731,49 @@ async function startServer() {
             authoritativeStreak = lbProfile.currentWinStreak;
           }
 
+          const incomingAvatar = sanitizeAvatar(
+            typeof msg.avatar === 'string' ? msg.avatar : undefined
+          );
+          const resolvedAvatar =
+            incomingAvatar !== 'default'
+              ? incomingAvatar
+              : verifiedAccount?.avatar && verifiedAccount.avatar !== 'default'
+                ? sanitizeAvatar(verifiedAccount.avatar)
+                : lbProfile.avatar
+                  ? sanitizeAvatar(lbProfile.avatar)
+                  : 'default';
+          const incomingEquipped = sanitizeEquippedAchievement(msg.equippedAchievement);
+          const resolvedEquipped =
+            incomingEquipped ?? verifiedAccount?.equippedAchievement ?? lbProfile.equippedAchievement;
+
+          let leaderboardDirty = false;
+          if (leaderboard.syncPlayerAvatar(cleanName, resolvedAvatar, verifiedUid)) {
+            leaderboardDirty = true;
+          }
+          if (leaderboard.syncPlayerEquippedAchievement(cleanName, resolvedEquipped, verifiedUid)) {
+            leaderboardDirty = true;
+          }
+          if (leaderboardDirty) {
+            broadcastLeaderboard();
+          }
+
+          const resolvedLevel = computePlayerLevel({
+            achievements: authoritativeAch,
+            handsPlayed: Math.max(verifiedAccount?.handsPlayed ?? 0, lbProfile.handsPlayed),
+            handsWon: Math.max(verifiedAccount?.handsWon ?? 0, lbProfile.handsWon),
+            points: Math.max(verifiedAccount?.points ?? 1000, lbProfile.points),
+            explicitLevel: lbProfile.level,
+          }).level;
+
           const res = addPlayerToTable(ctx.state, {
             id: cleanId,
             name: cleanName,
-            avatar: sanitizeAvatar(typeof msg.avatar === 'string' ? msg.avatar : undefined),
+            avatar: resolvedAvatar,
             achievements: authoritativeAch,
             achievementDates: authoritativeDates,
+            equippedAchievement: resolvedEquipped,
             winStreak: authoritativeStreak,
+            level: resolvedLevel,
           });
 
           if (!res.ok) {
@@ -1385,6 +1797,11 @@ async function startServer() {
             roomId: ctx.state.roomId,
             messages: ctx.chatHistory,
           });
+          sendJson(ws, {
+            type: 'bot_chat_status',
+            roomId: ctx.state.roomId,
+            status: getBotChatStatus(ctx),
+          });
           broadcastRoomsList();
           return;
         }
@@ -1402,6 +1819,49 @@ async function startServer() {
         const ctx = rooms.get(session.roomId);
         if (!ctx) {
           sendJson(ws, { type: 'error', message: '牌桌不存在' });
+          return;
+        }
+
+        if (msg.type === 'update_profile') {
+          const seatPlayer = ctx.state.players.find((p) => p.id === session.playerId && !p.isBot);
+          if (!seatPlayer) return;
+          let changed = false;
+          let lbDirty = false;
+          if (typeof msg.playerName === 'string') {
+            const nextName = msg.playerName.trim().slice(0, 18);
+            if (nextName && nextName !== seatPlayer.name) {
+              seatPlayer.name = nextName;
+              changed = true;
+            }
+          }
+          if (typeof msg.avatar === 'string') {
+            const nextAvatar = sanitizeAvatar(msg.avatar);
+            if (nextAvatar !== seatPlayer.avatar) {
+              seatPlayer.avatar = nextAvatar;
+              changed = true;
+              if (leaderboard.syncPlayerAvatar(seatPlayer.name, nextAvatar, session.verifiedUid)) {
+                lbDirty = true;
+              }
+            }
+          }
+          if (msg.equippedAchievement !== undefined) {
+            const safeEquipped = sanitizeEquippedAchievement(msg.equippedAchievement);
+            if (safeEquipped && safeEquipped !== seatPlayer.equippedAchievement) {
+              seatPlayer.equippedAchievement = safeEquipped;
+              changed = true;
+              if (
+                leaderboard.syncPlayerEquippedAchievement(
+                  seatPlayer.name,
+                  safeEquipped,
+                  session.verifiedUid
+                )
+              ) {
+                lbDirty = true;
+              }
+            }
+          }
+          if (changed) broadcastRoomState(ctx);
+          if (lbDirty) broadcastLeaderboard();
           return;
         }
 
@@ -1458,7 +1918,6 @@ async function startServer() {
           if (!sender || !target || sender.id === target.id) return;
 
           const now = Date.now();
-          // Prune stale cooldown entries to keep Map bounded
           for (const [k, ts] of session.nudgeCooldowns.entries()) {
             if (now - ts > 15_000) session.nudgeCooldowns.delete(k);
           }
@@ -1477,6 +1936,13 @@ async function startServer() {
             message: `${sender.name}：${phrase}`,
             createdAt: now,
           });
+          if (target.isBot) {
+            scheduleBotChatReaction(ctx, {
+              kind: 'nudge',
+              fromName: sender.name,
+              targetBotId: target.id,
+            });
+          }
           return;
         }
 
@@ -1504,11 +1970,48 @@ async function startServer() {
             `陪练 Bot ${ctx.state.players.length + 1}`;
           const botId = `bot_${Date.now()}_${crypto.randomInt(100, 1000)}`;
           const botAvatarPool = ['spade', 'owl', 'fox', 'lion', 'crown', 'phoenix'];
-          const botAvatar = botAvatarPool[ctx.state.players.length % botAvatarPool.length];
+          const fallbackAvatar = botAvatarPool[ctx.state.players.length % botAvatarPool.length];
+          const botPreset = getBotClubPreset(nextName);
+          const lbBotProfile = leaderboard.getPlayerProfile(nextName);
+          const botInit = botPreset ? buildBotInitialStats(botPreset) : null;
+          const botAchievements = sanitizeAchievementIds([
+            ...(lbBotProfile.achievements ?? []),
+            ...(botInit?.achievements ?? []),
+          ]);
+          const botDates: AchievementDatesMap = {
+            ...(botInit?.achievementDates ?? {}),
+            ...(lbBotProfile.achievementDates ?? {}),
+          };
+          const botAvatar =
+            (lbBotProfile.avatar && sanitizeAvatar(lbBotProfile.avatar) !== 'default'
+              ? sanitizeAvatar(lbBotProfile.avatar)
+              : botPreset?.avatar) ?? fallbackAvatar;
+          const botLevel = computePlayerLevel({
+            achievements: botAchievements,
+            handsPlayed: Math.max(lbBotProfile.handsPlayed, botPreset?.handsPlayed ?? 0),
+            handsWon: Math.max(lbBotProfile.handsWon, botPreset?.handsWon ?? 0),
+            points: lbBotProfile.handsPlayed > 0 ? lbBotProfile.points : (botPreset?.points ?? 1000),
+            explicitLevel: Math.max(lbBotProfile.level, botInit?.level ?? 1),
+          }).level;
+          const botWinStreak = Math.max(
+            lbBotProfile.currentWinStreak,
+            botPreset?.currentWinStreak ?? 0
+          );
+          if (botInit) {
+            ctx.botStats.set(botId, {
+              stats: botInit.stats,
+              achievements: botAchievements,
+              achievementDates: botDates,
+            });
+          }
           const added = addPlayerToTable(ctx.state, {
             id: botId,
             name: nextName,
             avatar: botAvatar,
+            achievements: botAchievements,
+            achievementDates: botDates,
+            winStreak: botWinStreak,
+            level: botLevel,
             isBot: true,
           });
           if (!added.ok) {
@@ -1586,6 +2089,11 @@ async function startServer() {
           };
           ctx.chatHistory = appendChatHistory(ctx.chatHistory, chatMsg, MAX_CHAT_HISTORY);
           broadcastRoomChat(ctx, chatMsg);
+          scheduleBotChatReaction(ctx, {
+            kind: 'player_chat',
+            senderName: player.name,
+            text: cleanText,
+          });
         }
       } catch (err) {
         console.error('[WS Message Error]', err);
@@ -1599,7 +2107,6 @@ async function startServer() {
     });
   });
 
-  // WebSocket heartbeat to terminate half-open/zombie sockets cleanly
   const heartbeatInterval = setInterval(() => {
     for (const [ws, session] of sessions.entries()) {
       if (!session.isAlive) {
@@ -1621,7 +2128,6 @@ async function startServer() {
     }
   }, 15_000);
 
-  // Idle empty custom room garbage collection + expired OTP pruning (every 5 min)
   const gcInterval = setInterval(() => {
     const now = Date.now();
     authStore.pruneExpiredOtps(now);
@@ -1638,7 +2144,6 @@ async function startServer() {
     }
   }, 5 * 60 * 1000);
 
-  // Turn timeout watchdog + AFK auto-unseat protection (every 1s)
   const turnWatchdogInterval = setInterval(() => {
     const now = Date.now();
     for (const ctx of rooms.values()) {
@@ -1684,7 +2189,6 @@ async function startServer() {
     }
   }, 1000);
 
-  // Graceful shutdown for Docker SIGTERM / Ctrl+C SIGINT
   let shuttingDown = false;
   const gracefulShutdown = (signal: string) => {
     if (shuttingDown) return;

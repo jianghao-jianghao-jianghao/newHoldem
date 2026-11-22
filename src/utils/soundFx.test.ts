@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CHIP_DENOM_AUDIO_LIBRARY,
   classifyChipBetWeight,
+  computeChipAcousticLayering,
   computeChipImpactOffsets,
   decomposeChipBetAudio,
 } from './soundFx';
@@ -61,4 +62,32 @@ test('computeChipImpactOffsets is strictly monotonically increasing across all-i
     );
   }
 });
+
+test('computeChipAcousticLayering expands stereo spread, brightness, felt thud, and harmonic tail with bet size', () => {
+  const light = computeChipAcousticLayering({ amount: 20, actionKind: 'call', bigBlind: 20, pot: 60 });
+  const medium = computeChipAcousticLayering({ amount: 80, actionKind: 'raise', bigBlind: 20, pot: 120 });
+  const heavy = computeChipAcousticLayering({ amount: 260, actionKind: 'raise', bigBlind: 20, pot: 300 });
+  const massive = computeChipAcousticLayering({ amount: 1200, actionKind: 'allin', bigBlind: 20, pot: 600 });
+
+  assert.equal(light.weightTier, 'light');
+  assert.equal(medium.weightTier, 'medium');
+  assert.equal(heavy.weightTier, 'heavy');
+  assert.equal(massive.weightTier, 'massive');
+
+  assert.ok(light.stereoSpread < medium.stereoSpread);
+  assert.ok(medium.stereoSpread < heavy.stereoSpread);
+  assert.ok(heavy.stereoSpread < massive.stereoSpread);
+
+  assert.ok(light.tableThudWeight < medium.tableThudWeight);
+  assert.ok(medium.tableThudWeight < heavy.tableThudWeight);
+  assert.ok(heavy.tableThudWeight < massive.tableThudWeight);
+
+  assert.equal(light.harmonicTailGain, 0);
+  assert.ok(medium.harmonicTailGain > 0);
+  assert.ok(heavy.harmonicTailGain > medium.harmonicTailGain);
+  assert.ok(massive.harmonicTailGain > heavy.harmonicTailGain);
+  assert.equal(light.duckBgm, false);
+  assert.equal(massive.duckBgm, true);
+});
+
 

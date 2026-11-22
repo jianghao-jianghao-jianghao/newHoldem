@@ -1,18 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BarChart3,
   Check,
   Copy,
   Eye,
-  HelpCircle,
   LogOut,
-  MessageSquare,
   Music,
   Play,
   RefreshCw,
   SlidersHorizontal,
-  SmilePlus,
-  Trophy,
   UserPlus,
   Volume2,
   VolumeX,
@@ -22,39 +17,60 @@ import {
   CHAT_WHISPER_TTL_MS,
   getActiveBubbleMap,
 } from '../shared/chatUtils';
+import type {
+  AchievementDatesMap,
+  AchievementId,
+  EquippedAchievementPref,
+} from '../shared/achievements';
+import {
+  resolvePlayerAvatarProfile,
+  type ResolvedPlayerAvatarProfile,
+} from '../shared/playerProfile';
 import { getHandOverviewStats, PHASE_STAGE_LABELS } from '../shared/tableOverview';
 import type {
+  BotChatStatus,
   ChatMessage,
   ClientPlayerView,
   ClientTableView,
+  LeaderboardEntry,
   ManualBlindTarget,
   PlayerAction,
   PlayerNudgeEvent,
 } from '../shared/types';
+import type { AvatarImpactEvent, ImpactBubbleKind } from '../utils/avatarImpactFx';
 import { ActionDock } from './ActionDock';
-import { BlindSettingsModal } from './BlindSettingsModal';
+import { BlindSettingsModal, type BotChatConfigRequest } from './BlindSettingsModal';
 import { ChipStackVisual2D } from './ChipStack2D';
+import { PlayerProfileModal } from './PlayerProfileModal';
 import { PlayingCard } from './PlayingCard';
 import type { CameraPreset } from './PokerScene3D';
-import { type ActionFxTone, type SeatActionFx, type SeatNudgeFx, SeatNode } from './SeatNode';
+import { type SeatNudgeFx, SeatNode } from './SeatNode';
 import { type AnalyticsTab, TableAnalyticsDrawer } from './TableAnalyticsDrawer';
 import { TableChatPanel } from './TableChatPanel';
 
 interface PokerTableProps {
   table: ClientTableView;
   myPlayerId: string;
+  leaderboard: LeaderboardEntry[];
+  selfProfileFallback?: {
+    avatar?: string;
+    achievements?: AchievementId[];
+    achievementDates?: AchievementDatesMap;
+    equippedAchievement?: EquippedAchievementPref;
+  };
   chatMessages: ChatMessage[];
   lastNudge: PlayerNudgeEvent | null;
+  botChatStatus: BotChatStatus;
   muted: boolean;
   bgmEnabled: boolean;
   isDesktop?: boolean;
   externalModalOpen?: boolean;
+  isReconnecting?: boolean;
   cameraPreset: CameraPreset;
   onToggleCameraPreset: () => void;
   onToggleMute: () => void;
   onToggleBgm: () => void;
   onOpenAchievements: () => void;
-  onOpenRankings: () => void;
   onLeaveRoom: () => void;
   onStartHand: () => void;
   onRevealCards: () => void;
@@ -70,11 +86,14 @@ interface PokerTableProps {
   }) => void;
   onAction: (action: PlayerAction) => void;
   onSendChat: (text: string) => void;
+  onConfigureBotChat: (
+    params: BotChatConfigRequest
+  ) => Promise<{ ok: boolean; error?: string; status?: BotChatStatus }>;
 }
 
 const PHASE_LABELS = PHASE_STAGE_LABELS;
 
-function inferActionTone(label: string): ActionFxTone {
+function inferImpactKind(label: string): ImpactBubbleKind {
   if (label.includes('全下')) return 'allin';
   if (label.includes('加注') || label.includes('下注')) return 'raise';
   if (label.includes('跟注')) return 'call';
@@ -83,21 +102,31 @@ function inferActionTone(label: string): ActionFxTone {
   return 'check';
 }
 
+function getImpactTtlMs(kind: ImpactBubbleKind): number {
+  if (kind === 'pot_win') return 3750;
+  if (kind === 'allin') return 3350;
+  if (kind === 'raise') return 1750;
+  return 1550;
+}
+
 export function PokerTable({
   table,
   myPlayerId,
+  leaderboard,
+  selfProfileFallback,
   chatMessages,
   lastNudge,
+  botChatStatus,
   muted,
   bgmEnabled,
   isDesktop = true,
   externalModalOpen = false,
+  isReconnecting = false,
   cameraPreset,
   onToggleCameraPreset,
   onToggleMute,
   onToggleBgm,
   onOpenAchievements,
-  onOpenRankings,
   onLeaveRoom,
   onStartHand,
   onRevealCards,
@@ -109,12 +138,13 @@ export function PokerTable({
   onUpdateBlindSettings,
   onAction,
   onSendChat,
+  onConfigureBotChat,
 }: PokerTableProps) {
   const [now, setNow] = useState(() => Date.now());
   const [chatNow, setChatNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
+  const [inspectedPlayerId, setInspectedPlayerId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
-  const [quickEmojiOpen, setQuickEmojiOpen] = useState(false);
   const [blindModalOpen, setBlindModalOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [requestedAnalyticsTab, setRequestedAnalyticsTab] = useState<{
@@ -123,26 +153,27 @@ export function PokerTable({
   } | null>(null);
   const [lastSeenCount, setLastSeenCount] = useState(0);
 
-  const [actionFxMap, setActionFxMap] = useState<Record<string, SeatActionFx>>({});
+  const [impactFxMap, setImpactFxMap] = useState<Record<string, AvatarImpactEvent>>({});
   const [nudgeFxMap, setNudgeFxMap] = useState<Record<string, SeatNudgeFx>>({});
   const [newlyJoinedIds, setNewlyJoinedIds] = useState<Record<string, boolean>>({});
 
   const prevPlayersRef = useRef<
-    Map<string, { label?: string; handNumber: number; revealed?: boolean }>
+    Map<string, { label?: string; handNumber: number; revealed?: boolean; allIn: boolean }>
   >(new Map());
   const initializedPlayersRef = useRef(false);
-  const actionFxTimersRef = useRef<Map<string, number>>(new Map());
+  const lastWinFxKeyRef = useRef<string>('');
+  const impactFxTimersRef = useRef<Map<string, number>>(new Map());
   const nudgeFxTimersRef = useRef<Map<string, number>>(new Map());
   const joinedTimersRef = useRef<Map<string, number>>(new Map());
 
   // Clean up all independent per-player FX timers on unmount
   useEffect(() => {
-    const actionTimers = actionFxTimersRef.current;
+    const impactTimers = impactFxTimersRef.current;
     const nudgeTimers = nudgeFxTimersRef.current;
     const joinedTimers = joinedTimersRef.current;
     return () => {
-      actionTimers.forEach((id) => window.clearTimeout(id));
-      actionTimers.clear();
+      impactTimers.forEach((id) => window.clearTimeout(id));
+      impactTimers.clear();
       nudgeTimers.forEach((id) => window.clearTimeout(id));
       nudgeTimers.clear();
       joinedTimers.forEach((id) => window.clearTimeout(id));
@@ -158,14 +189,14 @@ export function PokerTable({
     return () => window.clearInterval(id);
   }, [table.turnDeadline, table.nextHandAt]);
 
-  // Detect player join entrances & action transitions for floating text/particles
+  // Detect player join entrances & action transitions for Canvas dynamic impact bubbles
   useEffect(() => {
     const prevMap = prevPlayersRef.current;
     const isInitial = !initializedPlayersRef.current;
     initializedPlayersRef.current = true;
 
     const joinedBatch: string[] = [];
-    const fxBatch: { id: string; fx: SeatActionFx }[] = [];
+    const fxBatch: { id: string; fx: AvatarImpactEvent }[] = [];
 
     for (const p of table.players) {
       const prev = prevMap.get(p.id);
@@ -174,18 +205,35 @@ export function PokerTable({
       }
       const label = p.lastActionLabel;
       const isBlind = label?.startsWith('小盲') || label?.startsWith('大盲');
-      if (
+      const newlyAllIn = Boolean(prev && !prev.allIn && p.allIn && table.phase !== 'waiting');
+      const labelChanged = Boolean(
         prev &&
-        label &&
-        !isBlind &&
-        (prev.label !== label || prev.handNumber !== table.handNumber)
-      ) {
+          label &&
+          !isBlind &&
+          (prev.label !== label || prev.handNumber !== table.handNumber)
+      );
+
+      if (newlyAllIn || (labelChanged && label && label.includes('全下'))) {
+        const wager = p.currentBet > 0 ? p.currentBet : undefined;
         fxBatch.push({
           id: p.id,
           fx: {
-            id: `${p.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            text: label,
-            tone: inferActionTone(label),
+            id: `${p.id}_allin_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            kind: 'allin',
+            title: 'ALL-IN 全下',
+            subtitle: wager ? `全押 ${wager.toLocaleString()}` : '全押决胜',
+            amount: wager,
+          },
+        });
+      } else if (labelChanged && label) {
+        const kind = inferImpactKind(label);
+        fxBatch.push({
+          id: p.id,
+          fx: {
+            id: `${p.id}_${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            kind,
+            title: label,
+            amount: p.currentBet > 0 ? p.currentBet : undefined,
           },
         });
       }
@@ -193,13 +241,14 @@ export function PokerTable({
 
     const nextSnapshot = new Map<
       string,
-      { label?: string; handNumber: number; revealed?: boolean }
+      { label?: string; handNumber: number; revealed?: boolean; allIn: boolean }
     >();
     for (const p of table.players) {
       nextSnapshot.set(p.id, {
         label: p.lastActionLabel,
         handNumber: table.handNumber,
         revealed: p.revealed,
+        allIn: p.allIn,
       });
     }
     prevPlayersRef.current = nextSnapshot;
@@ -229,29 +278,93 @@ export function PokerTable({
     }
 
     if (fxBatch.length > 0) {
-      setActionFxMap((curr) => {
-        const next = { ...curr };
-        fxBatch.forEach(({ id, fx }) => {
-          next[id] = fx;
-        });
-        return next;
+      const winnerIdsAtShowdown =
+        table.phase === 'showdown'
+          ? new Set(table.winners.map((w) => w.playerId))
+          : null;
+
+      const filteredBatch = fxBatch.filter(({ id, fx }) => {
+        if (winnerIdsAtShowdown?.has(id) && fx.kind !== 'allin') {
+          return false;
+        }
+        return true;
       });
-      fxBatch.forEach(({ id, fx }) => {
-        const existing = actionFxTimersRef.current.get(id);
-        if (existing) window.clearTimeout(existing);
-        const timerId = window.setTimeout(() => {
-          actionFxTimersRef.current.delete(id);
-          setActionFxMap((curr) => {
-            if (curr[id]?.id !== fx.id) return curr;
-            const next = { ...curr };
-            delete next[id];
-            return next;
+
+      if (filteredBatch.length > 0) {
+        setImpactFxMap((curr) => {
+          const next = { ...curr };
+          filteredBatch.forEach(({ id, fx }) => {
+            if (curr[id]?.kind === 'pot_win' && fx.kind !== 'allin') {
+              return;
+            }
+            next[id] = fx;
           });
-        }, 1500);
-        actionFxTimersRef.current.set(id, timerId);
-      });
+          return next;
+        });
+        filteredBatch.forEach(({ id, fx }) => {
+          const existing = impactFxTimersRef.current.get(id);
+          if (existing) window.clearTimeout(existing);
+          const timerId = window.setTimeout(() => {
+            impactFxTimersRef.current.delete(id);
+            setImpactFxMap((curr) => {
+              if (curr[id]?.id !== fx.id) return curr;
+              const next = { ...curr };
+              delete next[id];
+              return next;
+            });
+          }, getImpactTtlMs(fx.kind));
+          impactFxTimersRef.current.set(id, timerId);
+        });
+      }
     }
-  }, [table.players, table.handNumber]);
+  }, [table.players, table.handNumber, table.phase, table.winners]);
+
+  // Trigger celebratory Canvas Pot Win chip splash fountain above every winning player's avatar
+  useEffect(() => {
+    if (table.phase !== 'showdown' || table.winners.length === 0) return;
+    const winKey = `${table.handNumber}:${table.winners
+      .map((w) => `${w.playerId}:${w.amount}`)
+      .join(',')}`;
+    if (lastWinFxKeyRef.current === winKey) return;
+    lastWinFxKeyRef.current = winKey;
+
+    const winBatch: { id: string; fx: AvatarImpactEvent }[] = table.winners.map((w) => ({
+      id: w.playerId,
+      fx: {
+        id: `${w.playerId}_win_${table.handNumber}_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 6)}`,
+        kind: 'pot_win',
+        title: `+${w.amount.toLocaleString()}`,
+        subtitle: w.handName ? `赢取底池 · ${w.handName}` : '赢取底池',
+        amount: w.amount,
+        handName: w.handName,
+      },
+    }));
+
+    setImpactFxMap((curr) => {
+      const next = { ...curr };
+      winBatch.forEach(({ id, fx }) => {
+        next[id] = fx;
+      });
+      return next;
+    });
+
+    winBatch.forEach(({ id, fx }) => {
+      const existing = impactFxTimersRef.current.get(id);
+      if (existing) window.clearTimeout(existing);
+      const timerId = window.setTimeout(() => {
+        impactFxTimersRef.current.delete(id);
+        setImpactFxMap((curr) => {
+          if (curr[id]?.id !== fx.id) return curr;
+          const next = { ...curr };
+          delete next[id];
+          return next;
+        });
+      }, getImpactTtlMs('pot_win'));
+      impactFxTimersRef.current.set(id, timerId);
+    });
+  }, [table.phase, table.handNumber, table.winners]);
 
   // Display synchronized nudge bubble & pulse on target seat with independent per-player timer
   useEffect(() => {
@@ -310,7 +423,7 @@ export function PokerTable({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (externalModalOpen || blindModalOpen) return;
+      if (externalModalOpen || blindModalOpen || inspectedPlayerId !== null) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -324,13 +437,12 @@ export function PokerTable({
       }
       if (e.key.toLowerCase() === 't') {
         e.preventDefault();
-        setQuickEmojiOpen(false);
         setChatOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [externalModalOpen, blindModalOpen]);
+  }, [externalModalOpen, blindModalOpen, inspectedPlayerId]);
 
   const activeBubbles = useMemo(
     () => getActiveBubbleMap(chatMessages, chatNow, CHAT_BUBBLE_TTL_MS),
@@ -456,67 +568,47 @@ export function PokerTable({
 
   return (
     <div className="pointer-events-none relative z-10 flex min-h-dvh flex-col justify-between text-[#F3F1EC]">
-      {/* Slim Perimeter Top Bar */}
-      <header className="pointer-events-auto flex items-center justify-between gap-1.5 border-b border-white/[0.06] bg-[#0A0C0E]/86 backdrop-blur-md px-2.5 py-2 sm:gap-4 sm:px-6">
-        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+      {/* Slim Perimeter Top Bar (clean unboxed luxury nav, zero duplicate chat/emoji buttons) */}
+      <header className="pointer-events-auto flex items-center justify-between gap-2 border-b border-white/[0.06] bg-[#0A0C0E]/82 backdrop-blur-md px-3 py-2 sm:gap-4 sm:px-6">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
             onClick={onLeaveRoom}
             aria-label="退出房间"
-            className="touch-manipulation flex h-8 items-center gap-1.5 rounded px-2 sm:px-2.5 text-xs font-medium text-[#A9B3AE] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="touch-manipulation flex h-8 items-center gap-1.5 px-1.5 text-xs text-[#9BA6A1] hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
-            <span className="hidden sm:inline">退出</span>
+            <span className="hidden sm:inline">离桌</span>
           </button>
 
           <span aria-hidden="true" className="h-3.5 w-px bg-white/[0.09] hidden sm:inline-block" />
 
-          <div className="flex items-center gap-1.5 sm:gap-2.5 text-[11px] sm:text-sm min-w-0">
-            <span className="font-mono-num font-bold tracking-wide text-[#E5C989] whitespace-nowrap truncate max-w-[68px] sm:max-w-none">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs min-w-0">
+            <span className="font-mono-num font-semibold tracking-wider text-[#E5C989] whitespace-nowrap truncate max-w-[74px] sm:max-w-none">
               {table.roomId}
             </span>
             <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
-            {isHost ? (
-              <button
-                type="button"
-                data-testid="open-blind-settings-btn"
-                onClick={() => setBlindModalOpen(true)}
-                title="设置大小盲注与盲位（房主）"
-                className="touch-manipulation inline-flex h-7 items-center gap-1.5 rounded bg-white/[0.04] px-2 font-mono-num text-[11px] sm:text-xs font-medium text-[#DCE2DF] hover:bg-white/[0.09] hover:text-[#F0DFB3] transition-colors whitespace-nowrap shrink-0"
-              >
-                <SlidersHorizontal className="h-3 w-3 text-[#C8A153] shrink-0" aria-hidden="true" />
-                <span>
-                  <span className="hidden sm:inline text-[#9AA5A0]">盲注 </span>
-                  {table.smallBlind}/{table.bigBlind}
-                </span>
-                {table.pendingBlinds && (
-                  <span className="text-[10px] text-[#8CC9AA]">
-                    → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <span
-                title="仅房主可调整盲注"
-                className="inline-flex h-7 items-center gap-1 rounded bg-white/[0.03] px-2 font-mono-num text-[11px] sm:text-xs font-medium text-[#B8C2BD] whitespace-nowrap shrink-0"
-              >
-                <span className="hidden sm:inline text-[#85908B]">盲注</span>
-                <span>{table.smallBlind}/{table.bigBlind}</span>
-                {table.pendingBlinds && (
-                  <span className="text-[10px] text-[#8CC9AA]">
-                    → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
-                  </span>
-                )}
+            <button
+              type="button"
+              data-testid="open-blind-settings-btn"
+              onClick={() => setBlindModalOpen(true)}
+              title="查看或调整牌桌盲注与设置"
+              className="touch-manipulation inline-flex items-center gap-1 font-mono-num text-[11px] sm:text-xs text-[#CBD3CF] hover:text-[#F0DFB3] transition-colors whitespace-nowrap shrink-0"
+            >
+              <span className="hidden sm:inline text-[#7D8883]">盲注</span>
+              <span>
+                {table.smallBlind}/{table.bigBlind}
               </span>
-            )}
-            <span aria-hidden="true" className="text-white/15 hidden md:inline">·</span>
-            <span className="font-mono-num text-xs text-[#8A948F] whitespace-nowrap hidden md:inline">
-              初始 {table.startingChips.toLocaleString()}
-            </span>
+              {table.pendingBlinds && (
+                <span className="text-[10px] text-[#8CC9AA]">
+                  → {table.pendingBlinds.smallBlind}/{table.pendingBlinds.bigBlind}
+                </span>
+              )}
+            </button>
             {table.handNumber > 0 && (
               <>
-                <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
-                <span className="font-mono-num text-xs text-[#8A948F] whitespace-nowrap hidden sm:inline">
+                <span aria-hidden="true" className="text-white/15 hidden md:inline">·</span>
+                <span className="font-mono-num text-xs text-[#7D8883] whitespace-nowrap hidden md:inline">
                   第 {table.handNumber} 局
                 </span>
               </>
@@ -527,7 +619,7 @@ export function PokerTable({
             type="button"
             onClick={handleCopyInvite}
             aria-label="复制邀请链接"
-            className="touch-manipulation flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-[#A9B3AE] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="touch-manipulation flex h-7 items-center gap-1 px-1.5 text-xs text-[#939E99] hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             {copied ? (
               <>
@@ -543,153 +635,92 @@ export function PokerTable({
           </button>
         </div>
 
-        <div className="hidden xl:block font-display text-xs tracking-[0.18em] text-[#7D8782]/85 uppercase select-none">
+        <div className="hidden xl:block font-display text-xs tracking-[0.2em] text-[#7D8782]/80 uppercase select-none">
           VELVET HOLD&apos;EM
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {/* Primary Panels Group */}
-          <div className="flex items-center divide-x divide-white/[0.06] rounded bg-white/[0.03] border border-white/[0.07]">
+        {/* Clean Unboxed Right Controls */}
+        <nav aria-label="牌桌工具" className="flex items-center gap-1 sm:gap-3 shrink-0">
+          {isDesktop && (
             <button
               type="button"
-              onClick={() => {
-                if (!analyticsOpen) {
-                  setRequestedAnalyticsTab((prev) => ({
-                    tab: 'trends',
-                    nonce: (prev?.nonce ?? 0) + 1,
-                  }));
-                }
-                setAnalyticsOpen((prev) => !prev);
-              }}
-              aria-label={analyticsOpen ? '收起牌局数据' : '打开牌局数据'}
-              aria-expanded={analyticsOpen}
-              data-testid="toggle-analytics-btn"
-              className={`touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                analyticsOpen
-                  ? 'bg-[#D4A853]/14 text-[#F0DFB3]'
-                  : 'text-[#BFC7C3] hover:bg-white/[0.05] hover:text-white'
-              }`}
+              data-testid="camera-toggle-btn"
+              onClick={onToggleCameraPreset}
+              aria-label={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
+              className="touch-manipulation h-8 px-2 text-xs text-[#B5C0BA] hover:text-white transition-colors whitespace-nowrap"
             >
-              <BarChart3 className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
-              <span className="hidden md:inline">牌局数据</span>
+              {cameraPreset === 'classic' ? '俯瞰视角' : '经典视角'}
             </button>
+          )}
 
-            <button
-              type="button"
-              onClick={() => {
-                setChatOpen(false);
-                setQuickEmojiOpen((prev) => !prev);
-              }}
-              aria-label={quickEmojiOpen ? '收起快捷表情' : '快捷表情与短语'}
-              aria-expanded={quickEmojiOpen}
-              data-testid="toggle-quick-emoji-btn"
-              className={`touch-manipulation flex xl:hidden h-8 items-center justify-center px-2 text-xs font-medium transition-colors whitespace-nowrap ${
-                quickEmojiOpen
-                  ? 'bg-[#D4A853]/15 text-[#E8CF96]'
-                  : 'text-[#C5CECA] hover:bg-white/[0.04] hover:text-white'
-              }`}
-            >
-              <SmilePlus className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setQuickEmojiOpen(false);
-                setChatOpen((prev) => !prev);
-              }}
-              aria-label={chatOpen ? '关闭牌桌对话' : '打开牌桌对话'}
-              aria-expanded={chatOpen}
-              data-testid="toggle-chat-btn"
-              className={`touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                chatOpen
-                  ? 'bg-[#D4A853]/15 text-[#E8CF96]'
-                  : 'text-[#C5CECA] hover:bg-white/[0.04] hover:text-white'
-              }`}
-            >
-              <MessageSquare className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-              <span className="hidden lg:inline">对话</span>
-              {unreadCount > 0 && (
-                <span className="font-mono-num text-[11px] font-bold text-[#E8CF96]">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Audio & Camera Group */}
-          <div className="flex items-center divide-x divide-white/[0.08] rounded border border-white/[0.08] bg-[#101315]/90">
-            {isDesktop && (
-              <button
-                type="button"
-                onClick={onToggleCameraPreset}
-                aria-label={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
-                title={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
-                className="touch-manipulation flex h-8 items-center gap-1.5 px-2.5 text-xs font-medium text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors whitespace-nowrap"
-              >
-                <Eye className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-                <span className="hidden lg:inline">
-                  {cameraPreset === 'classic' ? '视角' : '俯瞰'}
-                </span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={onToggleBgm}
-              data-testid="toggle-bgm-btn"
-              aria-label={bgmEnabled ? '关闭爵士音乐' : '播放爵士音乐'}
-              title={bgmEnabled ? '关闭爵士酒吧环境音乐' : '播放爵士酒吧环境音乐'}
-              className={`touch-manipulation flex h-8 items-center gap-1 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                bgmEnabled
-                  ? 'text-[#E8CF96] hover:bg-white/[0.04]'
-                  : 'text-[#6F7873] hover:text-white'
-              }`}
-            >
-              <Music className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden xl:inline">{bgmEnabled ? '爵士' : '无声'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onToggleMute}
-              aria-label={muted ? '开启桌面音效' : '静音桌面音效'}
-              title={muted ? '开启桌面音效' : '静音桌面音效'}
-              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors"
-            >
-              {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-
-          {/* Reference & In-Table Standings Group */}
-          <div className="flex items-center divide-x divide-white/[0.08] rounded border border-white/[0.08] bg-[#101315]/90">
-            <button
-              type="button"
-              onClick={onOpenRankings}
-              aria-label="牌型大小说明"
-              title="牌型大小说明"
-              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors"
-            >
-              <HelpCircle className="h-3.5 w-3.5" />
-            </button>
-
-            <button
-              type="button"
-              data-testid="open-standings-btn"
-              onClick={() => {
+          <button
+            type="button"
+            onClick={() => {
+              if (!analyticsOpen) {
                 setRequestedAnalyticsTab((prev) => ({
-                  tab: 'standings',
+                  tab: 'trends',
                   nonce: (prev?.nonce ?? 0) + 1,
                 }));
-                setAnalyticsOpen(true);
-              }}
-              className="touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-3 text-xs font-semibold text-[#E8CF96] hover:bg-[#D4A853]/12 transition-colors whitespace-nowrap shrink-0"
-            >
-              <Trophy className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-              <span className="hidden sm:inline">局内排行</span>
-            </button>
-          </div>
-        </div>
+              }
+              setAnalyticsOpen((prev) => !prev);
+            }}
+            aria-label={analyticsOpen ? '收起牌局数据' : '打开牌局数据与局内排行'}
+            aria-expanded={analyticsOpen}
+            data-testid="toggle-analytics-btn"
+            className={`touch-manipulation h-8 px-2 text-xs transition-colors whitespace-nowrap ${
+              analyticsOpen
+                ? 'text-[#F0DFB3] font-medium'
+                : 'text-[#B5C0BA] hover:text-white'
+            }`}
+          >
+            数据
+          </button>
+
+          <button
+            type="button"
+            data-testid="open-table-settings-btn"
+            onClick={() => setBlindModalOpen(true)}
+            aria-label="打开牌桌设置"
+            className="touch-manipulation flex h-8 items-center gap-1 px-2 text-xs text-[#B5C0BA] hover:text-[#F0DFB3] transition-colors whitespace-nowrap"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
+            <span className="hidden sm:inline">设置</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="toggle-bgm-btn"
+            onClick={onToggleBgm}
+            aria-pressed={bgmEnabled && !muted}
+            aria-label={bgmEnabled && !muted ? '关闭爵士背景乐' : '开启爵士背景乐'}
+            title={bgmEnabled && !muted ? '关闭爵士背景乐' : '开启爵士背景乐'}
+            className={`touch-manipulation relative flex h-8 w-8 items-center justify-center rounded-full transition-colors cursor-pointer ${
+              bgmEnabled && !muted
+                ? 'text-[#E8CF96] hover:bg-white/[0.06] hover:text-[#F6E2B3]'
+                : 'text-[#6F7A75] hover:bg-white/[0.06] hover:text-[#B5C0BA]'
+            }`}
+          >
+            <Music className="h-3.5 w-3.5" aria-hidden="true" />
+            {(!bgmEnabled || muted) && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute h-[1.5px] w-4 rotate-45 rounded-full bg-current opacity-85"
+              />
+            )}
+          </button>
+
+          <button
+            type="button"
+            data-testid="toggle-mute-btn"
+            onClick={onToggleMute}
+            aria-pressed={!muted}
+            aria-label={muted ? '开启声音' : '静音'}
+            title={muted ? '开启声音' : '静音'}
+            className="touch-manipulation flex h-8 w-8 items-center justify-center rounded-full text-[#A7B2AC] hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
+          >
+            {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+          </button>
+        </nav>
       </header>
 
       {/* Main Spatial Overlay */}
@@ -739,7 +770,7 @@ export function PokerTable({
 
           <section
             aria-label="对手座位"
-            className="pointer-events-auto flex flex-wrap items-start justify-center gap-2 sm:gap-3"
+            className="pointer-events-auto relative z-40 flex flex-wrap items-start justify-center gap-2 sm:gap-3"
           >
             {opponents.length === 0 ? (
               <div className="rounded border border-white/[0.08] bg-[#0B0D0E]/88 px-4 py-2 text-center text-xs text-[#9BA5A0]">
@@ -748,10 +779,12 @@ export function PokerTable({
             ) : (
               opponents.map((opp) => {
                 const win = winnerMap.get(opp.id);
+                const oppProfile = resolvePlayerAvatarProfile(opp, leaderboard);
                 return (
                   <SeatNode
                     key={opp.id}
                     player={opp}
+                    syncedProfile={oppProfile}
                     isSelf={false}
                     isTurn={table.currentTurnPlayerId === opp.id}
                     isDealer={displayDealerSeat === opp.seatIndex}
@@ -763,13 +796,14 @@ export function PokerTable({
                     highlightedCards={highlightedCards}
                     secondsRemaining={getSecondsLeft(opp.id)}
                     chatBubble={activeBubbles.get(opp.id) ?? null}
-                    actionFx={actionFxMap[opp.id] ?? null}
+                    impactFx={impactFxMap[opp.id] ?? null}
                     nudgeFx={nudgeFxMap[opp.id] ?? null}
                     isNewlyJoined={Boolean(newlyJoinedIds[opp.id])}
                     compact={compactOpponents}
                     canRemoveBot={canRemoveBots}
                     onRemoveBot={onRemoveBot}
                     onNudgePlayer={onNudgePlayer}
+                    onInspectPlayer={setInspectedPlayerId}
                   />
                 );
               })
@@ -890,8 +924,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="start-hand-btn"
+                  disabled={isReconnecting}
                   onClick={onStartHand}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs sm:text-sm font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs sm:text-sm font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
                   <span>
@@ -908,8 +943,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="reveal-cards-btn"
+                  disabled={isReconnecting}
                   onClick={onRevealCards}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#D4A853]/50 bg-[#0D1012]/94 px-3.5 text-xs sm:text-sm font-semibold text-[#E8CF96] hover:bg-[#171C1F] transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#D4A853]/50 bg-[#0D1012]/94 px-3.5 text-xs sm:text-sm font-semibold text-[#E8CF96] hover:bg-[#171C1F] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <Eye className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
                   <span>亮牌</span>
@@ -920,8 +956,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="toggle-auto-next-btn"
+                  disabled={isReconnecting}
                   onClick={() => onToggleAutoNext(!table.autoNextHandEnabled)}
-                  className={`touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border px-3 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                  className={`touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border px-3 text-xs font-medium transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed ${
                     table.autoNextHandEnabled
                       ? 'border-[#5E9E82]/45 bg-[#0D1713]/92 text-[#9AD4B8]'
                       : 'border-white/[0.14] bg-[#0D1012]/92 text-[#9AA5A0]'
@@ -937,8 +974,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="add-bot-btn"
+                  disabled={isReconnecting}
                   onClick={onAddBot}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-white/[0.1] bg-[#0B0E10]/88 backdrop-blur-sm px-3.5 text-xs sm:text-sm font-medium text-[#D6DDD9] hover:bg-[#151A1D] hover:text-white transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-white/[0.1] bg-[#0B0E10]/88 backdrop-blur-sm px-3.5 text-xs sm:text-sm font-medium text-[#D6DDD9] hover:bg-[#151A1D] hover:text-white transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <UserPlus className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
                   <span>添加陪练</span>
@@ -949,8 +987,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="topup-chips-btn"
+                  disabled={isReconnecting}
                   onClick={onRebuy}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#34D399]/35 bg-[#0F2119]/90 px-3.5 text-xs sm:text-sm font-semibold text-[#6EE7B7] hover:bg-[#152E23] transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#34D399]/35 bg-[#0F2119]/90 px-3.5 text-xs sm:text-sm font-semibold text-[#6EE7B7] hover:bg-[#152E23] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>补满筹码 ({table.startingChips.toLocaleString()})</span>
@@ -969,8 +1008,9 @@ export function PokerTable({
               <button
                 type="button"
                 data-testid="rebuy-chips-btn"
+                disabled={isReconnecting}
                 onClick={onRebuy}
-                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0"
+                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>立即补充筹码 ({table.startingChips.toLocaleString()})</span>
@@ -993,6 +1033,11 @@ export function PokerTable({
           {selfPlayer && (
             <SeatNode
               player={selfPlayer}
+              syncedProfile={resolvePlayerAvatarProfile(
+                selfPlayer,
+                leaderboard,
+                selfProfileFallback
+              )}
               isSelf
               isTurn={table.currentTurnPlayerId === selfPlayer.id}
               isDealer={displayDealerSeat === selfPlayer.seatIndex}
@@ -1004,9 +1049,10 @@ export function PokerTable({
               highlightedCards={highlightedCards}
               secondsRemaining={getSecondsLeft(selfPlayer.id)}
               chatBubble={activeBubbles.get(selfPlayer.id) ?? null}
-              actionFx={actionFxMap[selfPlayer.id] ?? null}
+              impactFx={impactFxMap[selfPlayer.id] ?? null}
               nudgeFx={nudgeFxMap[selfPlayer.id] ?? null}
               isNewlyJoined={Boolean(newlyJoinedIds[selfPlayer.id])}
+              onInspectPlayer={setInspectedPlayerId}
               onOpenAchievements={onOpenAchievements}
             />
           )}
@@ -1017,9 +1063,16 @@ export function PokerTable({
             bigBlind={table.bigBlind}
             myCurrentBet={selfPlayer?.currentBet ?? 0}
             handEvaluationName={table.myHandEvaluation?.categoryName ?? null}
-            statusMessage={statusText}
+            statusMessage={isReconnecting ? '网络重连中，恢复后可继续操作…' : statusText}
+            disabled={isReconnecting}
+            disabledReason={isReconnecting ? '网络重连中，请稍候…' : undefined}
             hotkeysDisabled={
-              externalModalOpen || chatOpen || quickEmojiOpen || blindModalOpen || analyticsOpen
+              isReconnecting ||
+              externalModalOpen ||
+              inspectedPlayerId !== null ||
+              chatOpen ||
+              blindModalOpen ||
+              analyticsOpen
             }
             onAction={onAction}
           />
@@ -1028,19 +1081,11 @@ export function PokerTable({
 
       <TableChatPanel
         open={chatOpen}
-        quickPickerOpen={quickEmojiOpen}
         messages={chatMessages}
         myPlayerId={myPlayerId}
         unreadCount={unreadCount}
         nowMs={chatNow}
-        onOpenChange={(next) => {
-          if (next) setQuickEmojiOpen(false);
-          setChatOpen(next);
-        }}
-        onQuickPickerChange={(next) => {
-          if (next) setChatOpen(false);
-          setQuickEmojiOpen(next);
-        }}
+        onOpenChange={setChatOpen}
         onSendChat={onSendChat}
       />
 
@@ -1055,9 +1100,48 @@ export function PokerTable({
       <BlindSettingsModal
         open={blindModalOpen}
         table={table}
+        isHost={isHost}
+        botChatStatus={botChatStatus}
+        bgmEnabled={bgmEnabled}
+        muted={muted}
+        onToggleBgm={onToggleBgm}
+        onToggleMute={onToggleMute}
         onSave={onUpdateBlindSettings}
+        onConfigureBotChat={onConfigureBotChat}
         onClose={() => setBlindModalOpen(false)}
       />
+
+      {(() => {
+        const inspectedPlayer = inspectedPlayerId
+          ? table.players.find((p) => p.id === inspectedPlayerId) ?? null
+          : null;
+        const inspectedLeaderboard = inspectedPlayer
+          ? leaderboard.find((e) => e.playerName === inspectedPlayer.name) ?? null
+          : null;
+        const inspectedSyncedProfile: ResolvedPlayerAvatarProfile | null = inspectedPlayer
+          ? resolvePlayerAvatarProfile(
+              inspectedPlayer,
+              leaderboard,
+              inspectedPlayer.id === myPlayerId ? selfProfileFallback : undefined
+            )
+          : null;
+        return (
+          <PlayerProfileModal
+            player={inspectedPlayer}
+            syncedProfile={inspectedSyncedProfile}
+            isSelf={inspectedPlayer?.id === myPlayerId}
+            isDealer={Boolean(inspectedPlayer && displayDealerSeat === inspectedPlayer.seatIndex)}
+            isSmallBlind={Boolean(inspectedPlayer && displaySbSeat === inspectedPlayer.seatIndex)}
+            isBigBlind={Boolean(inspectedPlayer && displayBbSeat === inspectedPlayer.seatIndex)}
+            matchStats={
+              inspectedPlayer ? table.analytics.playerStats[inspectedPlayer.id] ?? null : null
+            }
+            leaderboardEntry={inspectedLeaderboard}
+            onClose={() => setInspectedPlayerId(null)}
+            onOpenAllAchievements={onOpenAchievements}
+          />
+        );
+      })()}
     </div>
   );
 }

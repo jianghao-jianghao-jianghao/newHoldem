@@ -70,3 +70,66 @@ test('locks out OTP after 5 wrong guesses and rejects expired codes', async () =
   const expired = store.verifyOtp('alice@club.dev', req2.previewCode!, undefined, t0 + 65_000 + 11 * 60_000);
   assert.equal(expired.ok, false);
 });
+
+test('quickLogin signs in with 1 step via nickname or email and auto-links achievements and stats', () => {
+  const store = new EmailAuthStore({
+    disableDiskPersistence: true,
+    sessionSecret: 'test-session-secret-0123456789abcdef',
+  });
+
+  const t0 = 1_700_000_000_000;
+  const emptyRes = store.quickLogin('   ', undefined, undefined, t0);
+  assert.equal(emptyRes.ok, false);
+
+  const loginRes = store.quickLogin(
+    '林深',
+    { avatar: 'spade' },
+    {
+      avatar: 'crown',
+      equippedAchievement: 'mega_pot',
+      points: 4280,
+      netChips: 2640,
+      handsPlayed: 48,
+      handsWon: 29,
+      bestHandName: '同花顺',
+      bestHandScore: 8140000,
+      achievements: ['first_blood', 'mega_pot', 'pocket_rockets'],
+      achievementDates: {
+        first_blood: t0 - 86_400_000 * 5,
+        mega_pot: t0 - 86_400_000 * 2,
+      },
+      currentWinStreak: 4,
+      maxWinStreak: 6,
+    },
+    t0
+  );
+
+  assert.equal(loginRes.ok, true);
+  assert.ok(loginRes.token);
+  assert.equal(loginRes.profile?.displayName, '林深');
+  assert.equal(loginRes.profile?.avatar, 'crown');
+  assert.equal(loginRes.profile?.points, 4280);
+  assert.equal(loginRes.profile?.handsPlayed, 48);
+  assert.equal(loginRes.profile?.handsWon, 29);
+  assert.equal(loginRes.profile?.bestHandName, '同花顺');
+  assert.equal(loginRes.profile?.equippedAchievement, 'mega_pot');
+  assert.deepEqual(loginRes.profile?.achievements, ['mega_pot', 'pocket_rockets', 'first_blood']);
+  assert.equal(loginRes.profile?.achievementDates.first_blood, t0 - 86_400_000 * 5);
+  assert.ok(loginRes.profile?.achievementDates.pocket_rockets);
+
+  // Logging in again with the same nickname resolves the exact same account UID and merges newly earned badges
+  const secondLogin = store.quickLogin(
+    '林深',
+    undefined,
+    {
+      achievements: ['showdown_streak_3'],
+      achievementDates: { showdown_streak_3: t0 + 5_000 },
+    },
+    t0 + 10_000
+  );
+  assert.equal(secondLogin.ok, true);
+  assert.equal(secondLogin.profile?.uid, loginRes.profile?.uid);
+  assert.ok(secondLogin.profile?.achievements.includes('showdown_streak_3'));
+  assert.ok(secondLogin.profile?.achievements.includes('mega_pot'));
+});
+

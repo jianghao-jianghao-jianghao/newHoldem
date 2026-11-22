@@ -31,6 +31,20 @@ export interface ChipActionAudioParams {
   delayMs?: number;
 }
 
+export interface ChipAcousticLayering {
+  weightTier: ChipWeightTier;
+  /** Stereo pan half-width [0..0.6] so larger multi-stack pushes feel wider on the felt */
+  stereoSpread: number;
+  /** High-frequency transient & shimmer brightness multiplier */
+  brightness: number;
+  /** Low-frequency mahogany table resonance weight */
+  tableThudWeight: number;
+  /** Harmonic brass/ceramic tail presence (0 for light calls, rises on heavy/massive bets) */
+  harmonicTailGain: number;
+  /** Whether to gently duck Jazz BGM so massive all-in impacts breathe */
+  duckBgm: boolean;
+}
+
 /**
  * Physical acoustic library modeled after weighted casino clay/ceramic & brass-core chips.
  * Higher denominations carry greater physical mass, deeper modal resonances, longer ring,
@@ -288,6 +302,62 @@ export function computeChipImpactOffsets(
   return offsets;
 }
 
+/**
+ * Computes tiered acoustic layering parameters from bet size, big blind, pot, and action type.
+ * Ensures crisp single-stack calls stay intimate and focused while heavy raises and all-ins
+ * expand in stereo width, ceramic shimmer, harmonic brass tail, and felt-table low-end weight.
+ */
+export function computeChipAcousticLayering(params: {
+  amount: number;
+  actionKind?: ChipActionKind;
+  bigBlind?: number;
+  pot?: number;
+}): ChipAcousticLayering {
+  const weightTier = classifyChipBetWeight(params);
+  const amount = Math.max(0, params.amount);
+  const bigBlind = Math.max(1, params.bigBlind ?? 20);
+  const bbNorm = Math.min(1, amount / (bigBlind * 25));
+
+  switch (weightTier) {
+    case 'light':
+      return {
+        weightTier,
+        stereoSpread: 0.08,
+        brightness: 0.92 + bbNorm * 0.06,
+        tableThudWeight: 0.75,
+        harmonicTailGain: 0,
+        duckBgm: false,
+      };
+    case 'medium':
+      return {
+        weightTier,
+        stereoSpread: 0.2,
+        brightness: 1.0 + bbNorm * 0.08,
+        tableThudWeight: 1.05,
+        harmonicTailGain: 0.012,
+        duckBgm: false,
+      };
+    case 'heavy':
+      return {
+        weightTier,
+        stereoSpread: 0.36,
+        brightness: 1.12 + bbNorm * 0.08,
+        tableThudWeight: 1.38,
+        harmonicTailGain: 0.026,
+        duckBgm: false,
+      };
+    case 'massive':
+      return {
+        weightTier,
+        stereoSpread: 0.52,
+        brightness: 1.24 + bbNorm * 0.1,
+        tableThudWeight: 1.72,
+        harmonicTailGain: 0.044,
+        duckBgm: true,
+      };
+  }
+}
+
 function safeReadStorage(key: string): string | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -437,6 +507,21 @@ class SoundFx {
     }
   }
 
+  /**
+   * Subtle cinema-style ducking of Jazz BGM during massive All-in impacts or achievement fanfares.
+   */
+  private duckBgmBriefly(dipGain: number = 0.095, holdSec: number = 0.48): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.bgmGain || !this.bgmEnabled || this.muted) return;
+    const now = ctx.currentTime;
+    const current = this.bgmGain.gain.value;
+    if (current <= dipGain + 0.01) return;
+    this.bgmGain.gain.cancelScheduledValues(now);
+    this.bgmGain.gain.setValueAtTime(current, now);
+    this.bgmGain.gain.linearRampToValueAtTime(dipGain, now + 0.08);
+    this.bgmGain.gain.linearRampToValueAtTime(0.16, now + 0.08 + holdSec);
+  }
+
   private scheduleJazzLookahead(): void {
     if (!this.ctx || !this.bgmGain || !this.bgmEnabled || this.muted) return;
     if (this.ctx.state !== 'running') return;
@@ -543,7 +628,8 @@ class SoundFx {
   }
 
   /**
-   * Synthesizes a single physically modeled clay/ceramic chip impact from the denomination library.
+   * Synthesizes a single physically modeled clay/ceramic chip impact from the denomination library,
+   * with optional stereo micro-positioning and velocity-scaled brightness.
    */
   private synthesizeDenomHit(
     ctx: AudioContext,
@@ -551,11 +637,22 @@ class SoundFx {
     denom: ChipDenomAudio,
     startTime: number,
     gainScale: number,
-    bodyScale: number
+    bodyScale: number,
+    panValue: number = 0,
+    brightness: number = 1.0
   ): void {
     const profile = CHIP_DENOM_AUDIO_LIBRARY[denom];
     const detune = 1 + (Math.random() - 0.5) * 0.045;
     const peakGain = Math.min(0.18, profile.baseGain * gainScale);
+    const bright = Math.max(0.7, Math.min(1.4, brightness));
+
+    let hitDestination: AudioNode = out;
+    if (typeof ctx.createStereoPanner === 'function' && Math.abs(panValue) > 0.01) {
+      const panner = ctx.createStereoPanner();
+      panner.pan.setValueAtTime(Math.max(-0.75, Math.min(0.75, panValue)), startTime);
+      panner.connect(out);
+      hitDestination = panner;
+    }
 
     // 1. Primary clay/ceramic modal partial
     const modalA = ctx.createOscillator();
@@ -569,7 +666,7 @@ class SoundFx {
     gainA.gain.setValueAtTime(0.0008, startTime);
     gainA.gain.linearRampToValueAtTime(peakGain, startTime + 0.0025);
     gainA.gain.exponentialRampToValueAtTime(0.0006, startTime + profile.decaySec);
-    modalA.connect(gainA).connect(out);
+    modalA.connect(gainA).connect(hitDestination);
     modalA.start(startTime);
     modalA.stop(startTime + profile.decaySec + 0.008);
 
@@ -577,15 +674,15 @@ class SoundFx {
     const modalB = ctx.createOscillator();
     const gainB = ctx.createGain();
     modalB.type = 'sine';
-    modalB.frequency.setValueAtTime(profile.modalFreqB * detune, startTime);
+    modalB.frequency.setValueAtTime(profile.modalFreqB * detune * (0.96 + bright * 0.04), startTime);
     modalB.frequency.exponentialRampToValueAtTime(
       profile.modalFreqB * detune * 0.92,
       startTime + profile.decaySec * 0.68
     );
     gainB.gain.setValueAtTime(0.0005, startTime);
-    gainB.gain.linearRampToValueAtTime(peakGain * 0.42, startTime + 0.0018);
+    gainB.gain.linearRampToValueAtTime(peakGain * 0.42 * bright, startTime + 0.0018);
     gainB.gain.exponentialRampToValueAtTime(0.0005, startTime + profile.decaySec * 0.72);
-    modalB.connect(gainB).connect(out);
+    modalB.connect(gainB).connect(hitDestination);
     modalB.start(startTime);
     modalB.stop(startTime + profile.decaySec * 0.76);
 
@@ -597,14 +694,14 @@ class SoundFx {
       core.frequency.setValueAtTime(profile.coreFreq * detune, startTime);
       core.frequency.exponentialRampToValueAtTime(
         profile.coreFreq * detune * 0.82,
-        startTime + profile.decaySec * 1.1
+        startTime + profile.decaySec * 1.15
       );
       coreGain.gain.setValueAtTime(0.0006, startTime);
-      coreGain.gain.linearRampToValueAtTime(peakGain * 0.48, startTime + 0.004);
-      coreGain.gain.exponentialRampToValueAtTime(0.0006, startTime + profile.decaySec * 1.15);
-      core.connect(coreGain).connect(out);
+      coreGain.gain.linearRampToValueAtTime(peakGain * 0.5, startTime + 0.004);
+      coreGain.gain.exponentialRampToValueAtTime(0.0006, startTime + profile.decaySec * 1.2);
+      core.connect(coreGain).connect(hitDestination);
       core.start(startTime);
-      core.stop(startTime + profile.decaySec * 1.2);
+      core.stop(startTime + profile.decaySec * 1.24);
     }
 
     // 4. Weighted felt-table compression body thud
@@ -620,25 +717,28 @@ class SoundFx {
     bodyGain.gain.setValueAtTime(0.001, startTime);
     bodyGain.gain.linearRampToValueAtTime(bodyPeak, startTime + 0.004);
     bodyGain.gain.exponentialRampToValueAtTime(0.0008, startTime + profile.decaySec * 0.96);
-    body.connect(bodyGain).connect(out);
+    body.connect(bodyGain).connect(hitDestination);
     body.start(startTime);
     body.stop(startTime + profile.decaySec + 0.01);
 
-    // 5. Edge-to-edge percussive noise transient
+    // 5. Edge-to-edge percussive noise transient (brightness-shaped bandpass)
     if (this.noiseBuffer) {
       const clickSrc = ctx.createBufferSource();
       clickSrc.buffer = this.noiseBuffer;
       const bp = ctx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(profile.transientHz * detune, startTime);
+      bp.frequency.setValueAtTime(Math.min(7200, profile.transientHz * detune * bright), startTime);
       bp.Q.setValueAtTime(1.6, startTime);
 
       const cGain = ctx.createGain();
       cGain.gain.setValueAtTime(0.001, startTime);
-      cGain.gain.linearRampToValueAtTime(Math.min(0.11, 0.045 * gainScale), startTime + 0.0015);
+      cGain.gain.linearRampToValueAtTime(
+        Math.min(0.115, 0.045 * gainScale * bright),
+        startTime + 0.0015
+      );
       cGain.gain.exponentialRampToValueAtTime(0.0008, startTime + 0.019);
 
-      clickSrc.connect(bp).connect(cGain).connect(out);
+      clickSrc.connect(bp).connect(cGain).connect(hitDestination);
       clickSrc.start(startTime);
       clickSrc.stop(startTime + 0.024);
     }
@@ -699,27 +799,66 @@ class SoundFx {
   }
 
   /**
+   * Warm brass/ceramic resonant shimmer layered on top of heavy raises & All-in towers.
+   */
+  private triggerCeramicHarmonicTail(
+    ctx: AudioContext,
+    out: GainNode,
+    startTime: number,
+    leadDenom: ChipDenomAudio,
+    gainLevel: number
+  ): void {
+    if (gainLevel <= 0) return;
+    const baseFreq = leadDenom >= 1000 ? 1180 : leadDenom >= 500 ? 1420 : 1760;
+    [1, 1.498].forEach((ratio, idx) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      const t = startTime + idx * 0.012;
+      osc.frequency.setValueAtTime(baseFreq * ratio, t);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq * ratio * 0.985, t + 0.16);
+      g.gain.setValueAtTime(0.0004, t);
+      g.gain.linearRampToValueAtTime(gainLevel * (idx === 0 ? 1 : 0.55), t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0004, t + 0.17);
+      osc.connect(g).connect(out);
+      osc.start(t);
+      osc.stop(t + 0.18);
+    });
+  }
+
+  /**
    * Full denomination-based physical chip action audio (call / raise / all-in / blind).
-   * Dynamically scales chip count, denomination acoustic timbre, felt slide friction,
-   * table bass thud, and micro-rebound settle clacks based on bet heft.
+   * Dynamically scales chip count, denomination acoustic timbre, stereo micro-spread,
+   * felt slide friction, table bass thud, brass/ceramic shimmer, and micro-rebound settles.
    */
   public playChipAction(params: ChipActionAudioParams): void {
     const ctx = this.ensureSfxContext();
     if (!ctx || !this.sfxGain) return;
 
-    const weightTier = classifyChipBetWeight(params);
+    const layering = computeChipAcousticLayering(params);
+    const weightTier = layering.weightTier;
     const tierCfg = WEIGHT_TIER_CONFIG[weightTier];
     const denoms = decomposeChipBetAudio(params.amount, weightTier);
     const baseTime = ctx.currentTime + (params.delayMs ?? 0) / 1000;
 
+    if (layering.duckBgm) {
+      this.duckBgmBriefly(0.095, 0.52);
+    }
+
     // 1. Felt slide swoosh for raises, heavy bets, and All-in stack pushes
-    if (tierCfg.slideVol > 0 && (params.actionKind === 'raise' || params.actionKind === 'allin' || weightTier === 'heavy' || weightTier === 'massive')) {
-      const slideDur = params.actionKind === 'allin' ? 0.16 : 0.11;
+    if (
+      tierCfg.slideVol > 0 &&
+      (params.actionKind === 'raise' ||
+        params.actionKind === 'allin' ||
+        weightTier === 'heavy' ||
+        weightTier === 'massive')
+    ) {
+      const slideDur = params.actionKind === 'allin' ? 0.17 : 0.11;
       const slideStart = Math.max(ctx.currentTime, baseTime - slideDur * 0.55);
       this.triggerFeltSlide(ctx, this.sfxGain, slideStart, slideDur, tierCfg.slideVol);
     }
 
-    // 2. Staggered denomination-specific chip collisions (strictly monotonic offsets)
+    // 2. Staggered denomination-specific chip collisions with stereo micro-spread
     const impactOffsets = computeChipImpactOffsets(
       denoms.length,
       tierCfg.spacingSec,
@@ -731,38 +870,54 @@ class SoundFx {
       const t = Math.max(ctx.currentTime, baseTime + impactOffsets[idx] + jitter);
       lastImpactTime = Math.max(lastImpactTime, t);
 
+      const spreadNorm =
+        denoms.length > 1 ? (idx / (denoms.length - 1)) * 2 - 1 : 0;
+      const pan = spreadNorm * layering.stereoSpread * (idx % 2 === 0 ? 1 : -0.75);
+
       // Accent the lead chip and final anchor chip slightly
-      const contour = idx === 0 ? 1.06 : idx === denoms.length - 1 ? 1.08 : 0.94;
+      const contour = idx === 0 ? 1.07 : idx === denoms.length - 1 ? 1.1 : 0.93;
       this.synthesizeDenomHit(
         ctx,
         this.sfxGain!,
         denom,
         t,
         tierCfg.gainScale * contour,
-        tierCfg.bodyScale
+        layering.tableThudWeight,
+        pan,
+        layering.brightness
       );
     });
 
-    // 3. Heavy stack bass thud on table felt for heavy raises & All-in
+    // 3. Heavy stack bass thud & subtle ceramic harmonic shimmer on heavy raises & All-in
     if (weightTier === 'heavy' || weightTier === 'massive') {
-      const impactIntensity = weightTier === 'massive' ? 1.55 : 1.05;
-      this.triggerHeavyStackLanding(ctx, this.sfxGain, baseTime + 0.024, impactIntensity);
+      const impactIntensity = weightTier === 'massive' ? 1.58 : 1.08;
+      this.triggerHeavyStackLanding(ctx, this.sfxGain, baseTime + 0.022, impactIntensity);
+      this.triggerCeramicHarmonicTail(
+        ctx,
+        this.sfxGain,
+        baseTime + 0.028,
+        denoms[0] ?? 100,
+        layering.harmonicTailGain
+      );
       if (params.actionKind === 'allin') {
-        this.triggerHeavyStackLanding(ctx, this.sfxGain, lastImpactTime + 0.015, 1.25);
+        this.triggerHeavyStackLanding(ctx, this.sfxGain, lastImpactTime + 0.015, 1.28);
       }
     }
 
-    // 4. Micro-rebound settling clicks as top chips come to rest
+    // 4. Micro-rebound settling clicks as top chips come to rest (progressively softer & warmer)
     for (let r = 0; r < tierCfg.reboundCount; r++) {
       const reboundDenom = denoms[denoms.length - 1 - (r % denoms.length)];
-      const settleTime = lastImpactTime + 0.055 + r * 0.036;
+      const settleTime = lastImpactTime + 0.055 + r * 0.038;
+      const reboundPan = (r % 2 === 0 ? 0.35 : -0.35) * layering.stereoSpread;
       this.synthesizeDenomHit(
         ctx,
         this.sfxGain,
         reboundDenom,
         settleTime,
         tierCfg.gainScale * (0.44 - r * 0.1),
-        tierCfg.bodyScale * 0.45
+        layering.tableThudWeight * 0.42,
+        reboundPan,
+        Math.max(0.8, layering.brightness - 0.14 * (r + 1))
       );
     }
   }
@@ -1010,6 +1165,51 @@ class SoundFx {
       osc.stop(t + 0.25);
     });
     this.playChipCollision(5, 140);
+  }
+
+  /**
+   * Warm jazz-club vibraphone chime tailored to achievement medal tier.
+   */
+  public playAchievementUnlock(tier: 'bronze' | 'silver' | 'gold' | 'obsidian' = 'gold'): void {
+    const ctx = this.ensureSfxContext();
+    if (!ctx || !this.sfxGain) return;
+    this.duckBgmBriefly(0.09, 0.65);
+
+    const now = ctx.currentTime;
+    const chords: Record<'bronze' | 'silver' | 'gold' | 'obsidian', number[]> = {
+      bronze: [523.25, 659.25],
+      silver: [523.25, 659.25, 783.99],
+      gold: [587.33, 739.99, 880, 1174.66],
+      obsidian: [523.25, 659.25, 783.99, 987.77, 1318.51],
+    };
+
+    const notes = chords[tier];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.068;
+      const osc = ctx.createOscillator();
+      const shimmer = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      shimmer.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      shimmer.frequency.setValueAtTime(freq * 2, t);
+
+      const sGain = ctx.createGain();
+      sGain.gain.setValueAtTime(0.18, t);
+
+      const dur = idx === notes.length - 1 ? 0.56 : 0.34;
+      gain.gain.setValueAtTime(0.0008, t);
+      gain.gain.linearRampToValueAtTime(0.058, t + 0.014);
+      gain.gain.exponentialRampToValueAtTime(0.0006, t + dur);
+
+      osc.connect(gain);
+      shimmer.connect(sGain).connect(gain);
+      gain.connect(this.sfxGain!);
+      osc.start(t);
+      shimmer.start(t);
+      osc.stop(t + dur + 0.02);
+      shimmer.stop(t + dur + 0.02);
+    });
   }
 }
 

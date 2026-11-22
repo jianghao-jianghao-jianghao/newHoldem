@@ -109,6 +109,19 @@ export class HoldemDatabase {
       CREATE INDEX IF NOT EXISTS idx_hand_history_room
         ON hand_history(room_id, id DESC);
     `);
+
+    // Safe idempotent schema migrations for profile tier/avatar/equipped badge columns
+    this.ensureColumn('accounts', 'equipped_achievement', 'TEXT');
+    this.ensureColumn('leaderboard_entries', 'avatar', 'TEXT');
+    this.ensureColumn('leaderboard_entries', 'equipped_achievement', 'TEXT');
+    this.ensureColumn('leaderboard_entries', 'level', 'INTEGER NOT NULL DEFAULT 1');
+  }
+
+  private ensureColumn(table: string, column: string, definition: string): void {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
+    if (!cols.some((c) => c.name === column)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
   }
 
   public ping(): boolean {

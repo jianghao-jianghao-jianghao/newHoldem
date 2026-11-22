@@ -296,6 +296,13 @@ export function evaluatePostflopStrength(holeCards: Card[], board: Card[]): numb
   return Math.max(0.08, Math.min(0.99, base + drawBonus));
 }
 
+/**
+ * Computes true poker positional advantage on [0, 1] among active players in the hand.
+ * - Postflop: exact clockwise acting order from Dealer (first left of BTN = 0.0, BTN = 1.0).
+ * - Preflop: BTN is true late position (1.0) and UTG is earliest (0.0); blinds (SB/BB) are
+ *   out of position on all postflop streets so they are scored in the early/OOP range (0.15 / 0.25)
+ *   and never falsely receive a late-position bonus.
+ */
 export function computePositionRatio(state: TableState, playerSeatIndex: number): number {
   const activeSeats = state.players
     .filter((p) => p.inHand && !p.folded)
@@ -303,11 +310,30 @@ export function computePositionRatio(state: TableState, playerSeatIndex: number)
     .sort((a, b) => a - b);
   if (activeSeats.length <= 1) return 1;
 
-  const anchorSeat =
-    state.phase === 'preflop' && state.bigBlindSeatIndex !== null
-      ? state.bigBlindSeatIndex
-      : state.dealerSeatIndex;
+  if (state.phase === 'preflop') {
+    // Heads-up: Dealer/SB has postflop position over BB
+    if (activeSeats.length === 2) {
+      return playerSeatIndex === state.dealerSeatIndex ? 0.7 : 0.3;
+    }
 
+    // 3+ players: Blinds act out-of-position on every postflop street
+    if (playerSeatIndex === state.smallBlindSeatIndex) return 0.15;
+    if (playerSeatIndex === state.bigBlindSeatIndex) return 0.25;
+
+    const anchorSeat = state.bigBlindSeatIndex ?? state.dealerSeatIndex;
+    const nonBlindOrdered: number[] = [
+      ...activeSeats.filter((s) => s > anchorSeat),
+      ...activeSeats.filter((s) => s <= anchorSeat),
+    ].filter((s) => s !== state.smallBlindSeatIndex && s !== state.bigBlindSeatIndex);
+
+    const idx = nonBlindOrdered.indexOf(playerSeatIndex);
+    if (idx === -1) return 0.5;
+    if (nonBlindOrdered.length === 1) return 1;
+    return idx / (nonBlindOrdered.length - 1);
+  }
+
+  // Postflop: first active seat clockwise from Dealer acts first (0.0), Dealer acts last (1.0)
+  const anchorSeat = state.dealerSeatIndex;
   const ordered: number[] = [
     ...activeSeats.filter((s) => s > anchorSeat),
     ...activeSeats.filter((s) => s <= anchorSeat),

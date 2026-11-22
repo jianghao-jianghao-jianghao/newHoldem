@@ -1,4 +1,8 @@
-import type { AchievementDatesMap, AchievementId } from './achievements';
+import type {
+  AchievementDatesMap,
+  AchievementId,
+  EquippedAchievementPref,
+} from './achievements';
 import { evaluateBestHand } from './handEvaluator';
 import type {
   AvailableActions,
@@ -307,7 +311,9 @@ export function addPlayerToTable(
     avatar?: string;
     achievements?: AchievementId[];
     achievementDates?: AchievementDatesMap;
+    equippedAchievement?: EquippedAchievementPref;
     winStreak?: number;
+    level?: number;
     isBot?: boolean;
     chips?: number;
   }
@@ -325,8 +331,14 @@ export function addPlayerToTable(
     if (params.achievementDates) {
       existing.achievementDates = params.achievementDates;
     }
+    if (params.equippedAchievement !== undefined) {
+      existing.equippedAchievement = params.equippedAchievement;
+    }
     if (typeof params.winStreak === 'number') {
       existing.winStreak = params.winStreak;
+    }
+    if (typeof params.level === 'number' && params.level >= 1) {
+      existing.level = Math.floor(params.level);
     }
     return { ok: true };
   }
@@ -349,7 +361,9 @@ export function addPlayerToTable(
     avatar: params.avatar ?? 'default',
     achievements: params.achievements ?? [],
     achievementDates: params.achievementDates ?? {},
+    equippedAchievement: params.equippedAchievement,
     winStreak: params.winStreak ?? 0,
+    level: typeof params.level === 'number' && params.level >= 1 ? Math.floor(params.level) : 1,
     seatIndex,
     isBot: Boolean(params.isBot),
     connected: true,
@@ -1480,7 +1494,9 @@ export function sanitizeTableForPlayer(state: TableState, viewerId: string): Cli
       handEvaluation,
       achievements: p.achievements ?? [],
       achievementDates: p.achievementDates ?? {},
+      equippedAchievement: p.equippedAchievement,
       winStreak: p.winStreak ?? 0,
+      level: p.level ?? 1,
     };
   });
 

@@ -1,20 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
-import { SlidersHorizontal, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import type {
   BlindRoleTarget,
+  BotChatStatus,
   ClientPlayerView,
   ClientTableView,
   ManualBlindTarget,
 } from '../shared/types';
 
+export interface BotChatConfigRequest {
+  enabled: boolean;
+  apiKey?: string;
+  clearKey?: boolean;
+  testConnection?: boolean;
+}
+
+type SettingsTab = 'blinds' | 'companion';
+
 interface BlindSettingsModalProps {
   open: boolean;
   table: ClientTableView;
+  isHost: boolean;
+  botChatStatus?: BotChatStatus;
+  bgmEnabled?: boolean;
+  muted?: boolean;
+  onToggleBgm?: () => void;
+  onToggleMute?: () => void;
   onSave: (params: {
     smallBlind: number;
     bigBlind: number;
     manualBlindTarget: ManualBlindTarget | null;
   }) => void;
+  onConfigureBotChat?: (
+    params: BotChatConfigRequest
+  ) => Promise<{ ok: boolean; error?: string; status?: BotChatStatus }>;
   onClose: () => void;
 }
 
@@ -100,9 +119,17 @@ function previewSeatsClient(
 export function BlindSettingsModal({
   open,
   table,
+  isHost,
+  botChatStatus = { enabled: false, configured: false, source: 'none' },
+  bgmEnabled = true,
+  muted = false,
+  onToggleBgm,
+  onToggleMute,
   onSave,
+  onConfigureBotChat,
   onClose,
 }: BlindSettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('blinds');
   const [sbInput, setSbInput] = useState(
     String(table.pendingBlinds?.smallBlind ?? table.smallBlind)
   );
@@ -114,13 +141,40 @@ export function BlindSettingsModal({
   );
   const [error, setError] = useState<string | null>(null);
 
+  // Bot chat & companion settings state (moved cleanly out of TableChatPanel)
+  const [botEnabledDraft, setBotEnabledDraft] = useState(botChatStatus.enabled);
+  const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const [botSaving, setBotSaving] = useState(false);
+  const [botFeedback, setBotFeedback] = useState<{
+    tone: 'ok' | 'err';
+    text: string;
+  } | null>(null);
+
   useEffect(() => {
     if (!open) return;
     setSbInput(String(table.pendingBlinds?.smallBlind ?? table.smallBlind));
     setBbInput(String(table.pendingBlinds?.bigBlind ?? table.bigBlind));
     setManualTarget(table.manualBlindTarget);
+    setBotEnabledDraft(botChatStatus.enabled);
     setError(null);
-  }, [open, table.smallBlind, table.bigBlind, table.pendingBlinds, table.manualBlindTarget]);
+    setBotFeedback(null);
+  }, [
+    open,
+    table.smallBlind,
+    table.bigBlind,
+    table.pendingBlinds,
+    table.manualBlindTarget,
+    botChatStatus.enabled,
+  ]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
   const sortedPlayers = useMemo(
     () => [...table.players].sort((a, b) => a.seatIndex - b.seatIndex),
@@ -138,6 +192,7 @@ export function BlindSettingsModal({
   const eligibleCount = sortedPlayers.filter((p) => p.chips > 0).length;
 
   const handleToggleRole = (seatIndex: number, role: BlindRoleTarget) => {
+    if (!isHost) return;
     if (
       manualTarget &&
       manualTarget.seatIndex === seatIndex &&
@@ -150,8 +205,9 @@ export function BlindSettingsModal({
     setError(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleBlindSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isHost) return;
     const sb = Math.floor(Number(sbInput));
     const bb = Math.floor(Number(bbInput));
     if (
@@ -173,268 +229,559 @@ export function BlindSettingsModal({
     onClose();
   };
 
+  const handleSaveBotChat = async (testConnection: boolean) => {
+    if (!onConfigureBotChat || botSaving) return;
+    setBotSaving(true);
+    setBotFeedback(null);
+    const trimmedKey = apiKeyDraft.trim();
+    const res = await onConfigureBotChat({
+      enabled: botEnabledDraft,
+      apiKey: trimmedKey || undefined,
+      testConnection,
+    });
+    setBotSaving(false);
+    if (!res.ok) {
+      setBotFeedback({ tone: 'err', text: res.error ?? '保存失败，请检查配置' });
+      return;
+    }
+    if (trimmedKey) setApiKeyDraft('');
+    setBotFeedback({
+      tone: 'ok',
+      text: res.status?.enabled
+        ? testConnection
+          ? '连通成功，陪练已开启牌桌互动'
+          : '已启用陪练互动'
+        : '已关闭陪练互动',
+    });
+  };
+
+  const handleClearBotKey = async () => {
+    if (!onConfigureBotChat || botSaving) return;
+    setBotSaving(true);
+    setBotFeedback(null);
+    const res = await onConfigureBotChat({
+      enabled: false,
+      clearKey: true,
+    });
+    setBotSaving(false);
+    if (!res.ok) {
+      setBotFeedback({ tone: 'err', text: res.error ?? '清除失败' });
+      return;
+    }
+    setApiKeyDraft('');
+    setBotEnabledDraft(false);
+    setBotFeedback({ tone: 'ok', text: '已清除本桌密钥并关闭陪练互动' });
+  };
+
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="设置大小盲位"
+      aria-label="牌桌设置"
       data-testid="blind-settings-modal"
-      className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/78 p-4"
+      className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/78 p-4 backdrop-blur-[3px]"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-lg border border-[#D4A853]/35 bg-[#0D1012] p-5 text-[#F3F1EC] shadow-2xl"
+        className="w-full max-w-lg overflow-hidden rounded-xl border border-white/[0.11] bg-[#0C0F11] text-[#F3F1EC] shadow-[0_28px_72px_rgba(0,0,0,0.85)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-[#D4A853]" aria-hidden="true" />
-            <h2 className="text-base font-bold tracking-wide text-[#F5E4B8]">
-              设置大小盲位
+        {/* Clean Editorial Header */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-3">
+          <div>
+            <h2 className="font-display text-lg font-medium tracking-wide text-[#F4EFE4]">
+              牌桌设置
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="关闭大小盲设置"
-            className="flex h-8 w-8 items-center justify-center rounded border border-white/[0.1] bg-[#14181B] text-[#9AA5A0] hover:text-white transition-colors"
+            aria-label="关闭牌桌设置"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-[#8B9691] hover:bg-white/[0.07] hover:text-white transition-colors"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-5">
-          {/* 1. Blind Amounts */}
-          <section className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-[#DEDAD2]">
-                盲注额度（小盲 SB / 大盲 BB）
-              </span>
-              <span className="text-[11px] text-[#8E9893]">
-                {isBetweenHands ? '保存后立即生效' : '牌局进行中，保存后将在下一局生效'}
-              </span>
-            </div>
+        {/* Minimal Underline Tabs */}
+        <div className="flex items-center gap-6 border-b border-white/[0.08] px-6 text-xs">
+          <button
+            type="button"
+            data-testid="settings-tab-blinds"
+            onClick={() => setActiveTab('blinds')}
+            className={`relative pb-2.5 font-medium transition-colors ${
+              activeTab === 'blinds'
+                ? 'text-[#F0DFB3]'
+                : 'text-[#87928C] hover:text-[#D5DDD8]'
+            }`}
+          >
+            盲注与盲位
+            {activeTab === 'blinds' && (
+              <span className="absolute inset-x-0 bottom-0 h-[2px] bg-[#D4A853]" />
+            )}
+          </button>
 
-            <div className="grid grid-cols-5 gap-1.5">
-              {BLIND_PRESETS.map((preset) => {
-                const active =
-                  Number(sbInput) === preset.sb && Number(bbInput) === preset.bb;
-                return (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => {
-                      setSbInput(String(preset.sb));
-                      setBbInput(String(preset.bb));
-                      setError(null);
-                    }}
-                    className={`font-mono-num h-8 rounded border text-xs font-semibold transition-colors ${
-                      active
-                        ? 'border-[#D4A853] bg-[#D4A853]/18 text-[#F5E4B8]'
-                        : 'border-white/[0.1] bg-[#080A0B] text-[#98A49F] hover:text-white'
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                );
-              })}
-            </div>
+          <button
+            type="button"
+            data-testid="settings-tab-companion"
+            onClick={() => setActiveTab('companion')}
+            className={`relative pb-2.5 font-medium transition-colors ${
+              activeTab === 'companion'
+                ? 'text-[#F0DFB3]'
+                : 'text-[#87928C] hover:text-[#D5DDD8]'
+            }`}
+          >
+            陪练与声音
+            {activeTab === 'companion' && (
+              <span className="absolute inset-x-0 bottom-0 h-[2px] bg-[#D4A853]" />
+            )}
+          </button>
+        </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label
-                  htmlFor="blind-sb-input"
-                  className="block text-[11px] text-[#98A49F] mb-1"
-                >
-                  小盲 (SB)
-                </label>
-                <input
-                  id="blind-sb-input"
-                  data-testid="blind-sb-input"
-                  type="number"
-                  min={1}
-                  max={5000}
-                  value={sbInput}
-                  onChange={(e) => {
-                    setSbInput(e.target.value);
-                    setError(null);
-                  }}
-                  className="font-mono-num h-9 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#F3F1EC] focus:border-[#D4A853] focus:outline-none"
-                />
+        {/* Tab 1: Blinds & Seat Positions */}
+        {activeTab === 'blinds' && (
+          <form onSubmit={handleBlindSubmit} className="p-6 space-y-5">
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-[#D6DDD9]">
+                  盲注额度（SB / BB）
+                </span>
+                <span className="text-[11px] text-[#7D8882]">
+                  {!isHost
+                    ? '仅房主可修改盲注'
+                    : isBetweenHands
+                      ? '保存后立即生效'
+                      : '保存后将于下一局生效'}
+                </span>
               </div>
-              <div>
-                <label
-                  htmlFor="blind-bb-input"
-                  className="block text-[11px] text-[#98A49F] mb-1"
-                >
-                  大盲 (BB)
-                </label>
-                <input
-                  id="blind-bb-input"
-                  data-testid="blind-bb-input"
-                  type="number"
-                  min={2}
-                  max={10000}
-                  value={bbInput}
-                  onChange={(e) => {
-                    setBbInput(e.target.value);
-                    setError(null);
-                  }}
-                  className="font-mono-num h-9 w-full rounded border border-white/[0.12] bg-[#080A0B] px-3 text-sm text-[#E8CF96] focus:border-[#D4A853] focus:outline-none"
-                />
-              </div>
-            </div>
-          </section>
 
-          {/* 2. Blind Seat Position Assignment */}
-          <section className="space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-[#DEDAD2]">
-                下局大小盲位安排
-              </span>
-              <button
-                type="button"
-                data-testid="blind-auto-rotate-btn"
-                onClick={() => setManualTarget(null)}
-                className={`rounded border px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                  manualTarget === null
-                    ? 'border-[#5E9E82]/60 bg-[#0D1E17] text-[#9AD4B8]'
-                    : 'border-white/[0.12] bg-[#131719] text-[#98A49F] hover:text-white'
-                }`}
-              >
-                {manualTarget === null ? '已选：自动顺时针轮转' : '恢复自动轮转'}
-              </button>
-            </div>
-
-            {eligibleCount < 2 ? (
-              <div className="rounded border border-white/[0.08] bg-[#090B0C] px-3 py-3 text-xs text-[#8E9893]">
-                当前有效筹码玩家不足 2 人，入座 2 人后即可指定下局小盲 (SB) / 大盲 (BB) / 庄位 (D)。
-              </div>
-            ) : (
-              <div className="max-h-52 space-y-1.5 overflow-y-auto pr-0.5">
-                {sortedPlayers.map((p) => {
-                  const hasChips = p.chips > 0;
-                  const isPreviewD = preview.dealerSeatIndex === p.seatIndex;
-                  const isPreviewSb = preview.smallBlindSeatIndex === p.seatIndex;
-                  const isPreviewBb = preview.bigBlindSeatIndex === p.seatIndex;
-                  const isPinnedD =
-                    manualTarget?.seatIndex === p.seatIndex &&
-                    manualTarget.role === 'dealer';
-                  const isPinnedSb =
-                    manualTarget?.seatIndex === p.seatIndex &&
-                    manualTarget.role === 'sb';
-                  const isPinnedBb =
-                    manualTarget?.seatIndex === p.seatIndex &&
-                    manualTarget.role === 'bb';
-
+              <div className="grid grid-cols-5 gap-1.5">
+                {BLIND_PRESETS.map((preset) => {
+                  const active =
+                    Number(sbInput) === preset.sb && Number(bbInput) === preset.bb;
                   return (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between gap-2 rounded border border-white/[0.08] bg-[#090B0D] px-3 py-2"
+                    <button
+                      key={preset.label}
+                      type="button"
+                      disabled={!isHost}
+                      onClick={() => {
+                        setSbInput(String(preset.sb));
+                        setBbInput(String(preset.bb));
+                        setError(null);
+                      }}
+                      className={`font-mono-num h-8 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 ${
+                        active
+                          ? 'border-[#D4A853]/80 bg-[#D4A853]/14 text-[#F5E4B8]'
+                          : 'border-white/[0.08] bg-[#080A0B] text-[#94A09B] hover:text-white'
+                      }`}
                     >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-xs font-semibold text-[#F3F1EC]">
-                            {p.name}
-                          </span>
-                          <span className="font-mono-num text-[10px] text-[#7D8782]">
-                            #{p.seatIndex + 1}
-                          </span>
-                          {isPreviewD && (
-                            <span className="rounded bg-[#D4A853]/20 px-1.5 py-0.5 font-mono-num text-[10px] font-bold text-[#F5E4B8]">
-                              下局庄 D
-                            </span>
-                          )}
-                          {isPreviewSb && (
-                            <span className="rounded bg-[#5E9E82]/20 px-1.5 py-0.5 font-mono-num text-[10px] font-bold text-[#9AD4B8]">
-                              下局 SB
-                            </span>
-                          )}
-                          {isPreviewBb && (
-                            <span className="rounded bg-[#C97B48]/22 px-1.5 py-0.5 font-mono-num text-[10px] font-bold text-[#F2B88B]">
-                              下局 BB
-                            </span>
-                          )}
-                        </div>
-                        <div className="font-mono-num text-[11px] text-[#8E9893]">
-                          筹码 {p.chips.toLocaleString()}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          disabled={!hasChips}
-                          data-testid={`assign-sb-seat-${p.seatIndex}`}
-                          onClick={() => handleToggleRole(p.seatIndex, 'sb')}
-                          className={`h-7 rounded border px-2 font-mono-num text-[11px] font-semibold transition-colors disabled:opacity-35 ${
-                            isPinnedSb
-                              ? 'border-[#5E9E82] bg-[#5E9E82]/25 text-[#B4EAD0]'
-                              : 'border-white/[0.1] bg-[#121618] text-[#A2ADA8] hover:text-white'
-                          }`}
-                        >
-                          设为小盲
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!hasChips}
-                          data-testid={`assign-bb-seat-${p.seatIndex}`}
-                          onClick={() => handleToggleRole(p.seatIndex, 'bb')}
-                          className={`h-7 rounded border px-2 font-mono-num text-[11px] font-semibold transition-colors disabled:opacity-35 ${
-                            isPinnedBb
-                              ? 'border-[#D4A853] bg-[#D4A853]/25 text-[#F7E5B7]'
-                              : 'border-white/[0.1] bg-[#121618] text-[#A2ADA8] hover:text-white'
-                          }`}
-                        >
-                          设为大盲
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!hasChips}
-                          data-testid={`assign-dealer-seat-${p.seatIndex}`}
-                          onClick={() => handleToggleRole(p.seatIndex, 'dealer')}
-                          className={`h-7 rounded border px-2 font-mono-num text-[11px] font-semibold transition-colors disabled:opacity-35 ${
-                            isPinnedD
-                              ? 'border-[#E8CF96] bg-[#E8CF96]/25 text-[#FFF0C2]'
-                              : 'border-white/[0.1] bg-[#121618] text-[#A2ADA8] hover:text-white'
-                          }`}
-                        >
-                          庄
-                        </button>
-                      </div>
-                    </div>
+                      {preset.label}
+                    </button>
                   );
                 })}
               </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="blind-sb-input"
+                    className="mb-1 block text-[11px] text-[#8E9994]"
+                  >
+                    小盲 (SB)
+                  </label>
+                  <input
+                    id="blind-sb-input"
+                    data-testid="blind-sb-input"
+                    type="number"
+                    min={1}
+                    max={5000}
+                    disabled={!isHost}
+                    value={sbInput}
+                    onChange={(e) => {
+                      setSbInput(e.target.value);
+                      setError(null);
+                    }}
+                    className="font-mono-num h-9 w-full rounded-md border border-white/[0.1] bg-[#07090A] px-3 text-sm text-[#F3F1EC] focus:border-[#D4A853]/70 focus:outline-none disabled:opacity-55"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="blind-bb-input"
+                    className="mb-1 block text-[11px] text-[#8E9994]"
+                  >
+                    大盲 (BB)
+                  </label>
+                  <input
+                    id="blind-bb-input"
+                    data-testid="blind-bb-input"
+                    type="number"
+                    min={2}
+                    max={10000}
+                    disabled={!isHost}
+                    value={bbInput}
+                    onChange={(e) => {
+                      setBbInput(e.target.value);
+                      setError(null);
+                    }}
+                    className="font-mono-num h-9 w-full rounded-md border border-white/[0.1] bg-[#07090A] px-3 text-sm text-[#E8CF96] focus:border-[#D4A853]/70 focus:outline-none disabled:opacity-55"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-[#D6DDD9]">
+                  下局盲位安排
+                </span>
+                {isHost && (
+                  <button
+                    type="button"
+                    data-testid="blind-auto-rotate-btn"
+                    onClick={() => setManualTarget(null)}
+                    className={`text-[11px] transition-colors ${
+                      manualTarget === null
+                        ? 'text-[#88C9AA]'
+                        : 'text-[#8E9994] hover:text-white underline underline-offset-2'
+                    }`}
+                  >
+                    {manualTarget === null ? '自动顺时针轮转' : '恢复自动轮转'}
+                  </button>
+                )}
+              </div>
+
+              {eligibleCount < 2 ? (
+                <div className="rounded-md border border-white/[0.07] bg-[#080A0C] px-3.5 py-3 text-xs text-[#84908A]">
+                  入座 2 名以上有筹码玩家后可预览或指定下局庄位与大小盲位。
+                </div>
+              ) : (
+                <div className="max-h-48 space-y-1.5 overflow-y-auto pr-0.5">
+                  {sortedPlayers.map((p) => {
+                    const hasChips = p.chips > 0;
+                    const isPreviewD = preview.dealerSeatIndex === p.seatIndex;
+                    const isPreviewSb = preview.smallBlindSeatIndex === p.seatIndex;
+                    const isPreviewBb = preview.bigBlindSeatIndex === p.seatIndex;
+                    const isPinnedD =
+                      manualTarget?.seatIndex === p.seatIndex &&
+                      manualTarget.role === 'dealer';
+                    const isPinnedSb =
+                      manualTarget?.seatIndex === p.seatIndex &&
+                      manualTarget.role === 'sb';
+                    const isPinnedBb =
+                      manualTarget?.seatIndex === p.seatIndex &&
+                      manualTarget.role === 'bb';
+
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-white/[0.06] bg-[#090B0D] px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-xs font-medium text-[#F3F1EC]">
+                              {p.name}
+                            </span>
+                            <span className="font-mono-num text-[10px] text-[#6E7873]">
+                              #{p.seatIndex + 1}
+                            </span>
+                            {isPreviewD && (
+                              <span className="font-mono-num text-[10px] font-semibold text-[#E8CF96]">
+                                庄 D
+                              </span>
+                            )}
+                            {isPreviewSb && (
+                              <span className="font-mono-num text-[10px] font-semibold text-[#88C9AA]">
+                                SB
+                              </span>
+                            )}
+                            {isPreviewBb && (
+                              <span className="font-mono-num text-[10px] font-semibold text-[#E8AD80]">
+                                BB
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-mono-num text-[11px] text-[#7D8882]">
+                            {p.chips.toLocaleString()}
+                          </div>
+                        </div>
+
+                        {isHost && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              disabled={!hasChips}
+                              data-testid={`assign-sb-seat-${p.seatIndex}`}
+                              onClick={() => handleToggleRole(p.seatIndex, 'sb')}
+                              className={`h-7 rounded border px-2 font-mono-num text-[11px] transition-colors disabled:opacity-35 ${
+                                isPinnedSb
+                                  ? 'border-[#5E9E82] bg-[#5E9E82]/22 text-[#B4EAD0]'
+                                  : 'border-white/[0.09] bg-[#111517] text-[#98A49F] hover:text-white'
+                              }`}
+                            >
+                              小盲
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!hasChips}
+                              data-testid={`assign-bb-seat-${p.seatIndex}`}
+                              onClick={() => handleToggleRole(p.seatIndex, 'bb')}
+                              className={`h-7 rounded border px-2 font-mono-num text-[11px] transition-colors disabled:opacity-35 ${
+                                isPinnedBb
+                                  ? 'border-[#D4A853] bg-[#D4A853]/22 text-[#F7E5B7]'
+                                  : 'border-white/[0.09] bg-[#111517] text-[#98A49F] hover:text-white'
+                              }`}
+                            >
+                              大盲
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!hasChips}
+                              data-testid={`assign-dealer-seat-${p.seatIndex}`}
+                              onClick={() => handleToggleRole(p.seatIndex, 'dealer')}
+                              className={`h-7 rounded border px-2 font-mono-num text-[11px] transition-colors disabled:opacity-35 ${
+                                isPinnedD
+                                  ? 'border-[#E8CF96] bg-[#E8CF96]/22 text-[#FFF0C2]'
+                                  : 'border-white/[0.09] bg-[#111517] text-[#98A49F] hover:text-white'
+                              }`}
+                            >
+                              庄
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {error && (
+              <div className="text-xs text-[#FCA5A5]">{error}</div>
             )}
-            <p className="text-[11px] text-[#7D8782]">
-              双人桌规则：庄位 (D) 同时担任小盲位 (SB)；三人及以上桌按顺时针依次为 D → SB → BB。指定一次后下一局自动延续顺时针轮转。
-            </p>
-          </section>
 
-          {error && (
-            <div className="rounded border border-[#DC2626]/40 bg-[#231214] px-3 py-2 text-xs text-[#FCA5A5]">
-              {error}
+            <div className="flex items-center justify-end gap-3 border-t border-white/[0.07] pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-9 px-3 text-xs text-[#9AA5A0] hover:text-white transition-colors"
+              >
+                {isHost ? '取消' : '关闭'}
+              </button>
+              {isHost && (
+                <button
+                  type="submit"
+                  data-testid="save-blind-settings-btn"
+                  className="h-9 rounded-md bg-[#D4A853] px-4 text-xs font-semibold text-[#0F1210] hover:bg-[#E1B968] transition-colors"
+                >
+                  保存盲注
+                </button>
+              )}
             </div>
-          )}
+          </form>
+        )}
 
-          <div className="flex items-center justify-end gap-2 border-t border-white/[0.08] pt-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-9 rounded border border-white/[0.12] bg-[#131719] px-4 text-xs font-medium text-[#C5CECA] hover:text-white transition-colors"
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              data-testid="save-blind-settings-btn"
-              className="h-9 rounded bg-[#D4A853] px-4 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors"
-            >
-              保存设置
-            </button>
+        {/* Tab 2: Companion & Audio Settings */}
+        {activeTab === 'companion' && (
+          <div className="p-6 space-y-6">
+            {/* Audio controls */}
+            <section className="space-y-2.5">
+              <div className="text-xs font-medium text-[#D6DDD9]">氛围与音效</div>
+              <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.07] bg-[#080A0C]">
+                {onToggleBgm && (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={bgmEnabled}
+                    data-testid="settings-bgm-toggle"
+                    onClick={onToggleBgm}
+                    className="flex w-full items-center justify-between px-3.5 py-2.5 text-left text-xs text-[#DCE2DF] hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div>
+                      <div>爵士酒吧背景乐</div>
+                      <div className="mt-0.5 text-[11px] text-[#727E78]">
+                        低频暖调钢琴与贝斯循环
+                      </div>
+                    </div>
+                    <span
+                      aria-hidden="true"
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
+                        bgmEnabled
+                          ? 'border-[#D4A853]/70 bg-[#D4A853]/26'
+                          : 'border-white/[0.12] bg-[#161B1D]'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 rounded-full transition-transform ${
+                          bgmEnabled
+                            ? 'translate-x-[17px] bg-[#F3DFAC]'
+                            : 'translate-x-[2px] bg-[#78847E]'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                )}
+
+                {onToggleMute && (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!muted}
+                    data-testid="settings-sfx-toggle"
+                    onClick={onToggleMute}
+                    className="flex w-full items-center justify-between px-3.5 py-2.5 text-left text-xs text-[#DCE2DF] hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div>
+                      <div>发牌与筹码音效</div>
+                      <div className="mt-0.5 text-[11px] text-[#727E78]">
+                        纸牌滑动、筹码落池与提醒声
+                      </div>
+                    </div>
+                    <span
+                      aria-hidden="true"
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
+                        !muted
+                          ? 'border-[#D4A853]/70 bg-[#D4A853]/26'
+                          : 'border-white/[0.12] bg-[#161B1D]'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 rounded-full transition-transform ${
+                          !muted
+                            ? 'translate-x-[17px] bg-[#F3DFAC]'
+                            : 'translate-x-[2px] bg-[#78847E]'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                )}
+              </div>
+            </section>
+
+            {/* Optional DeepSeek Companion Dialogue Config */}
+            {onConfigureBotChat && (
+              <section
+                data-testid="bot-chat-settings-panel"
+                className="space-y-3 border-t border-white/[0.07] pt-5"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="text-xs font-medium text-[#D6DDD9]">
+                    陪练牌桌互动（可选 · DeepSeek）
+                  </div>
+                  <span className="text-[11px] text-[#727E78]">
+                    {botChatStatus.source === 'room'
+                      ? '本桌已配置密钥'
+                      : botChatStatus.source === 'server'
+                        ? '使用服务端默认密钥'
+                        : '仅存于本桌内存'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={botEnabledDraft}
+                  data-testid="bot-chat-enable-toggle"
+                  onClick={() => setBotEnabledDraft((prev) => !prev)}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/[0.07] bg-[#080A0C] px-3.5 py-2.5 text-left text-xs text-[#DCE2DF] hover:border-white/[0.14] transition-colors"
+                >
+                  <div>
+                    <div>允许陪练参与闲聊与发表情</div>
+                    <div className="mt-0.5 text-[11px] text-[#727E78]">
+                      不填写密钥不影响正常牌局与陪练对弈
+                    </div>
+                  </div>
+                  <span
+                    aria-hidden="true"
+                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
+                      botEnabledDraft
+                        ? 'border-[#D4A853]/70 bg-[#D4A853]/26'
+                        : 'border-white/[0.12] bg-[#161B1D]'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full transition-transform ${
+                        botEnabledDraft
+                          ? 'translate-x-[17px] bg-[#F3DFAC]'
+                          : 'translate-x-[2px] bg-[#78847E]'
+                      }`}
+                    />
+                  </span>
+                </button>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="deepseek-apikey-input"
+                    className="block text-[11px] text-[#8E9994]"
+                  >
+                    DeepSeek API Key（可选）
+                  </label>
+                  <input
+                    id="deepseek-apikey-input"
+                    type="password"
+                    autoComplete="off"
+                    data-testid="deepseek-apikey-input"
+                    value={apiKeyDraft}
+                    onChange={(e) => setApiKeyDraft(e.target.value)}
+                    placeholder={
+                      botChatStatus.configured
+                        ? '留空则沿用当前已配置密钥…'
+                        : 'sk-...（离桌或删房自动清空）'
+                    }
+                    className="h-9 w-full rounded-md border border-white/[0.1] bg-[#07090A] px-3 font-mono-num text-xs text-[#F3F1EC] placeholder:text-[#5B6560] focus:border-[#D4A853]/65 focus:outline-none"
+                  />
+                </div>
+
+                {botFeedback && (
+                  <div
+                    role="status"
+                    className={`text-xs ${
+                      botFeedback.tone === 'ok' ? 'text-[#6EE7B7]' : 'text-[#FCA5A5]'
+                    }`}
+                  >
+                    {botFeedback.text}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  {botChatStatus.source === 'room' ? (
+                    <button
+                      type="button"
+                      disabled={botSaving}
+                      onClick={() => void handleClearBotKey()}
+                      className="text-xs text-[#B59292] hover:text-[#FCA5A5] disabled:opacity-45 transition-colors"
+                    >
+                      清除密钥
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-[#66716C]">
+                      不会持久化至磁盘
+                    </span>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={botSaving || (!apiKeyDraft.trim() && !botChatStatus.configured)}
+                      onClick={() => void handleSaveBotChat(true)}
+                      className="h-8 rounded-md border border-white/[0.12] px-3 text-xs text-[#D6DDD9] hover:border-[#D4A853]/45 hover:text-white disabled:opacity-40 transition-colors"
+                    >
+                      测试连通
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="save-bot-chat-btn"
+                      disabled={botSaving}
+                      onClick={() => void handleSaveBotChat(false)}
+                      className="h-8 rounded-md bg-[#D4A853] px-3.5 text-xs font-semibold text-[#0F1210] hover:bg-[#E1B968] disabled:opacity-45 transition-colors"
+                    >
+                      {botSaving ? '保存中…' : '保存'}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
-        </form>
+        )}
       </div>
     </div>
   );

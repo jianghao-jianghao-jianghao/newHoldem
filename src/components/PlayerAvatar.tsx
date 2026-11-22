@@ -1,10 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { AchievementTier } from '../shared/achievements';
 import { getAvatarInitial, isCustomAvatarDataUrl } from '../shared/avatarUtils';
+import {
+  RANK_TIER_LABELS,
+  type RankTier,
+  type ResolvedPlayerAvatarProfile,
+} from '../shared/playerProfile';
 
 interface PlayerAvatarProps {
   avatar?: string;
   name: string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  level?: number;
+  levelTier?: AchievementTier;
+  levelTitle?: string;
+  rankTier?: RankTier;
+  showLevelBadge?: boolean;
+  showRankAura?: boolean;
+  syncedProfile?: ResolvedPlayerAvatarProfile | null;
   className?: string;
 }
 
@@ -15,6 +28,26 @@ const SIZE_MAP = {
   lg: 'h-14 w-14 text-lg',
   xl: 'h-16 w-16 text-xl',
 };
+
+const RANK_BORDER_CLASS: Record<RankTier, string> = {
+  bronze: 'border-[#B87D52]/70',
+  silver: 'border-[#C5D3E0]/75',
+  gold: 'border-[#E1BC66]/85',
+  diamond: 'border-[#A5E5FF]/90',
+};
+
+const RANK_BADGE_CLASS: Record<RankTier, string> = {
+  bronze: 'border-[#B87D52]/75 bg-[#17120E] text-[#E6B894]',
+  silver: 'border-[#B9C9D8]/75 bg-[#10151B] text-[#E2EBF4]',
+  gold: 'border-[#D4A853]/85 bg-[#16130B] text-[#F5DFA0]',
+  diamond: 'border-[#8AD8FF]/90 bg-[#0A131A] text-[#D8F3FF] shadow-[0_0_10px_rgba(125,211,252,0.45)]',
+};
+
+function mapAchievementTierToRankTier(tier?: AchievementTier): RankTier | undefined {
+  if (!tier) return undefined;
+  if (tier === 'obsidian') return 'diamond';
+  return tier;
+}
 
 function renderPresetEmblem(id: string, name: string) {
   switch (id) {
@@ -91,29 +124,88 @@ function renderPresetEmblem(id: string, name: string) {
 }
 
 export function PlayerAvatar({
-  avatar = 'default',
+  avatar,
   name,
   size = 'sm',
+  level,
+  levelTier,
+  levelTitle,
+  rankTier,
+  showLevelBadge = false,
+  showRankAura = false,
+  syncedProfile = null,
   className = '',
 }: PlayerAvatarProps) {
+  const effectiveAvatar = avatar ?? syncedProfile?.avatar ?? 'default';
+  const effectiveLevel = level ?? syncedProfile?.levelInfo.level;
+  const effectiveTitle = levelTitle ?? syncedProfile?.levelInfo.title;
+  const effectiveRankTier: RankTier =
+    rankTier ??
+    syncedProfile?.rankTier ??
+    mapAchievementTierToRankTier(levelTier ?? syncedProfile?.levelInfo.tier) ??
+    'bronze';
+
+  const shouldRenderAura = showRankAura || showLevelBadge;
+
   const [imgFailed, setImgFailed] = useState(false);
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [effectiveAvatar]);
+
   const sizeClass = SIZE_MAP[size];
-  const isCustom = isCustomAvatarDataUrl(avatar) && !imgFailed;
+  const isCustom = isCustomAvatarDataUrl(effectiveAvatar) && !imgFailed;
+  const ringClass = shouldRenderAura
+    ? RANK_BORDER_CLASS[effectiveRankTier]
+    : 'border-[#D4A853]/40';
+  const badgeToneClass = RANK_BADGE_CLASS[effectiveRankTier];
+  const isLarge = size === 'lg' || size === 'xl';
 
   return (
-    <div
-      className={`${sizeClass} relative shrink-0 overflow-hidden rounded-full border border-[#D4A853]/45 bg-[#121618] select-none ${className}`}
-    >
-      {isCustom ? (
-        <img
-          src={avatar}
-          alt={name || '玩家头像'}
-          referrerPolicy="no-referrer"
-          onError={() => setImgFailed(true)}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        renderPresetEmblem(avatar, name)
+    <div className="relative inline-flex shrink-0 select-none">
+      {/* Dynamic Leaderboard Rank Aura (Bronze / Silver / Gold / Diamond) */}
+      {shouldRenderAura && (
+        <span
+          aria-hidden="true"
+          data-testid="avatar-rank-aura"
+          data-rank-tier={effectiveRankTier}
+          className="pointer-events-none absolute inset-0"
+        >
+          <span className={`avatar-aura-glow avatar-aura-glow-${effectiveRankTier}`} />
+          <span className={`avatar-aura-ring avatar-aura-ring-${effectiveRankTier}`} />
+        </span>
+      )}
+
+      <div
+        className={`${sizeClass} relative z-10 shrink-0 overflow-hidden rounded-full border-[1.5px] bg-[#121618] ${ringClass} ${className}`}
+      >
+        {isCustom ? (
+          <img
+            src={effectiveAvatar}
+            alt={name || '玩家头像'}
+            referrerPolicy="no-referrer"
+            onError={() => setImgFailed(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          renderPresetEmblem(effectiveAvatar, name)
+        )}
+      </div>
+
+      {showLevelBadge && typeof effectiveLevel === 'number' && effectiveLevel >= 1 && (
+        <span
+          data-testid="avatar-level-badge"
+          title={`${RANK_TIER_LABELS[effectiveRankTier]}段位 · Lv.${effectiveLevel}${
+            effectiveTitle ? ` ${effectiveTitle}` : ''
+          }`}
+          className={`pointer-events-none absolute -bottom-1 -right-1 z-20 inline-flex items-center justify-center rounded-full border font-mono-num font-bold leading-none shadow-[0_2px_6px_rgba(0,0,0,0.82)] ${badgeToneClass} ${
+            isLarge
+              ? 'h-[18px] min-w-[26px] px-1.5 text-[9.5px]'
+              : 'h-[15px] min-w-[22px] px-1 text-[8.5px]'
+          }`}
+        >
+          Lv.{effectiveLevel}
+        </span>
       )}
     </div>
   );

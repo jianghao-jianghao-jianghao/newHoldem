@@ -23,11 +23,16 @@ import {
 } from '../three/proceduralTextures';
 import {
   applyStackCollisionImpulse,
+  CHIP_NEST_OVERLAP,
+  CHIP_STACK_FRICTION,
   type ChipMotionMode,
   type ChipPhysicsBody,
+  computeChipRestingPose,
   computeChipStackHeightProfile,
   createChipPhysicsBody,
   createStackSpringState,
+  FELT_COLLISION_FRICTION,
+  FELT_SINK_DEPTH,
   type StackSpringState,
   stepChipPhysicsBody,
   stepStackSpringPhysics,
@@ -53,6 +58,30 @@ interface SeatAnchors3D {
   facingAngle: number;
 }
 
+interface ChipStackMeta {
+  bigBlind?: number;
+  startingChips?: number;
+  isAllIn?: boolean;
+}
+
+interface ChipMeshItem {
+  mesh: THREE.Mesh;
+  baseX: number;
+  baseY: number;
+  baseZ: number;
+  baseYaw: number;
+  microTiltX: number;
+  microTiltZ: number;
+  landingYawDelta: number;
+  landingSlideX: number;
+  landingSlideZ: number;
+  level: number;
+  dropOffset: number;
+  dropDelay: number;
+  dropElapsed: number;
+  dropDuration: number;
+}
+
 interface ChipStackSlot {
   group: THREE.Group;
   amount: number;
@@ -62,12 +91,17 @@ interface ChipStackSlot {
   maxCols: number;
   maxPerCol: number;
   topY: number;
-  chips: { mesh: THREE.Mesh; baseX: number; baseY: number; baseZ: number; level: number }[];
+  chips: ChipMeshItem[];
   spring: StackSpringState;
   springActive: boolean;
-  riseProgress: number;
+  hasDropAnim: boolean;
   enterFrom: THREE.Vector3 | null;
   enterProgress: number;
+  pendingCommit: {
+    amount: number;
+    triggerPop: boolean;
+    stackMeta?: ChipStackMeta;
+  } | null;
 }
 
 interface FlyingChip {
@@ -467,6 +501,19 @@ function PokerScene3DInner({
     const dynamicGroup = new THREE.Group();
     scene.add(dynamicGroup);
 
+    // Shared barrel contact shadow geometry & opacity buckets so stacked chips sit firmly into the felt
+    const barrelShadowGeo = new THREE.PlaneGeometry(CHIP_RADIUS * 2.58, CHIP_RADIUS * 2.58);
+    barrelShadowGeo.rotateX(-Math.PI / 2);
+    const barrelShadowMats = [0.54, 0.66, 0.78, 0.86].map(
+      (opacity) =>
+        new THREE.MeshBasicMaterial({
+          map: textures.contactShadow,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+        })
+    );
+
     const stacks = new Map<string, ChipStackSlot>();
     const communityCardMeshes: (THREE.Mesh | null)[] = [null, null, null, null, null];
     const holeCardMeshes = new Map<string, THREE.Mesh[]>();
@@ -518,7 +565,7 @@ function PokerScene3DInner({
         const group = new THREE.Group();
         let enterFrom: THREE.Vector3 | null = null;
         if (animateEntrance) {
-          enterFrom = new THREE.Vector3(x * 1.28, 0.28, z * 1.28);
+          enterFrom = new THREE.Vector3(x * 1.24, 0.22, z * 1.24);
           group.position.copy(enterFrom);
         } else {
           group.position.set(x, 0, z);
@@ -536,9 +583,10 @@ function PokerScene3DInner({
           chips: [],
           spring: createStackSpringState(),
           springActive: false,
-          riseProgress: 1,
+          hasDropAnim: false,
           enterFrom,
           enterProgress: animateEntrance ? 0 : 1,
+          pendingCommit: null,
         };
         stacks.set(key, slot);
       } else {
@@ -557,10 +605,12 @@ function PokerScene3DInner({
       slot: ChipStackSlot,
       amount: number,
       triggerPop = false,
-      stackMeta?: { bigBlind?: number; startingChips?: number; isAllIn?: boolean }
+      stackMeta?: ChipStackMeta
     ) {
+      slot.pendingCommit = null;
       const nextAllIn = Boolean(stackMeta?.isAllIn);
       if (slot.amount === amount && slot.isAllIn === nextAllIn) return;
+      const prevChipCount = slot.chips.length;
       const grew = amount > slot.amount && slot.amount >= 0;
       slot.amount = amount;
       slot.isAllIn = nextAllIn;
@@ -569,6 +619,7 @@ function PokerScene3DInner({
         slot.group.remove(slot.group.children[0]);
       }
       slot.chips = [];
+      slot.hasDropAnim = false;
 
       if (amount <= 0) {
         slot.topY = CHIP_HEIGHT / 2;
@@ -586,7 +637,8 @@ function PokerScene3DInner({
         chipHeight: CHIP_HEIGHT,
       });
 
-      const s = CHIP_RADIUS * 2.08;
+      // Generous barrel spacing guarantees zero interpenetration even during lateral impact rattle
+      const s = CHIP_RADIUS * 2.18;
       const colCount = profile.barrels.length;
       const clusterOffsets: Array<[number, number]> = [];
 
@@ -594,51 +646,110 @@ function PokerScene3DInner({
       if (colCount === 1) {
         clusterOffsets.push([0, 0]);
       } else if (colCount === 2) {
-        clusterOffsets.push([-s * 0.44, -s * 0.14], [s * 0.48, s * 0.16]);
+        clusterOffsets.push([-s * 0.46, -s * 0.14], [s * 0.48, s * 0.16]);
       } else if (colCount === 3) {
         clusterOffsets.push(
           [0, -s * 0.56],
-          [-s * 0.53, s * 0.34],
-          [s * 0.53, s * 0.34]
+          [-s * 0.54, s * 0.35],
+          [s * 0.54, s * 0.35]
         );
       } else {
         const backCount = Math.ceil(colCount / 2);
         const frontCount = colCount - backCount;
         for (let b = 0; b < backCount; b++) {
-          clusterOffsets.push([(b - (backCount - 1) / 2) * s * 1.02, -s * 0.48]);
+          clusterOffsets.push([(b - (backCount - 1) / 2) * s * 1.04, -s * 0.5]);
         }
         for (let f = 0; f < frontCount; f++) {
-          clusterOffsets.push([(f - (frontCount - 1) / 2) * s * 1.02, s * 0.46]);
+          clusterOffsets.push([(f - (frontCount - 1) / 2) * s * 1.04, s * 0.48]);
         }
       }
 
-      let highestY = CHIP_HEIGHT / 2;
+      let highestY = CHIP_HEIGHT * 0.5 - FELT_SINK_DEPTH;
+      let chipLinearIdx = 0;
+      const shouldDropNew = triggerPop || grew;
+      const startDropIdx = grew ? Math.max(0, prevChipCount - 1) : 0;
+      const slotSeed = Math.round(slot.baseX * 31.7 + slot.baseZ * 53.3) + 13;
 
       profile.barrels.forEach((barrel, cIdx) => {
         const [offsetX, offsetZ] = clusterOffsets[cIdx] ?? [0, 0];
 
+        // Grounding contact shadow disc anchored flush to the felt beneath each barrel
+        const shadowBucket =
+          barrel.layerCount >= 10 ? 3 : barrel.layerCount >= 6 ? 2 : barrel.layerCount >= 3 ? 1 : 0;
+        const barrelShadow = new THREE.Mesh(barrelShadowGeo, barrelShadowMats[shadowBucket]);
+        barrelShadow.position.set(offsetX, 0.0014, offsetZ);
+        const shadowScale = 1 + Math.min(0.16, barrel.layerCount * 0.012);
+        barrelShadow.scale.set(shadowScale, 1, shadowScale);
+        slot.group.add(barrelShadow);
+
         barrel.denoms.forEach((denom, lvl) => {
           const mesh = factory.createChipMesh(denom);
-          const jitterX = Math.sin((cIdx + 1) * 7.3 + lvl * 13.7) * 0.0028;
-          const jitterZ = Math.cos((cIdx + 1) * 11.1 + lvl * 5.9) * 0.0028;
-          const baseY = CHIP_HEIGHT / 2 + lvl * CHIP_HEIGHT;
-          const baseX = offsetX + jitterX;
-          const baseZ = offsetZ + jitterZ;
+          const pose = computeChipRestingPose({
+            barrelIndex: cIdx,
+            levelIndex: lvl,
+            chipHeight: CHIP_HEIGHT,
+            chipRadius: CHIP_RADIUS,
+            seed: slotSeed,
+          });
+          const baseY = pose.restY;
+          const baseX = offsetX + pose.offsetX;
+          const baseZ = offsetZ + pose.offsetZ;
 
-          mesh.position.set(baseX, baseY, baseZ);
-          mesh.rotation.y = (lvl * 0.78 + cIdx * 1.15) % (Math.PI * 2);
+          const isFreshChip = shouldDropNew && chipLinearIdx >= startDropIdx;
+          const freshRank = Math.max(0, chipLinearIdx - startDropIdx);
+          const dropOffset = isFreshChip ? Math.min(0.11, 0.036 + freshRank * 0.008) : 0;
+          const dropDelay = isFreshChip ? Math.min(0.14, freshRank * 0.012) : 0;
+          const dropDuration = isFreshChip ? 0.16 : 0;
+          if (isFreshChip) {
+            slot.hasDropAnim = true;
+          }
+
+          mesh.position.set(
+            baseX + (isFreshChip ? pose.landingSlideX : 0),
+            baseY + dropOffset,
+            baseZ + (isFreshChip ? pose.landingSlideZ : 0)
+          );
+          mesh.rotation.set(
+            pose.microTiltX,
+            pose.yaw + (isFreshChip ? pose.landingYawDelta : 0),
+            pose.microTiltZ
+          );
           slot.group.add(mesh);
-          slot.chips.push({ mesh, baseX, baseY, baseZ, level: lvl });
+          slot.chips.push({
+            mesh,
+            baseX,
+            baseY,
+            baseZ,
+            baseYaw: pose.yaw,
+            microTiltX: pose.microTiltX,
+            microTiltZ: pose.microTiltZ,
+            landingYawDelta: pose.landingYawDelta,
+            landingSlideX: pose.landingSlideX,
+            landingSlideZ: pose.landingSlideZ,
+            level: lvl,
+            dropOffset,
+            dropDelay,
+            dropElapsed: 0,
+            dropDuration,
+          });
           if (baseY > highestY) highestY = baseY;
+          chipLinearIdx++;
         });
       });
 
-      slot.topY = highestY + CHIP_HEIGHT;
+      const effectivePitch = Math.max(CHIP_HEIGHT * 0.84, CHIP_HEIGHT - CHIP_NEST_OVERLAP);
+      slot.topY = highestY + effectivePitch;
       if (triggerPop || grew) {
-        slot.riseProgress = 0.32;
-        applyStackCollisionImpulse(slot.spring, nextAllIn ? 1.15 : 0.78, 0.15, -0.15);
+        applyStackCollisionImpulse(slot.spring, nextAllIn ? 0.88 : 0.58, 0.12, -0.12);
         slot.springActive = true;
       }
+    }
+
+    function commitPendingSlot(slot: ChipStackSlot) {
+      if (!slot.pendingCommit) return;
+      const pending = slot.pendingCommit;
+      slot.pendingCommit = null;
+      rebuildStackSlot(slot, pending.amount, pending.triggerPop, pending.stackMeta);
     }
 
     function launchChipPhysics(
@@ -651,10 +762,10 @@ function PokerScene3DInner({
       isAllInPush = false
     ) {
       const maxCols = isAllInPush ? 3 : 2;
-      const maxPerCol = isAllInPush ? 6 : 5;
+      const maxPerCol = isAllInPush ? 5 : 4;
       const denoms = breakdownChipsForStack(amountDiff, maxCols, maxPerCol).flat();
-      const desiredCount = isAllInPush ? 12 : amountDiff >= 500 ? 8 : amountDiff >= 100 ? 6 : 3;
-      const count = Math.min(12, Math.max(2, Math.max(denoms.length, desiredCount)));
+      const desiredCount = isAllInPush ? 10 : amountDiff >= 500 ? 7 : amountDiff >= 100 ? 5 : 3;
+      const count = Math.min(10, Math.max(2, Math.max(denoms.length, desiredCount)));
       const fallbackDenoms: ChipDenom[] = [100, 25, 5, 500, 1000];
 
       const dirX = to.x - from.x;
@@ -666,21 +777,24 @@ function PokerScene3DInner({
       for (let i = 0; i < count; i++) {
         const denom = denoms[i] ?? fallbackDenoms[i % fallbackDenoms.length];
         const mesh = factory.createChipMesh(denom);
-        const laneSpread = ((i % 3) - 1) * (mode === 'push' ? 0.085 : 0.032);
+        const laneIdx = (i % 3) - 1;
+        const laneSpread = laneIdx * (mode === 'push' ? 0.068 : 0.028);
         const stackLayer = Math.floor(i / 3);
         const startPos = _scratchVecA.copy(from);
         startPos.x += perpX * laneSpread;
         startPos.z += perpZ * laneSpread;
-        startPos.y = Math.max(CHIP_HEIGHT / 2, from.y - stackLayer * CHIP_HEIGHT * 0.65);
+        startPos.y = Math.max(CHIP_HEIGHT / 2, from.y - stackLayer * CHIP_HEIGHT * 0.5);
 
         mesh.position.copy(startPos);
         mesh.visible = false;
         dynamicGroup.add(mesh);
 
-        const scatterR = mode === 'push' ? 0.065 : 0.09;
-        const targetX = to.x + perpX * laneSpread * 0.72 + (Math.sin(i * 4.7) * 0.5) * scatterR;
-        const targetZ = to.z + perpZ * laneSpread * 0.72 + (Math.cos(i * 6.3) * 0.5) * scatterR;
-        const targetY = Math.max(CHIP_HEIGHT / 2, to.y + stackLayer * CHIP_HEIGHT * 0.85);
+        const scatterR = mode === 'push' ? 0.048 : 0.062;
+        const targetX = to.x + perpX * laneSpread * 0.6 + (Math.sin(i * 4.7) * 0.5) * scatterR;
+        const targetZ = to.z + perpZ * laneSpread * 0.6 + (Math.cos(i * 6.3) * 0.5) * scatterR;
+        const effectivePitch = Math.max(CHIP_HEIGHT * 0.84, CHIP_HEIGHT - CHIP_NEST_OVERLAP);
+        const targetY = Math.max(CHIP_HEIGHT / 2, to.y + stackLayer * effectivePitch);
+        const isFeltLanding = stackLayer === 0 && to.y <= CHIP_HEIGHT * 0.85;
 
         const body = createChipPhysicsBody({
           mode,
@@ -690,10 +804,13 @@ function PokerScene3DInner({
           toX: targetX,
           toY: targetY,
           toZ: targetZ,
-          delay: delayOffset + (mode === 'push' ? i * 0.026 : i * 0.044),
-          spinX: mode === 'push' ? (Math.sin(i * 2.1) * 0.5) : (Math.random() - 0.5) * 12,
-          spinZ: mode === 'push' ? (Math.cos(i * 2.9) * 0.5) : (Math.random() - 0.5) * 12,
+          delay: delayOffset + (mode === 'push' ? i * 0.02 : i * 0.036),
+          spinX: mode === 'push' ? Math.sin(i * 2.1) * 0.35 : (Math.sin(i * 5.1) * 3.8),
+          spinZ: mode === 'push' ? Math.cos(i * 2.9) * 0.35 : (Math.cos(i * 3.7) * 3.8),
           yaw: (i * 0.85) % (Math.PI * 2),
+          collisionFriction: isFeltLanding ? FELT_COLLISION_FRICTION : CHIP_STACK_FRICTION,
+          landingJitterSeed: i * 17 + Math.round(Math.abs(to.x * 13 + to.z * 29)) + amountDiff,
+          sinkIntoFelt: isFeltLanding,
         });
 
         flyingChips.push({
@@ -904,6 +1021,10 @@ function PokerScene3DInner({
       // 2. Sync each player's personal chip stack & bet chip stack
       const hasInitializedRoom = knownPlayerIds.size > 0;
       const anyAllInInHand = t.players.some((p) => p.allIn && p.inHand && !p.folded);
+      const isShowdownAwarded = t.phase === 'showdown' && t.winners.length > 0;
+      const showdownPayoutWave =
+        prevHandNumber !== -1 && isShowdownAwarded && prevPhase !== 'showdown';
+      const winnerIdSet = new Set(showdownPayoutWave ? t.winners.map((w) => w.playerId) : []);
 
       for (const p of t.players) {
         const a = anchors.get(p.id);
@@ -930,23 +1051,39 @@ function PokerScene3DInner({
         }
         const prevChips = prevPlayerChips.get(p.id);
         const gainedChips = prevChips !== undefined && p.chips > prevChips;
-        rebuildStackSlot(seatSlot, p.chips, gainedChips, {
+        const seatStackMeta: ChipStackMeta = {
           bigBlind: t.bigBlind,
           startingChips: t.startingChips,
           isAllIn: p.chips >= t.startingChips * 1.4,
-        });
+        };
+        if (winnerIdSet.has(p.id) && gainedChips) {
+          // Defer winner stack growth until the pot payout wave actually lands
+          seatSlot.pendingCommit = {
+            amount: p.chips,
+            triggerPop: true,
+            stackMeta: seatStackMeta,
+          };
+        } else {
+          rebuildStackSlot(seatSlot, p.chips, gainedChips, seatStackMeta);
+        }
 
         const betCols = p.allIn ? 4 : 3;
         const betPerCol = p.allIn ? 14 : 11;
         const betSlot = ensureStackSlot(betKey, a.betPos.x, a.betPos.z, betCols, betPerCol);
         const oldBet = prevPlayerBets.get(p.id) ?? 0;
+        const betDisplayAmount = t.phase === 'showdown' ? 0 : p.currentBet;
+        const betStackMeta: ChipStackMeta = {
+          bigBlind: t.bigBlind,
+          startingChips: t.startingChips,
+          isAllIn: p.allIn,
+        };
 
-        if (prevHandNumber !== -1 && p.currentBet > oldBet) {
-          const added = p.currentBet - oldBet;
+        if (prevHandNumber !== -1 && betDisplayAmount > oldBet) {
+          const added = betDisplayAmount - oldBet;
           const fromPos = seatSlot.group.position.clone();
           fromPos.y = Math.max(CHIP_HEIGHT, seatSlot.topY);
           const toPos = betSlot.group.position.clone();
-          toPos.y = Math.max(CHIP_HEIGHT, betSlot.topY);
+          toPos.y = Math.max(CHIP_HEIGHT * 0.5, betSlot.topY);
 
           const isPushBet = p.allIn || added >= t.bigBlind * 2;
           launchChipPhysics(
@@ -958,84 +1095,92 @@ function PokerScene3DInner({
             isPushBet ? 'push' : 'throw',
             p.allIn
           );
+          // Hold visual bet-stack growth until the flying chips arrive (eliminates early pop/double chips)
+          betSlot.pendingCommit = {
+            amount: betDisplayAmount,
+            triggerPop: true,
+            stackMeta: betStackMeta,
+          };
+        } else {
+          rebuildStackSlot(betSlot, betDisplayAmount, false, betStackMeta);
         }
-        const betDisplayAmount = t.phase === 'showdown' ? 0 : p.currentBet;
-        rebuildStackSlot(betSlot, betDisplayAmount, betDisplayAmount > oldBet, {
-          bigBlind: t.bigBlind,
-          startingChips: t.startingChips,
-          isAllIn: p.allIn,
-        });
       }
 
       // 3. Street transition: physics push-in sweep from bet stacks into center pot
       const potMaxPerCol = anyAllInInHand ? 12 : 11;
       const potSlot = ensureStackSlot('pot', POT_WORLD_POS.x, POT_WORLD_POS.z, 6, potMaxPerCol);
+      let sweptToPot = false;
       if (
         prevHandNumber !== -1 &&
         t.phase !== prevPhase &&
         (prevPhase === 'preflop' || prevPhase === 'flop' || prevPhase === 'turn')
       ) {
-        let anySwept = false;
         let sweepIndex = 0;
         prevPlayerBets.forEach((oldBet, pid) => {
           if (oldBet > 0 && anchors.has(pid)) {
-            anySwept = true;
+            sweptToPot = true;
             const fromBet = anchors.get(pid)!.betPos.clone();
-            fromBet.y = CHIP_HEIGHT * 1.5;
+            fromBet.y = CHIP_HEIGHT * 1.25;
             const toPot = POT_WORLD_POS.clone();
-            toPot.y = Math.max(CHIP_HEIGHT, potSlot.topY);
+            toPot.y = Math.max(CHIP_HEIGHT * 0.5, potSlot.topY);
             launchChipPhysics(
               fromBet,
               toPot,
               'pot',
               oldBet,
-              0.03 + sweepIndex * 0.035,
+              0.02 + sweepIndex * 0.032,
               'push',
               oldBet >= t.startingChips * 0.5
             );
             sweepIndex++;
           }
         });
-        if (anySwept) {
+        if (sweptToPot) {
           soundFx.playPotSweep(t.pot);
         }
       }
 
       // 4. Showdown payout: push pot chips out to winner's personal stack & clear center pot tower
-      const isShowdownAwarded = t.phase === 'showdown' && t.winners.length > 0;
       const potDisplayAmount = isShowdownAwarded ? 0 : t.pot;
-      if (
-        prevHandNumber !== -1 &&
-        isShowdownAwarded &&
-        prevPhase !== 'showdown'
-      ) {
+      if (showdownPayoutWave) {
         for (const w of t.winners) {
           const wa = anchors.get(w.playerId);
           if (wa) {
+            const seatSlot = stacks.get(`seat:${w.playerId}`);
             const toSeat = wa.stackPos.clone();
-            toSeat.y = CHIP_HEIGHT * 2.5;
+            toSeat.y = Math.max(CHIP_HEIGHT * 1.5, seatSlot?.topY ?? CHIP_HEIGHT * 2);
             launchChipPhysics(
-              new THREE.Vector3(POT_WORLD_POS.x, Math.max(0.12, potSlot.topY), POT_WORLD_POS.z),
+              new THREE.Vector3(POT_WORLD_POS.x, Math.max(0.1, potSlot.topY), POT_WORLD_POS.z),
               toSeat,
               `seat:${w.playerId}`,
               w.amount,
-              0.06,
+              0.05,
               'push',
               w.amount >= t.startingChips * 0.6
             );
           }
         }
       }
-      rebuildStackSlot(
-        potSlot,
-        potDisplayAmount,
-        potDisplayAmount > potSlot.amount && potSlot.amount >= 0,
-        {
-          bigBlind: t.bigBlind,
-          startingChips: t.startingChips,
-          isAllIn: anyAllInInHand || potDisplayAmount >= t.startingChips * 1.2,
-        }
-      );
+      const potStackMeta: ChipStackMeta = {
+        bigBlind: t.bigBlind,
+        startingChips: t.startingChips,
+        isAllIn: anyAllInInHand || potDisplayAmount >= t.startingChips * 1.2,
+      };
+      if (sweptToPot && potDisplayAmount > 0 && !isShowdownAwarded) {
+        // Keep previous pot intact until swept bet chips collide into the center pot
+        potSlot.pendingCommit = {
+          amount: potDisplayAmount,
+          triggerPop: true,
+          stackMeta: potStackMeta,
+        };
+      } else {
+        rebuildStackSlot(
+          potSlot,
+          potDisplayAmount,
+          potDisplayAmount > potSlot.amount && potSlot.amount >= 0,
+          potStackMeta
+        );
+      }
 
       for (const key of Array.from(stacks.keys())) {
         if (!activeStackKeys.has(key)) {
@@ -1372,12 +1517,17 @@ function PokerScene3DInner({
         turnRingMat.opacity = 0.42 + Math.sin(elapsedTotal * 5.0) * 0.2;
       }
 
-      // Stack Entrance Glide + Height Rise + Second-Order Spring Collision Compression
+      // Stack Entrance Glide + Rigid Per-Chip Drop Settle + Grounded Spring Compression
       let hasStackAnim = false;
-      stacks.forEach((slot) => {
+      stacks.forEach((slot, slotKey) => {
+        // Failsafe: if a pendingCommit has no active incoming flying chips, commit immediately
+        if (slot.pendingCommit && !flyingChips.some((fc) => fc.targetStackKey === slotKey)) {
+          commitPendingSlot(slot);
+        }
+
         if (slot.enterFrom && slot.enterProgress < 1) {
           hasStackAnim = true;
-          slot.enterProgress = Math.min(1, slot.enterProgress + dt * 2.2);
+          slot.enterProgress = Math.min(1, slot.enterProgress + dt * 2.4);
           const ease = 1 - Math.pow(1 - slot.enterProgress, 3);
           slot.group.position.set(
             THREE.MathUtils.lerp(slot.enterFrom.x, slot.baseX, ease),
@@ -1386,40 +1536,76 @@ function PokerScene3DInner({
           );
           if (slot.enterProgress >= 1) {
             slot.enterFrom = null;
-            applyStackCollisionImpulse(slot.spring, 0.72, 0.12, 0.08);
+            applyStackCollisionImpulse(slot.spring, 0.58, 0.1, 0.06);
             slot.springActive = true;
           }
         }
 
-        if (slot.riseProgress < 1) {
-          hasStackAnim = true;
-          slot.riseProgress = Math.min(1, slot.riseProgress + dt * 4.6);
-          slot.group.scale.y = 0.28 + 0.72 * (1 - Math.pow(1 - slot.riseProgress, 2));
-        } else {
-          slot.group.scale.y = 1;
-        }
+        // Rigid clay chips never squash vertically via group.scale.y
+        slot.group.scale.y = 1;
 
+        let comp = 0;
+        let latX = 0;
+        let latZ = 0;
+        let springJustFinished = false;
         if (slot.springActive) {
           hasStackAnim = true;
           const stillActive = stepStackSpringPhysics(slot.spring, dt);
           slot.springActive = stillActive;
-          const chipCount = Math.max(1, slot.chips.length);
-          const comp = Math.max(-0.08, Math.min(0.16, slot.spring.compression));
-
-          for (const chip of slot.chips) {
-            const topWeight = (chip.level + 1) / chipCount;
-            chip.mesh.position.y = Math.max(
-              CHIP_HEIGHT * 0.45,
-              chip.baseY * (1 - 0.55 * comp)
-            );
-            chip.mesh.position.x = chip.baseX + slot.spring.lateralX * topWeight;
-            chip.mesh.position.z = chip.baseZ + slot.spring.lateralZ * topWeight;
-          }
+          // Bounded subtle elastic compression (keeps chips rigid & non-penetrating)
+          comp = Math.max(-0.04, Math.min(0.11, slot.spring.compression));
+          latX = slot.spring.lateralX * 0.65;
+          latZ = slot.spring.lateralZ * 0.65;
           if (!stillActive) {
-            for (const chip of slot.chips) {
-              chip.mesh.position.set(chip.baseX, chip.baseY, chip.baseZ);
-            }
+            springJustFinished = true;
           }
+        }
+
+        if (slot.hasDropAnim || slot.springActive || springJustFinished) {
+          let anyDropLeft = false;
+          const maxLevel = Math.max(1, slot.maxPerCol);
+          const effectivePitch = Math.max(CHIP_HEIGHT * 0.84, CHIP_HEIGHT - CHIP_NEST_OVERLAP);
+          for (const chip of slot.chips) {
+            let dropY = 0;
+            let settleFactor = 0;
+            if (chip.dropDuration > 0 && chip.dropElapsed < chip.dropDelay + chip.dropDuration) {
+              chip.dropElapsed += dt;
+              const localT = chip.dropElapsed - chip.dropDelay;
+              if (localT <= 0) {
+                dropY = chip.dropOffset;
+                settleFactor = 1;
+                anyDropLeft = true;
+              } else if (localT < chip.dropDuration) {
+                const p = localT / chip.dropDuration;
+                // Friction-damped cubic drop + rotational/tangential settle into nested seat
+                const inv = 1 - p;
+                dropY = chip.dropOffset * inv * inv * inv;
+                settleFactor = Math.exp(-3.4 * p) * inv;
+                anyDropLeft = true;
+              } else {
+                chip.dropDuration = 0;
+              }
+            }
+
+            // Bottom chip (level 0) stays anchored sunk into the emerald felt nap
+            const levelCompress = chip.level * CHIP_HEIGHT * comp * 0.46;
+            const minGroundedY =
+              CHIP_HEIGHT * 0.5 - FELT_SINK_DEPTH + chip.level * effectivePitch * 0.94;
+            const groundedY = Math.max(minGroundedY, chip.baseY - levelCompress);
+            const topWeight = chip.level / maxLevel;
+            chip.mesh.position.set(
+              chip.baseX + latX * topWeight + chip.landingSlideX * settleFactor,
+              groundedY + dropY,
+              chip.baseZ + latZ * topWeight + chip.landingSlideZ * settleFactor
+            );
+            chip.mesh.rotation.set(
+              chip.microTiltX,
+              chip.baseYaw + chip.landingYawDelta * settleFactor,
+              chip.microTiltZ
+            );
+          }
+          slot.hasDropAnim = anyDropLeft;
+          if (anyDropLeft) hasStackAnim = true;
         }
       });
 
@@ -1437,12 +1623,16 @@ function PokerScene3DInner({
         if (step.collided) {
           const targetSlot = stacks.get(f.targetStackKey);
           if (targetSlot) {
+            // Commit deferred stack growth at the exact moment incoming chips land!
+            if (targetSlot.pendingCommit) {
+              commitPendingSlot(targetSlot);
+            }
             const dx = f.body.targetX - f.body.startX;
             const dz = f.body.targetZ - f.body.startZ;
             const len = Math.max(0.01, Math.hypot(dx, dz));
             applyStackCollisionImpulse(
               targetSlot.spring,
-              step.collisionIntensity,
+              step.collisionIntensity * 0.85,
               dx / len,
               dz / len
             );
@@ -1451,7 +1641,7 @@ function PokerScene3DInner({
           spawnImpactRing(
             f.body.targetX,
             f.body.targetZ,
-            f.targetStackKey === 'pot' ? 1.28 : 0.92
+            f.targetStackKey === 'pot' ? 1.18 : 0.86
           );
           if (f.targetStackKey === 'pot' && !potClinkPlayedThisFrame) {
             potClinkPlayedThisFrame = true;
@@ -1460,6 +1650,10 @@ function PokerScene3DInner({
         }
 
         if (step.settled) {
+          const targetSlot = stacks.get(f.targetStackKey);
+          if (targetSlot?.pendingCommit) {
+            commitPendingSlot(targetSlot);
+          }
           dynamicGroup.remove(f.mesh);
           flyingChips.splice(i, 1);
         }
@@ -1612,6 +1806,8 @@ function PokerScene3DInner({
       renderer.domElement.removeEventListener('webglcontextrestored', onContextRestored);
 
       impactRings.forEach((r) => r.material.dispose());
+      barrelShadowGeo.dispose();
+      barrelShadowMats.forEach((m) => m.dispose());
       turnRingGeo.dispose();
       turnRingMat.dispose();
       controls.dispose();
