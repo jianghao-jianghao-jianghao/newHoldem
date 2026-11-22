@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 420" width="1120" height="420" fill="none">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="20%" r="75%">
+      <stop offset="0%" stop-color="#143225" stop-opacity="0.72"/>
+      <stop offset="55%" stop-color="#0B0F10" stop-opacity="0.96"/>
+      <stop offset="100%" stop-color="#080A0B" stop-opacity="1"/>
+    </radialGradient>
+    <linearGradient id="goldBorder" x1="0" y1="0" x2="1120" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#D4A853" stop-opacity="0.45"/>
+      <stop offset="50%" stop-color="#1E6B4B" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#D4A853" stop-opacity="0.45"/>
+    </linearGradient>
+    <linearGradient id="cardFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#13191B"/>
+      <stop offset="100%" stop-color="#0D1113"/>
+    </linearGradient>
+    <linearGradient id="accentGold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#D4A853"/>
+      <stop offset="100%" stop-color="#F2D28B"/>
+    </linearGradient>
+    <marker id="arrowGold" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9 z" fill="#D4A853" fill-opacity="0.8"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9 z" fill="#3AA778" fill-opacity="0.85"/>
+    </marker>
+  </defs>
+
+  <!-- Outer frame -->
+  <rect x="1" y="1" width="1118" height="418" rx="18" fill="url(#bgGlow)" stroke="url(#goldBorder)" stroke-width="1.5"/>
+
+  <!-- Header -->
+  <text x="40" y="44" fill="#D4A853" font-family="Georgia, 'Times New Roman', serif" font-size="13" letter-spacing="4">SYSTEM ARCHITECTURE</text>
+  <text x="40" y="70" fill="#F4EFE6" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="21" font-weight="600">同源单端口实时联机架构</text>
+  <rect x="894" y="34" width="186" height="28" rx="14" fill="#13261E" stroke="#1E6B4B" stroke-width="1"/>
+  <text x="987" y="52" text-anchor="middle" fill="#7CE0B3" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">Node.js 22 · Docker Ready</text>
+
+  <!-- Column 1: Client -->
+  <rect x="40" y="98" width="290" height="280" rx="14" fill="url(#cardFill)" stroke="#24302C" stroke-width="1.2"/>
+  <rect x="40" y="98" width="290" height="3" rx="1.5" fill="url(#accentGold)"/>
+  <text x="64" y="130" fill="#D4A853" font-family="ui-monospace, Consolas, monospace" font-size="11" letter-spacing="2">01 · CLIENT</text>
+  <text x="64" y="155" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="17" font-weight="600">浏览器 3D / 2D 牌桌</text>
+
+  <rect x="62" y="176" width="246" height="44" rx="8" fill="#101618" stroke="#1F2B27"/>
+  <text x="76" y="196" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600">Three.js WebGL 渲染层</text>
+  <text x="76" y="212" fill="#8B9892" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">丝绒牌桌 · 筹码物理 · 双视角 · 2D 自动回退</text>
+
+  <rect x="62" y="232" width="246" height="44" rx="8" fill="#101618" stroke="#1F2B27"/>
+  <text x="76" y="252" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600">Canvas 2D 特效 + Web Audio</text>
+  <text x="76" y="268" fill="#8B9892" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">全押光刃 · 筹码喷泉 · 分面值物理声效与爵士乐</text>
+
+  <rect x="62" y="288" width="246" height="44" rx="8" fill="#101618" stroke="#1F2B27"/>
+  <text x="76" y="308" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600">React 19 + Recharts 交互台</text>
+  <text x="76" y="324" fill="#8B9892" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">大厅 · 账簿抽屉 · 30 枚勋章 · 快捷键引擎</text>
+
+  <text x="185" y="362" text-anchor="middle" fill="#6F7D77" font-family="ui-monospace, Consolas, monospace" font-size="11">Vite 8 · Tailwind CSS v4</text>
+
+  <!-- Connector 1 -> 2 -->
+  <line x1="336" y1="210" x2="394" y2="210" stroke="#D4A853" stroke-opacity="0.75" stroke-width="1.5" marker-end="url(#arrowGold)" marker-start="url(#arrowGold)"/>
+  <text x="365" y="198" text-anchor="middle" fill="#D4A853" font-family="ui-monospace, Consolas, monospace" font-size="10">WS /ws</text>
+  <line x1="336" y1="268" x2="394" y2="268" stroke="#3AA778" stroke-opacity="0.75" stroke-width="1.5" marker-end="url(#arrowGreen)" marker-start="url(#arrowGreen)"/>
+  <text x="365" y="256" text-anchor="middle" fill="#7CE0B3" font-family="ui-monospace, Consolas, monospace" font-size="10">REST API</text>
+
+  <!-- Column 2: Realtime Server & Engine -->
+  <rect x="402" y="98" width="320" height="280" rx="14" fill="url(#cardFill)" stroke="#24302C" stroke-width="1.2"/>
+  <rect x="402" y="98" width="320" height="3" rx="1.5" fill="#1E6B4B"/>
+  <text x="426" y="130" fill="#7CE0B3" font-family="ui-monospace, Consolas, monospace" font-size="11" letter-spacing="2">02 · REALTIME CORE</text>
+  <text x="426" y="155" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="17" font-weight="600">权威牌局与 GTO v2 引擎</text>
+
+  <rect x="424" y="176" width="276" height="44" rx="8" fill="#101815" stroke="#1E4B38"/>
+  <text x="438" y="196" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600">WSOP / TDA 规则核心</text>
+  <text x="438" y="212" fill="#8B9892" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">密码学洗牌 · 多级边池 · 死钱守恒 · Rule 47</text>
+
+  <rect x="424" y="232" width="276" height="44" rx="8" fill="#101815" stroke="#1E4B38"/>
+  <text x="438" y="252" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600">GTO v2 陪练与复盘引擎</text>
+  <text x="438" y="268" fill="#8B9892" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">169 翻前矩阵 · Nash 推弃 · 蒙特卡洛胜率 · MDF</text>
+
+  <rect x="424" y="288" width="276" height="44" rx="8" fill="#101618" stroke="#1F2B27"/>
+  <text x="438" y="308" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600">安全鉴权与限流网关</text>
+  <text x="438" y="324" fill="#8B9892" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">6 位邮箱 OTP · HMAC 会话 · X-Seat-Secret 校验</text>
+
+  <text x="562" y="362" text-anchor="middle" fill="#6F7D77" font-family="ui-monospace, Consolas, monospace" font-size="11">Express · ws · 92 Unit Tests</text>
+
+  <!-- Connector 2 -> 3 -->
+  <line x1="728" y1="198" x2="782" y2="198" stroke="#3AA778" stroke-opacity="0.75" stroke-width="1.5" marker-end="url(#arrowGreen)" marker-start="url(#arrowGreen)"/>
+  <text x="755" y="187" text-anchor="middle" fill="#7CE0B3" font-family="ui-monospace, Consolas, monospace" font-size="10">WAL</text>
+  <line x1="728" y1="308" x2="782" y2="308" stroke="#D4A853" stroke-opacity="0.65" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowGold)"/>
+  <text x="755" y="297" text-anchor="middle" fill="#D4A853" font-family="ui-monospace, Consolas, monospace" font-size="10">可选</text>
+
+  <!-- Column 3: Storage & Optional Integrations -->
+  <rect x="790" y="98" width="290" height="148" rx="14" fill="url(#cardFill)" stroke="#24302C" stroke-width="1.2"/>
+  <rect x="790" y="98" width="290" height="3" rx="1.5" fill="#2E5C6E"/>
+  <text x="814" y="128" fill="#7BB8CC" font-family="ui-monospace, Consolas, monospace" font-size="11" letter-spacing="2">03 · PERSISTENCE</text>
+  <text x="814" y="152" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="600">原生 SQLite (WAL)</text>
+  <text x="814" y="180" fill="#9AA7A1" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12">· 玩家档案、段位与 30 枚勋章记录</text>
+  <text x="814" y="201" fill="#9AA7A1" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12">· 排行榜与陪练局归一化统计</text>
+  <text x="814" y="222" fill="#9AA7A1" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12">· 脱敏 hand_history 手牌回放</text>
+
+  <rect x="790" y="262" width="290" height="116" rx="14" fill="url(#cardFill)" stroke="#24302C" stroke-width="1.2" stroke-dasharray="5 3"/>
+  <text x="814" y="292" fill="#D4A853" font-family="ui-monospace, Consolas, monospace" font-size="11" letter-spacing="2">04 · OPTIONAL</text>
+  <text x="814" y="316" fill="#F4EFE6" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" font-weight="600">非强制外部扩展</text>
+  <text x="814" y="342" fill="#9AA7A1" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12">· DeepSeek API：陪练闲聊接梗与 GTO 点评</text>
+  <text x="814" y="362" fill="#9AA7A1" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12">· SMTP / Resend：真实邮箱验证码发信</text>
+</svg>

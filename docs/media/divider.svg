@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 28" width="960" height="28" fill="none">
+  <defs>
+    <linearGradient id="lineL" x1="0" y1="14" x2="452" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#D4A853" stop-opacity="0"/>
+      <stop offset="65%" stop-color="#D4A853" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#D4A853" stop-opacity="0.65"/>
+    </linearGradient>
+    <linearGradient id="lineR" x1="508" y1="14" x2="960" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#D4A853" stop-opacity="0.65"/>
+      <stop offset="35%" stop-color="#D4A853" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#D4A853" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <line x1="0" y1="14" x2="452" y2="14" stroke="url(#lineL)" stroke-width="1"/>
+  <line x1="508" y1="14" x2="960" y2="14" stroke="url(#lineR)" stroke-width="1"/>
+  <circle cx="464" cy="14" r="1.5" fill="#D4A853" fill-opacity="0.55"/>
+  <circle cx="496" cy="14" r="1.5" fill="#D4A853" fill-opacity="0.55"/>
+  <path d="M480 6.5 C480 6.5 473.5 12.2 473.5 15.6 C473.5 17.8 475.1 19 476.8 19 C478 19 479.1 18.3 479.6 17.3 C479.4 19.2 478.7 20.6 477.5 21.5 L482.5 21.5 C481.3 20.6 480.6 19.2 480.4 17.3 C480.9 18.3 482 19 483.2 19 C484.9 19 486.5 17.8 486.5 15.6 C486.5 12.2 480 6.5 480 6.5 Z" fill="#D4A853" fill-opacity="0.85"/>
+</svg>

@@ -6,13 +6,14 @@
 
 <div align="center">
 
-<p><strong>把私人德州俱乐部的克制质感，搬进浏览器。</strong></p>
+<h3>把私人德州俱乐部的克制质感，搬进浏览器</h3>
 
 <p>
-  <a href="#实机演示">实机演示</a> &nbsp;·&nbsp;
-  <a href="#牌局细节">牌局细节</a> &nbsp;·&nbsp;
-  <a href="#架构与部署">架构与部署</a> &nbsp;·&nbsp;
-  <a href="#操作与快捷键">快捷键</a> &nbsp;·&nbsp;
+  <a href="#宣传片">宣传片</a> &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#一局流程">一局流程</a> &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#设计与实现">设计与实现</a> &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#系统架构">系统架构</a> &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#快速启动">快速启动</a> &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#合规说明">合规说明</a>
 </p>
 
@@ -24,199 +25,201 @@
   <img src="https://img.shields.io/badge/License-MIT-2A332E?style=flat-square&labelColor=0B0E10" alt="MIT" />
 </p>
 
+<br />
+
+<p>
+  为亲友约局与个人练牌打造的 3D 实时多人无上限德州扑克。<br />
+  没有花哨廉价的棋牌弹窗，也没有含糊其辞的简化规则——围绕「<strong>打开即入局，久玩不累眼</strong>」打磨每一处交互。
+</p>
+
 </div>
 
 <br />
 
-Velvet Hold'em 是一款为亲友约局与个人练牌打造的 3D 实时多人无上限德州扑克。没有花哨廉价的棋牌弹窗，也没有含糊其辞的简化规则——绿绒牌桌、原创宫廷牌面、按面值合成的物理筹码声效、WSOP / TDA 多级边池清算，以及内置 169 手牌矩阵与蒙特卡洛估算的 GTO v2 陪练，所有细节都围绕「**打开即入局，久玩不累眼**」而写。
+<!-- 提示：若希望在 GitHub 主页直接内联播放视频，可在 GitHub 网页端编辑 README 时将 promo-video/out/promo-under10mb.mp4 拖入编辑框，用生成的 https://github.com/user-attachments/assets/... 链接替换下方封面块即可 -->
+
+## 宣传片
+
+<p align="center">
+  <a href="docs/media/promo.mp4">
+    <img src="docs/media/video-cover.jpg" alt="点击观看 Velvet Hold'em 1 分钟实机宣传片（含游戏原声）" width="100%" />
+  </a>
+</p>
+
+<br />
+
+<table>
+  <tr>
+    <td width="25%" valign="top">
+      <strong>3D 丝绒美学</strong><br />
+      <sub>Three.js 实景牌桌、胡桃木包边、立体筹码物理堆叠与双视角切换，无 WebGL 自动回退 2D。</sub>
+    </td>
+    <td width="25%" valign="top">
+      <strong>严谨清算与 GTO v2</strong><br />
+      <sub>WSOP / TDA 多级边池与 Rule 47，内置 169 手牌矩阵、Nash 推弃与蒙特卡洛胜率陪练。</sub>
+    </td>
+    <td width="25%" valign="top">
+      <strong>物理声效与打击感</strong><br />
+      <sub>全押光刃与筹码喷泉特效，按筹码面值实时合成物理碰撞音，配轻爵士 BGM 一键静音。</sub>
+    </td>
+    <td width="25%" valign="top">
+      <strong>零门槛与持久化</strong><br />
+      <sub>游客免登录直玩、6 位邮箱验证码跨端同步、原生 SQLite (WAL) 存储与 Docker 一键起服。</sub>
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <img src="docs/media/hero-table.jpg" alt="Velvet Hold'em 3D 丝绒牌桌主界面" width="100%" />
   <br />
-  <sub>桌面端 3D 绿绒牌桌 · 移动端或无 WebGL 环境自动回退至 2D 牌桌</sub>
+  <sub>桌面端 3D 绿绒实景牌桌 · 移动端或无 WebGL 环境自动回退至 2D 牌桌</sub>
 </p>
 
-<br />
+<p align="center"><img src="docs/media/divider.svg" alt="" width="76%" /></p>
 
-## 实机演示
+## 一局流程
 
-<p align="center">
-  <a href="docs/media/promo.mp4">
-    <img src="docs/media/promo-preview.gif" alt="Velvet Hold'em 宣传片动态预览" width="100%" />
-  </a>
-  <br />
-  <sub>
-    点击画面播放 <a href="docs/media/promo.mp4"><strong>1 分钟完整宣传片（1080p · 含实录爵士 BGM 与物理筹码原声）</strong></a>
-  </sub>
-</p>
-
-<br />
-
-从进大厅入座、视角切换、全押摊牌到聊骚复盘，完整一局的交互节奏：
+从牌室入座、视角切换、全押摊牌到闲聊复盘，六段实录动图呈现完整一局的交互节奏：
 
 <table>
   <tr>
-    <td width="50%" align="center">
-      <img src="docs/media/flow-join.gif" alt="进大厅入座" width="100%" />
-      <br />
-      <strong>进厅入座</strong><br />
-      <sub>3D 牌室大厅浏览房间，一键进入牌桌</sub>
+    <td width="33.3%" align="center" valign="top">
+      <img src="docs/media/flow-join.gif" alt="进大厅入座" width="100%" /><br />
+      <strong>01 · 进厅入座</strong><br />
+      <sub>3D 牌室大厅浏览在线桌，一键入局</sub>
     </td>
-    <td width="50%" align="center">
-      <img src="docs/media/flow-camera.gif" alt="双视角切换" width="100%" />
-      <br />
-      <strong>双视角切换</strong><br />
-      <sub>经典 45° 视角与 90° 全局俯瞰平滑过渡</sub>
+    <td width="33.3%" align="center" valign="top">
+      <img src="docs/media/flow-camera.gif" alt="双视角切换" width="100%" /><br />
+      <strong>02 · 双视角切换</strong><br />
+      <sub>经典 45° 与 90° 全局俯瞰平滑过渡</sub>
     </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/media/flow-allin.gif" alt="ALL-IN 打击特效" width="100%" />
-      <br />
-      <strong>全押与赢池反馈</strong><br />
-      <sub>Canvas 光刃冲击、筹码溅射与成就即时弹出</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/media/flow-showdown.gif" alt="全下自动翻牌摊牌" width="100%" />
-      <br />
-      <strong>全下摊牌</strong><br />
-      <sub>全员全下自动发完公共牌，多级边池精确结算</sub>
+    <td width="33.3%" align="center" valign="top">
+      <img src="docs/media/flow-allin.gif" alt="全押与赢池特效" width="100%" /><br />
+      <strong>03 · 全押打击</strong><br />
+      <sub>光刃冲击波、筹码溅射与成就解锁</sub>
     </td>
   </tr>
   <tr>
-    <td width="50%" align="center">
-      <img src="docs/media/flow-chat.gif" alt="牌桌闲聊与陪练互动" width="100%" />
-      <br />
-      <strong>沙龙闲聊</strong><br />
-      <sub>快捷短语与表情合一，AI 陪练会自然接话</sub>
+    <td width="33.3%" align="center" valign="top">
+      <img src="docs/media/flow-showdown.gif" alt="全下摊牌" width="100%" /><br />
+      <strong>04 · 全下摊牌</strong><br />
+      <sub>全员全下自动发牌，多级边池结算</sub>
     </td>
-    <td width="50%" align="center">
-      <img src="docs/media/flow-analytics.gif" alt="牌局账簿与复盘" width="100%" />
-      <br />
-      <strong>账簿与复盘</strong><br />
-      <sub>排行、筹码曲线、分街底池、牌风与手牌回放</sub>
+    <td width="33.3%" align="center" valign="top">
+      <img src="docs/media/flow-chat.gif" alt="牌桌闲聊" width="100%" /><br />
+      <strong>05 · 沙龙闲聊</strong><br />
+      <sub>表情短语合一，AI 陪练自然接话</sub>
+    </td>
+    <td width="33.3%" align="center" valign="top">
+      <img src="docs/media/flow-analytics.gif" alt="账簿与复盘" width="100%" /><br />
+      <strong>06 · 账簿复盘</strong><br />
+      <sub>排行、走势、底池、牌风与手牌回放</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center"><img src="docs/media/divider.svg" alt="" width="76%" /></p>
+
+## 设计与实现
+
+<table>
+  <tr>
+    <td width="58%" align="center" valign="middle">
+      <img src="docs/media/allin-burst.jpg" alt="ALL-IN 打击光刃与筹码溅射" width="100%" />
+    </td>
+    <td width="42%" valign="middle">
+      <h4>克制牌桌质感 × Canvas 打击与物理声效</h4>
+      <p>低饱和祖母绿绒面搭配胡桃木包边与黄铜饰钉，高对比度原创双头 <code>J / Q / K</code> 宫廷牌面与 <code>D / SB / BB</code> 指示物清晰耐看。</p>
+      <p>全押与赢池时在头像上方触发 Canvas 2D 金红光刃、双层冲击波与立体筹码喷泉；每次下注按筹码面值（<code>5 / 25 / 100 / 500 / 1000+</code>）实时合成不同质感的物理碰撞音，按 <kbd>M</kbd> 同步控制音效与爵士 BGM。</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="42%" valign="middle">
+      <h4>WSOP / TDA 清算 × GTO v2 陪练引擎</h4>
+      <p>完整支持 2–10 人桌、密码学安全洗牌（<code>crypto.randomInt</code>）、多人全下多级边池、超额未跟注退还、中途离桌死钱守恒、Rule 47 短全下规则，以及局间补码与出局重买。</p>
+      <p>内置 <strong>GTO v2</strong> 策略陪练——覆盖 6-max / HU 169 手牌翻前矩阵、≤15BB Nash 推/弃表、零分配 O(1) 7 张牌评估、蒙特卡洛范围胜率、MDF、阻断牌与几何下注尺度；亦可在设置中<strong>非强制</strong>接入 DeepSeek API，驱动陪练闲聊接梗与局后复盘点评。</p>
+    </td>
+    <td width="58%" align="center" valign="middle">
+      <img src="docs/media/showdown.jpg" alt="摊牌亮牌与动态段位光环" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="58%" align="center" valign="middle">
+      <img src="docs/media/profile-achievements.jpg" alt="30 枚荣誉与趣事勋章陈列" width="100%" />
+    </td>
+    <td width="42%" valign="middle">
+      <h4>30 枚荣誉与趣事勋章 × 无门槛约局</h4>
+      <p>打开大厅即可免登录建桌或凭房号入局；通过右上角 <strong>6 位邮箱验证码</strong>登录即可跨设备同步个人中心，自动合并游客期解锁的本地成就。</p>
+      <p>勋章馆收录 <strong>30 枚</strong>铜 / 银 / 金 / 传奇黑金四档成就，囊括「传奇 10-2」「7-2 传说」「天选倒霉蛋」「大滑头绝杀」「火箭坠毁」「空气赢家」等经典牌局时刻；头像外圈随青铜至钻石段位实时流转光环。</p>
     </td>
   </tr>
 </table>
 
 <br />
-
-## 牌局细节
-
-### 牌桌质感与视觉克制
-
-低饱和祖母绿绒面、胡桃木包边与黄铜饰钉由 Three.js 实时渲染，立体筹码按面值分色堆叠；纸牌采用高对比度配色与原创对称双头 `J / Q / K` 宫廷插画，`D / SB / BB` 指示物在经典与俯瞰视角下都清晰可辨。
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/media/topdown.jpg" alt="俯瞰视角 3D 牌桌" width="100%" />
-      <br />
-      <sub>俯瞰全局视角 · 筹码柱与盲位指示物</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/media/card-showcase.png" alt="原创宫廷牌面图鉴" width="100%" />
-      <br />
-      <sub>原创双头宫廷牌面与内置牌型速查</sub>
-    </td>
-  </tr>
-</table>
-
-### 打击特效与物理声效
-
-全押（All-in）与赢取底池时，头像上方触发基于 Canvas 2D 绘制的动态气泡——金红光刃、冲击波与多面额筹码喷泉，悬停头像则有细腻的粒子涟漪。每次下注按筹码面值（`5 / 25 / 100 / 500 / 1000+`）实时合成不同质感的碰撞音，配以轻爵士 BGM，按 `M` 可一键静音。
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/media/allin-burst.jpg" alt="ALL-IN 打击光刃特写" width="100%" />
-      <br />
-      <sub>全押触发光刃、冲击波与筹码溅射</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/media/win-achievement.jpg" alt="赢池结算与成就解锁" width="100%" />
-      <br />
-      <sub>赢池飘字与右上角成就解锁通知</sub>
-    </td>
-  </tr>
-</table>
-
-### WSOP / TDA 清算与 GTO v2 陪练
-
-规则引擎严格按 WSOP / TDA 标准实现：2–10 人桌、密码学安全洗牌（`crypto.randomInt`）、多人全下多级边池、超额未跟注退还、中途离桌死钱守恒、短全下不重开加注（Rule 47），以及局间补码与出局重买。
-
-人不够时可随时增减策略型陪练。**GTO v2** 内置 6-max / HU 169 手牌翻前频率矩阵、≤15BB Nash 推/弃表、零分配 O(1) 7 张牌评估、蒙特卡洛范围胜率估算、最小防守频率（MDF）、阻断牌与几何下注尺度；也可以在「牌桌设置」中**非强制**填入 DeepSeek API，让陪练在摊牌和闲聊时自然接梗，或辅助局后 GTO 复盘点评。
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/media/showdown.jpg" alt="摊牌结算与动态段位光环" width="100%" />
-      <br />
-      <sub>摊牌亮牌与随排行榜流转的段位光环</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/media/chat.jpg" alt="牌桌闲聊" width="100%" />
-      <br />
-      <sub>左下角极简闲聊抽屉 · 不遮挡核心牌面</sub>
-    </td>
-  </tr>
-</table>
-
-### 牌局账簿与复盘
-
-点顶栏「数据」可展开右侧抽屉，从实时筹码排行、逐手走势、分街底池折线图、牌风画像（胜率 / VPIP / 摊牌胜率）到最近 20 手的逐街动作时间线，完整保留每一局的来龙去脉。
 
 <p align="center">
   <img src="docs/media/analytics-panels.jpg" alt="牌局账簿与复盘五个面板" width="100%" />
   <br />
-  <sub>局内排行 · 玩家筹码走势 · 分街与历史底池 · 风格洞察 · 最近 20 手动作回放</sub>
+  <sub>牌局账簿与复盘 · 局内排行 · 玩家筹码走势 · 分街与历史底池 · 牌风洞察（胜率 / VPIP / 摊牌胜率） · 最近 20 手逐街动作回放</sub>
 </p>
-
-### 个人中心、30 枚勋章与无门槛约局
-
-打开大厅无需注册即可一键入桌或建房约局；若需要跨设备保存战绩，可通过右上角 **6 位邮箱验证码**登录同步个人中心（登录后自动合并游客阶段的本地成就）。
-
-牌桌上单击任意头像可查看生涯数据与勋章陈列。勋章馆收录 **30 枚**成就，涵盖荣耀战绩、实战风格与「传奇 10-2」「7-2 传说」「天选倒霉蛋」「大滑头绝杀」「火箭坠毁」「空气赢家」等真实牌局趣事，分铜、银、金、传奇黑金四档；支持 7 款俱乐部徽章与自定义头像上传。
 
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/media/profile-achievements.jpg" alt="勋章陈列" width="100%" />
-      <br />
-      <sub>30 枚四档稀有度勋章 · 记录解锁时刻并可佩戴</sub>
+      <img src="docs/media/topdown.jpg" alt="俯瞰全局视角" width="100%" /><br />
+      <sub>俯瞰全局视角 · 立体筹码柱与盲位指示物</sub>
     </td>
     <td width="50%" align="center">
-      <img src="docs/media/profile-avatar.jpg" alt="形象设置" width="100%" />
-      <br />
+      <img src="docs/media/card-showcase.png" alt="原创宫廷牌面图鉴" width="100%" /><br />
+      <sub>原创双头宫廷人像与内置牌型速查图鉴</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/media/chat.jpg" alt="牌桌闲聊" width="100%" /><br />
+      <sub>极简沙龙闲聊 · 表情与快捷短语合一</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/media/lobby.jpg" alt="3D 牌室大厅" width="100%" /><br />
+      <sub>3D 牌室大厅 · 自定义盲注与房号邀约</sub>
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary>查看更多实机截图（赢池成就弹窗 · 俱乐部徽章与形象定制）</summary>
+
+<br />
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/media/win-achievement.jpg" alt="赢池结算与成就解锁通知" width="100%" /><br />
+      <sub>赢池飘字与右上角成就解锁通知</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/media/profile-avatar.jpg" alt="形象设置与俱乐部徽章" width="100%" /><br />
       <sub>7 款俱乐部徽章与自定义头像上传</sub>
     </td>
   </tr>
 </table>
 
+</details>
+
+<p align="center"><img src="docs/media/divider.svg" alt="" width="76%" /></p>
+
+## 系统架构
+
 <p align="center">
-  <img src="docs/media/lobby.jpg" alt="3D 牌室大厅" width="100%" />
-  <br />
-  <sub>3D 牌室大厅 · 自定义盲注与筹码深度 · 房号邀约好友</sub>
+  <img src="docs/media/architecture.svg" alt="Velvet Hold'em 系统架构图" width="100%" />
 </p>
 
-<br />
-
-## 架构与部署
-
-| 层 | 实现 |
-| :--- | :--- |
-| 前端 | React 19 · TypeScript · Vite 8 · Tailwind CSS v4 · Three.js · Canvas 2D |
-| 实时通信 | Express + `ws` 单端口同源承载 · 心跳回收僵尸连接 · 断线重连态锁定下注 |
-| 持久化 | Node.js 22 原生 `node:sqlite`（WAL 模式），存储账号、排行榜与脱敏 `hand_history` |
-| GTO 引擎 | `gtoRanges.ts`（169 翻前矩阵 / Nash）· `botAi.ts`（蒙特卡洛胜率）· `gtoCoach.ts` |
-| 安全与鉴权 | 纯邮箱 6 位 OTP（冷却 + 试错锁定 + 限流）· HMAC 会话 Token · `X-Seat-Secret` 座位防冒充 |
-
 <details>
-<summary>目录结构</summary>
+<summary>目录结构与前后端契约</summary>
 
 ```text
 .
-├── server.ts                  # Express + WebSocket 主服务与房间生命周期
+├── server.ts                  # Express + WebSocket 主服务、房间生命周期与安全中间件
 ├── server/
 │   ├── db.ts                  # Node 22 原生 SQLite (WAL) 初始化与 hand_history
 │   ├── authStore.ts           # 邮箱 6 位 OTP 鉴权、SMTP/Resend 发信与会话吊销
@@ -237,47 +240,67 @@ Velvet Hold'em 是一款为亲友约局与个人练牌打造的 3D 实时多人�
 ├── deploy/nginx.conf.example  # Nginx HTTPS + WSS 反向代理参考配置
 ├── Dockerfile                 # 多阶段构建（node:22-slim 非 root 镜像）
 ├── docker-compose.yml         # 一键编排与 ./data 持久化卷
-└── UI_CONTRACT.md             # 前后端 REST / WebSocket 契约
+└── UI_CONTRACT.md             # 前后端 REST / WebSocket 协同契约
 ```
 
 </details>
 
-### 快速启动
+<p align="center"><img src="docs/media/divider.svg" alt="" width="76%" /></p>
 
-**Docker Compose（推荐）**
+## 快速启动
 
-```bash
-git clone https://github.com/jianghao-jianghao-jianghao/newHoldem.git
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Docker Compose（推荐）</strong><br />
+      <sub>内置 <code>node:22-slim</code> 非 root 镜像与 <code>./data</code> SQLite 持久化卷</sub>
+      <pre lang="bash">git clone https://github.com/jianghao-jianghao-jianghao/newHoldem.git
 cd newHoldem
-cp .env.example .env          # 留空也可直接以游客身份畅玩
-docker compose up -d --build
-```
-
-**本地开发（需 Node.js >= 22.5）**
-
-```bash
-git clone https://github.com/jianghao-jianghao-jianghao/newHoldem.git
+cp .env.example .env
+docker compose up -d --build</pre>
+    </td>
+    <td width="50%" valign="top">
+      <strong>本地开发（Node.js &gt;= 22.5）</strong><br />
+      <sub>零配置即可本地启动完整联机、SQLite 与 GTO v2 陪练</sub>
+      <pre lang="bash">git clone https://github.com/jianghao-jianghao-jianghao/newHoldem.git
 cd newHoldem
 npm install
-npm run dev
-```
+npm run dev</pre>
+    </td>
+  </tr>
+</table>
 
-启动后访问 `http://localhost:3000`（服务健康探针：`GET /api/health`）。公网部署如需配置 HTTPS / WSS，可参考 [deploy/nginx.conf.example](deploy/nginx.conf.example) 并在 `.env` 中设置 `TRUST_PROXY=1` 与强随机 `AUTH_SESSION_SECRET`。
+启动后访问 `http://localhost:3000`（健康检查 `GET /api/health`）。公网 HTTPS / WSS 部署参考 [deploy/nginx.conf.example](deploy/nginx.conf.example)，生产环境请在 `.env` 中配置 `TRUST_PROXY=1` 与强随机 `AUTH_SESSION_SECRET`。
 
-> Windows + WSL2 环境下使用 Docker 时，建议在 `C:\Users\<用户名>\.wslconfig` 的 `[wsl2]` 下设置 `vmIdleTimeout=-1`，防止 WSL2 休眠中断本地端口。
-
-<details>
-<summary>环境变量、校验命令与核心接口</summary>
+> Windows + WSL2 使用 Docker 时，建议在 `C:\Users\<用户名>\.wslconfig` 的 `[wsl2]` 下设置 `vmIdleTimeout=-1`，防止休眠中断本地端口。
 
 <br />
 
-复制 `.env.example` 为 `.env` 按需配置（全部均为可选项）：
+**快捷键与手势**（聊天输入或弹窗打开时自动暂停，自动忽略组合键）：
+
+<p>
+  <kbd>F</kbd> 弃牌 &nbsp;·&nbsp;
+  <kbd>C</kbd> / <kbd>Space</kbd> 让牌或跟注 &nbsp;·&nbsp;
+  <kbd>R</kbd> 下注 / 加注 &nbsp;·&nbsp;
+  <kbd>T</kbd> 闲聊 &nbsp;·&nbsp;
+  <kbd>M</kbd> 静音音效与配乐 &nbsp;·&nbsp;
+  <kbd>Esc</kbd> 关闭面板 &nbsp;·&nbsp;
+  <strong>单击头像</strong> 查看档案与勋章 &nbsp;·&nbsp;
+  <strong>双击对手</strong> 轻敲提醒
+</p>
+
+<details>
+<summary>环境变量参考、测试命令与核心接口</summary>
+
+<br />
+
+复制 `.env.example` 为 `.env` 按需配置（全部为可选项）：
 
 | 环境变量 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `PORT` | `3000` | 服务端口（同源承载前端、REST API 与 `/ws`） |
-| `DATA_DIR` | `./data` | SQLite 数据库与密钥目录（Docker 内自动挂载至 `/app/data`） |
-| `AUTH_SESSION_SECRET` | 自动生成 | 会话 Token HMAC 签名密钥（公网部署请设为 ≥32 位随机串） |
+| `PORT` | `3000` | 服务端口（同源承载前端静态资源、REST API 与 `/ws`） |
+| `DATA_DIR` | `./data` | SQLite 数据库与会话密钥目录（Docker 内自动挂载至 `/app/data`） |
+| `AUTH_SESSION_SECRET` | 自动生成 | 会话 Token HMAC 签名密钥（公网部署建议设为 ≥32 位随机串） |
 | `ALLOW_OTP_PREVIEW` | `false` | 仅本地无邮件服务调试时设为 `true`，生产保持 `false` |
 | `SMTP_*` / `RESEND_API_KEY` | — | 邮箱验证码发信配置（Resend 优先级高于 SMTP） |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | `deepseek-chat` | 可选服务端默认 DeepSeek 配置，用于 AI 陪练对话与 GTO 点评 |
@@ -303,24 +326,7 @@ npm start       # 启动生产产物
 
 </details>
 
-<br />
-
-## 操作与快捷键
-
-快捷键自动忽略 `Ctrl / Meta / Alt` 组合键，并在聊天输入或弹窗打开时暂停触发。
-
-| 按键 / 手势 | 作用 |
-| :--- | :--- |
-| `F` | 弃牌（Fold） |
-| `C` / `Space` | 让牌（Check）或跟注（Call） |
-| `R` | 按当前滑块金额下注 / 加注（Raise） |
-| `T` | 展开 / 收起牌桌闲聊 |
-| `M` | 静音 / 恢复音效与爵士 BGM |
-| `Esc` | 关闭当前弹窗或面板 |
-| 单击任意头像 | 查看牌手档案、实时数据与勋章 |
-| 双击对手头像 | 发送轻敲桌面提醒 |
-
-<br />
+<p align="center"><img src="docs/media/divider.svg" alt="" width="76%" /></p>
 
 ## 合规说明
 
@@ -331,4 +337,8 @@ npm start       # 启动生产产物
 - **责任自负**：代码按 MIT 协议以「现状（AS IS）」开源提供；任何第三方二次开发、公网部署或运营行为的合规义务及法律责任均由实际部署方自行承担。
 - **密钥隐私**：DeepSeek 对话与邮箱验证码均为可选项；玩家在页面手动填入的密钥仅驻留于当前房间内存，不落盘、不回显，离桌或关闭房间即清除。
 
-Released under the [MIT License](LICENSE).
+<br />
+
+<div align="center">
+  <sub>Released under the <a href="LICENSE">MIT License</a> · Velvet Hold'em</sub>
+</div>
