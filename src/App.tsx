@@ -15,6 +15,7 @@ import {
 import { sanitizeAvatar } from './shared/avatarUtils';
 import { appendChatHistory, MAX_CHAT_HISTORY } from './shared/chatUtils';
 import type {
+  BotChatStatus,
   ChatMessage,
   ClientTableView,
   ClientWsMessage,
@@ -24,6 +25,7 @@ import type {
   RoomSummary,
   ServerWsMessage,
 } from './shared/types';
+import type { BotChatConfigRequest } from './components/TableChatPanel';
 import { type ChipActionKind, soundFx } from './utils/soundFx';
 
 const SERVER_BASE_URL = (
@@ -120,6 +122,11 @@ export default function App() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('classic');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [botChatStatus, setBotChatStatus] = useState<BotChatStatus>({
+    enabled: false,
+    configured: false,
+    source: 'none',
+  });
   const [lastNudge, setLastNudge] = useState<PlayerNudgeEvent | null>(null);
   const [nudgePulse, setNudgePulse] = useState<{ targetPlayerId: string; key: number } | null>(null);
 
@@ -141,6 +148,10 @@ export default function App() {
   const toastTimerRef = useRef<number | null>(null);
   const lastCloudSyncedStampRef = useRef<string>('');
   const hydratedProfileUidRef = useRef<string | null>(null);
+  const latestAchievementsRef = useRef<{
+    achievements?: AchievementId[];
+    achievementDates?: AchievementDatesMap;
+  }>({});
 
   // Hydrate user profile preferences from verified email account
   useEffect(() => {
@@ -218,16 +229,28 @@ export default function App() {
       if (disposed) return;
       const ws = new WebSocket(getWsUrl());
       wsRef.current = ws;
+      let awaitingPong = false;
 
       ws.onopen = () => {
         reconnectAttempt = 0;
+        awaitingPong = false;
         setWsStatus('connected');
         setErrorMsg(null);
         clearHeartbeat();
         heartbeatTimer = window.setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' } satisfies ClientWsMessage));
+          if (ws.readyState !== WebSocket.OPEN) return;
+          if (awaitingPong) {
+            // No pong/message received since last ping: force-close zombie socket to trigger reconnect
+            clearHeartbeat();
+            try {
+              ws.close(4000, 'Heartbeat timeout');
+            } catch {
+              // Ignore close error
+            }
+            return;
           }
+          awaitingPong = true;
+          ws.send(JSON.stringify({ type: 'ping' } satisfies ClientWsMessage));
         }, 15_000);
 
         if (joinedRoomRef.current) {
@@ -239,12 +262,15 @@ export default function App() {
               seatSecret,
               playerName: joinedRoomRef.current.name,
               avatar: joinedRoomRef.current.avatar,
+              achievements: latestAchievementsRef.current.achievements,
+              achievementDates: latestAchievementsRef.current.achievementDates,
             } satisfies ClientWsMessage)
           );
         }
       };
 
       ws.onmessage = (event) => {
+        awaitingPong = false;
         let msg: ServerWsMessage;
         try {
           msg = JSON.parse(event.data) as ServerWsMessage;
@@ -252,7 +278,9 @@ export default function App() {
           return;
         }
 
-        if (msg.type === 'rooms_update') {
+        if (msg.type === 'pong') {
+          return;
+        } else if (msg.type === 'rooms_update') {
           setRooms(msg.rooms);
         } else if (msg.type === 'leaderboard_update') {
           setLeaderboard(msg.entries);
@@ -266,6 +294,8 @@ export default function App() {
           setChatMessages((prev) =>
             appendChatHistory(prev, msg.message, MAX_CHAT_HISTORY)
           );
+        } else if (msg.type === 'bot_chat_status') {
+          setBotChatStatus(msg.status);
         } else if (msg.type === 'player_nudged') {
           setLastNudge(msg.nudge);
           setNudgePulse({
@@ -283,6 +313,7 @@ export default function App() {
           joinedRoomRef.current = null;
           setTable(null);
           setChatMessages([]);
+          setBotChatStatus({ enabled: false, configured: false, source: 'none' });
           setLastNudge(null);
           setScreen('title');
           setErrorMsg(msg.reason);
@@ -293,6 +324,7 @@ export default function App() {
 
       ws.onclose = () => {
         clearHeartbeat();
+        awaitingPong = false;
         if (!disposed) {
           setWsStatus('reconnecting');
           const delayMs = Math.min(8000, 1000 * Math.pow(2, reconnectAttempt));
@@ -344,6 +376,8 @@ export default function App() {
         seatSecret,
         playerName: autoName,
         avatar: playerAvatar,
+        achievements: latestAchievementsRef.current.achievements,
+        achievementDates: latestAchievementsRef.current.achievementDates,
       });
     }
   }, [playerId, seatSecret, playerName, playerAvatar, sendWs]);
@@ -533,6 +567,7 @@ export default function App() {
           headers: {
             'Content-Type': 'application/json',
             'X-Player-Id': playerId,
+            'X-Seat-Secret': seatSecret,
           },
           body: JSON.stringify(params),
         });
@@ -554,7 +589,7 @@ export default function App() {
         return null;
       }
     },
-    [playerId]
+    [playerId, seatSecret]
   );
 
   const handleDeleteRoom = useCallback(
@@ -564,6 +599,7 @@ export default function App() {
           method: 'DELETE',
           headers: {
             'X-Player-Id': playerId,
+            'X-Seat-Secret': seatSecret,
           },
         });
         if (!res.ok) {
@@ -577,7 +613,7 @@ export default function App() {
         setErrorMsg('删除牌桌失败，无法连接服务器');
       }
     },
-    [playerId]
+    [playerId, seatSecret]
   );
 
   const handleLeaveRoom = useCallback(() => {
@@ -585,9 +621,48 @@ export default function App() {
     sendWs({ type: 'leave_room' });
     setTable(null);
     setChatMessages([]);
+    setBotChatStatus({ enabled: false, configured: false, source: 'none' });
     setLastNudge(null);
     setScreen('title');
   }, [sendWs]);
+
+  const handleConfigureBotChat = useCallback(
+    async (
+      params: BotChatConfigRequest
+    ): Promise<{ ok: boolean; error?: string; status?: BotChatStatus }> => {
+      const targetRoomId = table?.roomId ?? joinedRoomRef.current?.roomId;
+      if (!targetRoomId) {
+        return { ok: false, error: '当前未加入牌桌' };
+      }
+      try {
+        const res = await fetch(
+          getApiUrl(`/api/rooms/${encodeURIComponent(targetRoomId)}/bot-chat/config`),
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Player-Id': playerId,
+              'X-Seat-Secret': seatSecret,
+            },
+            body: JSON.stringify(params),
+          }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          status?: BotChatStatus;
+        };
+        if (!res.ok || !data.status) {
+          return { ok: false, error: data.error ?? '保存陪练对话设置失败' };
+        }
+        setBotChatStatus(data.status);
+        return { ok: true, status: data.status };
+      } catch {
+        return { ok: false, error: '无法连接服务器，请稍后重试' };
+      }
+    },
+    [table?.roomId, playerId, seatSecret]
+  );
 
   const handleAction = useCallback(
     (action: PlayerAction) => {
@@ -649,6 +724,12 @@ export default function App() {
     matchedLeaderboardEntry?.currentWinStreak ??
     0;
 
+  latestAchievementsRef.current = {
+    achievements: currentAchievements.length > 0 ? currentAchievements : undefined,
+    achievementDates:
+      Object.keys(currentAchievementDates).length > 0 ? currentAchievementDates : undefined,
+  };
+
   const use3D = isDesktop && !webglFailed;
 
   return (
@@ -688,12 +769,15 @@ export default function App() {
         <PokerTable
           table={table}
           myPlayerId={playerId}
+          leaderboard={leaderboard}
           chatMessages={chatMessages}
           lastNudge={lastNudge}
+          botChatStatus={botChatStatus}
           muted={muted}
           bgmEnabled={bgmEnabled}
           isDesktop={use3D}
           externalModalOpen={achievementsOpen || rankingsOpen}
+          isReconnecting={wsStatus === 'reconnecting'}
           cameraPreset={cameraPreset}
           onToggleCameraPreset={handleToggleCameraPreset}
           onToggleMute={handleToggleMute}
@@ -721,6 +805,7 @@ export default function App() {
           }
           onAction={handleAction}
           onSendChat={(text) => sendWs({ type: 'send_chat', text })}
+          onConfigureBotChat={handleConfigureBotChat}
         />
       )}
 

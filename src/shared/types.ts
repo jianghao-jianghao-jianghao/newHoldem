@@ -299,6 +299,13 @@ export interface ChatMessage {
   playerName: string;
   text: string;
   createdAt: number;
+  isBot?: boolean;
+}
+
+export interface BotChatStatus {
+  enabled: boolean;
+  configured: boolean;
+  source: 'room' | 'server' | 'none';
 }
 
 export interface PlayerNudgeEvent {
@@ -356,7 +363,9 @@ export type ServerWsMessage =
   | { type: 'room_deleted'; roomId: string; reason: string }
   | { type: 'chat_history'; roomId: string; messages: ChatMessage[] }
   | { type: 'chat_message'; message: ChatMessage }
+  | { type: 'bot_chat_status'; roomId: string; status: BotChatStatus }
   | { type: 'player_nudged'; nudge: PlayerNudgeEvent }
   | { type: 'achievement_unlocked'; achievementIds: AchievementId[] }
   | { type: 'error'; message: string }
   | { type: 'pong' };
+

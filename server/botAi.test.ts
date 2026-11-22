@@ -117,25 +117,29 @@ test('countStraightDrawCompletionRanks distinguishes 4-out AKQJ/A234 gutshots fr
   assert.equal(oesd, 2);
 });
 
-test('computePositionRatio places UTG earliest (~0) and BTN/BB latest in 6-max preflop', () => {
+test('computePositionRatio places UTG earliest (0), OOP blinds SB/BB low, CO/BTN in late position', () => {
   const table = createTableState('BOT_POS', 10, 20, 2000);
   for (let i = 0; i < 6; i++) {
     addPlayerToTable(table, { id: `p${i}`, name: `P${i}`, chips: 2000, isBot: i > 0 });
   }
   startNewHand(table, () => 0.4, 1000);
 
-  // Seat 0 = Dealer/BTN, Seat 1 = SB, Seat 2 = BB, Seat 3 = UTG
+  // Seat 0 = Dealer/BTN, Seat 1 = SB, Seat 2 = BB, Seat 3 = UTG, Seat 4 = HJ, Seat 5 = CO
   assert.equal(table.dealerSeatIndex, 0);
+  assert.equal(table.smallBlindSeatIndex, 1);
   assert.equal(table.bigBlindSeatIndex, 2);
   assert.equal(table.currentTurnPlayerId, 'p3');
 
   const utgRatio = computePositionRatio(table, 3);
-  const btnRatio = computePositionRatio(table, 0);
+  const sbRatio = computePositionRatio(table, 1);
   const bbRatio = computePositionRatio(table, 2);
+  const coRatio = computePositionRatio(table, 5);
+  const btnRatio = computePositionRatio(table, 0);
 
   assert.equal(utgRatio, 0);
-  assert.ok(btnRatio >= 0.6, `Expected BTN ratio (${btnRatio}) >= 0.6`);
-  assert.equal(bbRatio, 1);
+  assert.ok(sbRatio < 0.3 && bbRatio < 0.3, `Expected OOP blinds low, got SB=${sbRatio}, BB=${bbRatio}`);
+  assert.ok(coRatio >= 0.65, `Expected CO ratio (${coRatio}) >= 0.65`);
+  assert.equal(btnRatio, 1);
 });
 
 test('6-max UTG opens with raise (never limps/folds) holding KK, QQ, or AKs', () => {

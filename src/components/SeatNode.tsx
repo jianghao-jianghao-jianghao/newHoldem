@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { BellRing, X } from 'lucide-react';
 import { isEmojiOnlyMessage } from '../shared/chatUtils';
 import type { Card, ChatMessage, ClientPlayerView } from '../shared/types';
@@ -39,6 +40,7 @@ interface SeatNodeProps {
   canRemoveBot?: boolean;
   onRemoveBot?: (botId: string) => void;
   onNudgePlayer?: (playerId: string) => void;
+  onInspectPlayer?: (playerId: string) => void;
   onOpenAchievements?: () => void;
 }
 
@@ -148,8 +150,38 @@ export function SeatNode({
   canRemoveBot = false,
   onRemoveBot,
   onNudgePlayer,
+  onInspectPlayer,
   onOpenAchievements,
 }: SeatNodeProps) {
+  const clickTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleOpponentAvatarClick = () => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    clickTimerRef.current = window.setTimeout(() => {
+      clickTimerRef.current = null;
+      onInspectPlayer?.(player.id);
+    }, 220);
+  };
+
+  const handleOpponentAvatarDoubleClick = () => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    onNudgePlayer?.(player.id);
+  };
+
   const dimmed = player.folded || !player.inHand;
   const turnPct =
     isTurn && secondsRemaining !== null
@@ -273,15 +305,31 @@ export function SeatNode({
           )}
 
           <div className="flex items-center gap-3">
-            {/* Avatar with Top-Right Hover Achievement Showcase & Bottom-Left Blind Disc Icon */}
+            {/* Self Avatar: single-click opens personal profile, live stats & achievements */}
             <div className="relative shrink-0 overflow-visible">
-              {nudgeFx && (
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute -inset-1 rounded-full border-2 border-[#D4A853] animate-nudge-pulse"
+              <button
+                type="button"
+                onClick={() =>
+                  onInspectPlayer ? onInspectPlayer(player.id) : onOpenAchievements?.()
+                }
+                data-testid={`profile-avatar-${player.id}`}
+                title="单击查看我的档案与成就"
+                aria-label={`查看 ${player.name} 的档案与成就`}
+                className="group relative flex rounded-full focus-visible:outline-2 focus-visible:outline-[#D4A853] active:scale-95 transition-transform cursor-pointer"
+              >
+                {nudgeFx && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute -inset-1 rounded-full border-2 border-[#D4A853] animate-nudge-pulse"
+                  />
+                )}
+                <PlayerAvatar
+                  avatar={player.avatar}
+                  name={player.name}
+                  size="lg"
+                  className="group-hover:border-[#E8CF96] transition-colors"
                 />
-              )}
-              <PlayerAvatar avatar={player.avatar} name={player.name} size="lg" />
+              </button>
               {(isSmallBlind || isBigBlind) && (
                 <span
                   aria-label={isSmallBlind ? '小盲位 SB' : '大盲位 BB'}
@@ -303,7 +351,9 @@ export function SeatNode({
                 maxVisible={3}
                 size="xs"
                 tooltipPlacement="top"
-                onOpenAchievements={onOpenAchievements}
+                onOpenAchievements={() =>
+                  onInspectPlayer ? onInspectPlayer(player.id) : onOpenAchievements?.()
+                }
                 className="absolute -top-2 -right-2.5 z-20"
               />
             </div>
@@ -463,15 +513,16 @@ export function SeatNode({
         )}
 
         <div className="flex items-center gap-2.5">
-          {/* Avatar wrapper: nudge button on avatar, badge showcase sibling at top-right, blind icon at bottom-left */}
+          {/* Opponent Avatar: single-click opens player dossier & achievements, double-click nudges */}
           <div className="relative shrink-0 overflow-visible">
             <button
               type="button"
-              onClick={() => onNudgePlayer?.(player.id)}
+              onClick={handleOpponentAvatarClick}
+              onDoubleClick={handleOpponentAvatarDoubleClick}
               data-testid={`nudge-avatar-${player.id}`}
-              title={`点击提醒 ${player.name}`}
-              aria-label={`点击头像提醒 ${player.name}`}
-              className="group relative flex rounded-full focus-visible:outline-2 focus-visible:outline-[#D4A853] active:scale-95 transition-transform"
+              title={`单击查看 ${player.name} 的档案与成就 · 双击提醒`}
+              aria-label={`单击查看 ${player.name} 档案与成就，双击提醒`}
+              className="group relative flex rounded-full focus-visible:outline-2 focus-visible:outline-[#D4A853] active:scale-95 transition-transform cursor-pointer"
             >
               {nudgeFx && (
                 <span
@@ -483,14 +534,8 @@ export function SeatNode({
                 avatar={player.avatar}
                 name={player.name}
                 size="sm"
-                className="group-hover:border-[#E8CF96] transition-colors"
+                className="group-hover:border-[#E8CF96] group-hover:ring-2 group-hover:ring-[#D4A853]/30 transition-all"
               />
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border border-[#0D1012] bg-[#181D20] text-[#D4A853] opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <BellRing className="h-2.5 w-2.5" />
-              </span>
             </button>
 
             {(isSmallBlind || isBigBlind) && (
@@ -515,6 +560,7 @@ export function SeatNode({
               maxVisible={2}
               size="xs"
               tooltipPlacement="bottom"
+              onOpenAchievements={() => onInspectPlayer?.(player.id)}
               className="absolute -top-2 -right-2.5 z-20"
             />
           </div>

@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Bot,
   ChevronDown,
+  KeyRound,
   MessageCircle,
   SendHorizontal,
   Smile,
   SmilePlus,
+  Trash2,
   X,
   Zap,
 } from 'lucide-react';
@@ -17,9 +20,16 @@ import {
   QUICK_PHRASE_GROUPS,
   type EmojiCategory,
 } from '../shared/chatUtils';
-import type { ChatMessage } from '../shared/types';
+import type { BotChatStatus, ChatMessage } from '../shared/types';
 
 export type ChatPickerTab = 'emoji' | 'phrases' | null;
+
+export interface BotChatConfigRequest {
+  enabled: boolean;
+  apiKey?: string;
+  clearKey?: boolean;
+  testConnection?: boolean;
+}
 
 interface TableChatPanelProps {
   open: boolean;
@@ -28,9 +38,13 @@ interface TableChatPanelProps {
   myPlayerId: string;
   unreadCount: number;
   nowMs: number;
+  botChatStatus?: BotChatStatus;
   onOpenChange: (open: boolean) => void;
   onQuickPickerChange: (open: boolean) => void;
   onSendChat: (text: string) => void;
+  onConfigureBotChat?: (
+    params: BotChatConfigRequest
+  ) => Promise<{ ok: boolean; error?: string; status?: BotChatStatus }>;
 }
 
 const RECENT_EMOJIS_KEY = 'velvet_recent_chat_emojis_v1';
@@ -70,9 +84,11 @@ export function TableChatPanel({
   myPlayerId,
   unreadCount,
   nowMs,
+  botChatStatus = { enabled: false, configured: false, source: 'none' },
   onOpenChange,
   onQuickPickerChange,
   onSendChat,
+  onConfigureBotChat,
 }: TableChatPanelProps) {
   const [draft, setDraft] = useState('');
   const [drawerPickerTab, setDrawerPickerTab] = useState<ChatPickerTab>(null);
@@ -80,6 +96,18 @@ export function TableChatPanel({
   const [activeCategory, setActiveCategory] = useState<EmojiCategory['id']>('table');
   const [emojiMode, setEmojiMode] = useState<'instant' | 'insert'>('instant');
   const [recentEmojis, setRecentEmojis] = useState<string[]>(() => loadRecentEmojis());
+  const [botSettingsOpen, setBotSettingsOpen] = useState(false);
+  const [botEnabledDraft, setBotEnabledDraft] = useState(botChatStatus.enabled);
+  const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const [botSaving, setBotSaving] = useState(false);
+  const [botFeedback, setBotFeedback] = useState<{
+    tone: 'ok' | 'err';
+    text: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setBotEnabledDraft(botChatStatus.enabled);
+  }, [botChatStatus.enabled]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -208,6 +236,50 @@ export function TableChatPanel({
       }
       return tab;
     });
+  };
+
+  const handleSaveBotChat = async (testConnection: boolean) => {
+    if (!onConfigureBotChat || botSaving) return;
+    setBotSaving(true);
+    setBotFeedback(null);
+    const trimmedKey = apiKeyDraft.trim();
+    const res = await onConfigureBotChat({
+      enabled: botEnabledDraft,
+      apiKey: trimmedKey || undefined,
+      testConnection,
+    });
+    setBotSaving(false);
+    if (!res.ok) {
+      setBotFeedback({ tone: 'err', text: res.error ?? '保存失败，请检查配置' });
+      return;
+    }
+    if (trimmedKey) setApiKeyDraft('');
+    setBotFeedback({
+      tone: 'ok',
+      text: res.status?.enabled
+        ? testConnection
+          ? '连通成功，陪练已加入牌桌对话'
+          : '已启用，陪练将在牌桌中搭话与发表情'
+        : '已关闭陪练对话',
+    });
+  };
+
+  const handleClearBotKey = async () => {
+    if (!onConfigureBotChat || botSaving) return;
+    setBotSaving(true);
+    setBotFeedback(null);
+    const res = await onConfigureBotChat({
+      enabled: false,
+      clearKey: true,
+    });
+    setBotSaving(false);
+    if (!res.ok) {
+      setBotFeedback({ tone: 'err', text: res.error ?? '清除失败' });
+      return;
+    }
+    setApiKeyDraft('');
+    setBotEnabledDraft(false);
+    setBotFeedback({ tone: 'ok', text: '已清除本桌密钥并关闭陪练对话' });
   };
 
   const renderEmojiAndPhraseBody = (
@@ -355,7 +427,9 @@ export function TableChatPanel({
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none fixed inset-x-2.5 bottom-3 z-30 flex flex-col items-start sm:inset-x-auto sm:bottom-4 sm:left-3 xl:left-4"
+      className={`pointer-events-none fixed inset-x-2.5 bottom-3 z-30 flex flex-col items-start sm:inset-x-auto sm:left-3 xl:left-4 ${
+        open ? 'sm:bottom-[122px] 2xl:bottom-4' : 'sm:bottom-4'
+      }`}
     >
       {/* Ephemeral Whisper Feed when drawer is closed */}
       {!open && whisperMessages.length > 0 && (
@@ -530,30 +604,185 @@ export function TableChatPanel({
         >
           {/* Minimal Salon Header */}
           <div className="flex items-center justify-between gap-2 border-b border-white/[0.07] px-3.5 py-2.5">
-            <div className="flex items-center gap-2 text-xs">
-              <h2 className="font-semibold tracking-wide text-[#F3F1EC]">牌桌闲聊</h2>
+            <div className="flex items-center gap-2 text-xs min-w-0">
+              <h2 className="font-semibold tracking-wide text-[#F3F1EC] whitespace-nowrap">
+                牌桌闲聊
+              </h2>
               <span aria-hidden="true" className="text-white/20">·</span>
               <span className="font-mono-num text-[#87928C]">{messages.length}</span>
+              {botChatStatus.enabled && (
+                <>
+                  <span aria-hidden="true" className="text-white/20">·</span>
+                  <span className="text-[11px] text-[#D4A853] whitespace-nowrap">陪练可对话</span>
+                </>
+              )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setDrawerPickerTab(null);
-                onOpenChange(false);
-              }}
-              aria-label="收起牌桌闲聊"
-              title="收起 (Esc)"
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[#96A19C] hover:bg-white/[0.08] hover:text-white transition-colors"
-            >
-              <ChevronDown className="h-4 w-4" aria-hidden="true" />
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              {onConfigureBotChat && (
+                <button
+                  type="button"
+                  data-testid="toggle-bot-chat-settings-btn"
+                  onClick={() => {
+                    setBotSettingsOpen((prev) => !prev);
+                    setBotFeedback(null);
+                  }}
+                  aria-label="配置 DeepSeek 陪练对话"
+                  aria-expanded={botSettingsOpen}
+                  title="陪练对话设置（可选 DeepSeek API）"
+                  className={`flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors whitespace-nowrap ${
+                    botSettingsOpen || botChatStatus.enabled
+                      ? 'bg-[#D4A853]/16 text-[#F3DFAC]'
+                      : 'text-[#8F9A95] hover:bg-white/[0.07] hover:text-white'
+                  }`}
+                >
+                  <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>陪练对话</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawerPickerTab(null);
+                  setBotSettingsOpen(false);
+                  onOpenChange(false);
+                }}
+                aria-label="收起牌桌闲聊"
+                title="收起 (Esc)"
+                className="flex h-7 w-7 items-center justify-center rounded-full text-[#96A19C] hover:bg-white/[0.08] hover:text-white transition-colors"
+              >
+                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
+
+          {/* Optional DeepSeek Bot Chat Settings Sheet (non-mandatory, in-memory only) */}
+          {botSettingsOpen && onConfigureBotChat && (
+            <div
+              data-testid="bot-chat-settings-panel"
+              className="border-b border-white/[0.08] bg-[#080A0C]/95 px-3.5 py-3 space-y-2.5 text-xs"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="font-semibold text-[#F1EFE9]">陪练对话（可选 · DeepSeek）</div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-[#7F8B85]">
+                    不填不影响正常牌局；开启后陪练会在闲聊、被提醒或摊牌时搭话与发表情。
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={botEnabledDraft}
+                data-testid="bot-chat-enable-toggle"
+                onClick={() => setBotEnabledDraft((prev) => !prev)}
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-white/[0.07] bg-white/[0.03] px-2.5 py-2 text-left hover:border-white/[0.14] transition-colors"
+              >
+                <span className="text-[#DCE2DF]">允许陪练参与对话和发表情</span>
+                <span
+                  aria-hidden="true"
+                  className={`relative inline-flex h-4.5 w-8 shrink-0 items-center rounded-full border transition-colors ${
+                    botEnabledDraft
+                      ? 'border-[#D4A853]/70 bg-[#D4A853]/28'
+                      : 'border-white/[0.12] bg-[#171C1E]'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3 w-3 rounded-full transition-transform ${
+                      botEnabledDraft
+                        ? 'translate-x-[15px] bg-[#F3DFAC]'
+                        : 'translate-x-[2px] bg-[#7A8680]'
+                    }`}
+                  />
+                </span>
+              </button>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-[#8E9993]">
+                  <span className="inline-flex items-center gap-1">
+                    <KeyRound className="h-3 w-3 text-[#C8A153]" aria-hidden="true" />
+                    <span>DeepSeek API Key（可选）</span>
+                  </span>
+                  <span className="text-[10px] text-[#78847E]">
+                    {botChatStatus.source === 'room'
+                      ? '本桌已配置密钥'
+                      : botChatStatus.source === 'server'
+                        ? '已使用服务端默认密钥'
+                        : '仅存于本桌内存'}
+                  </span>
+                </div>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  data-testid="deepseek-apikey-input"
+                  value={apiKeyDraft}
+                  onChange={(e) => setApiKeyDraft(e.target.value)}
+                  placeholder={
+                    botChatStatus.configured
+                      ? '留空则沿用当前已配置密钥…'
+                      : '输入 sk-... 以开启陪练对话'
+                  }
+                  className="w-full rounded-md border border-white/[0.1] bg-[#060809] px-2.5 py-1.5 font-mono-num text-xs text-[#F3F1EC] placeholder:text-[#5F6964] focus:border-[#D4A853]/60 focus:outline-none"
+                />
+              </div>
+
+              {botFeedback && (
+                <div
+                  role="status"
+                  className={`text-[11px] ${
+                    botFeedback.tone === 'ok' ? 'text-[#6EE7B7]' : 'text-[#FCA5A5]'
+                  }`}
+                >
+                  {botFeedback.text}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-2 pt-0.5">
+                {botChatStatus.source === 'room' ? (
+                  <button
+                    type="button"
+                    disabled={botSaving}
+                    onClick={() => void handleClearBotKey()}
+                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-[#B89595] hover:bg-white/[0.06] hover:text-[#FCA5A5] disabled:opacity-45 transition-colors whitespace-nowrap"
+                  >
+                    <Trash2 className="h-3 w-3" aria-hidden="true" />
+                    <span>清除密钥</span>
+                  </button>
+                ) : (
+                  <span className="text-[10.5px] text-[#6B7670]">离桌或删房自动清空</span>
+                )}
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={botSaving || (!apiKeyDraft.trim() && !botChatStatus.configured)}
+                    onClick={() => void handleSaveBotChat(true)}
+                    className="rounded border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#D6DDD9] hover:border-[#D4A853]/45 hover:text-white disabled:opacity-40 transition-colors whitespace-nowrap"
+                  >
+                    测试并保存
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-bot-chat-btn"
+                    disabled={botSaving}
+                    onClick={() => void handleSaveBotChat(false)}
+                    className="rounded bg-[#D4A853] px-2.5 py-1 text-[11px] font-bold text-[#0F1210] hover:bg-[#E1B968] disabled:opacity-45 transition-colors whitespace-nowrap"
+                  >
+                    {botSaving ? '保存中…' : '保存'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Conversation Stream */}
           <div
             data-testid="chat-history-list"
-            className="chat-scroll h-48 md:h-56 overflow-y-auto px-3 py-3 space-y-2 text-xs"
+            className={`chat-scroll overflow-y-auto px-3 py-3 space-y-2 text-xs transition-[height] duration-150 ${
+              botSettingsOpen ? 'h-32 md:h-36' : 'h-48 md:h-56'
+            }`}
           >
             {messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-1.5 text-center text-[#77827D]">
@@ -591,6 +820,9 @@ export function TableChatPanel({
                         >
                           {isMine ? '我' : msg.playerName}
                         </span>
+                        {msg.isBot && !isMine && (
+                          <span className="text-[10px] text-[#7A857F]">陪练</span>
+                        )}
                         <span className="font-mono-num text-[10px] text-[#616B66]">
                           {formatMessageTime(msg.createdAt)}
                         </span>

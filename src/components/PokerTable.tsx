@@ -24,9 +24,11 @@ import {
 } from '../shared/chatUtils';
 import { getHandOverviewStats, PHASE_STAGE_LABELS } from '../shared/tableOverview';
 import type {
+  BotChatStatus,
   ChatMessage,
   ClientPlayerView,
   ClientTableView,
+  LeaderboardEntry,
   ManualBlindTarget,
   PlayerAction,
   PlayerNudgeEvent,
@@ -34,21 +36,25 @@ import type {
 import { ActionDock } from './ActionDock';
 import { BlindSettingsModal } from './BlindSettingsModal';
 import { ChipStackVisual2D } from './ChipStack2D';
+import { PlayerProfileModal } from './PlayerProfileModal';
 import { PlayingCard } from './PlayingCard';
 import type { CameraPreset } from './PokerScene3D';
 import { type ActionFxTone, type SeatActionFx, type SeatNudgeFx, SeatNode } from './SeatNode';
 import { type AnalyticsTab, TableAnalyticsDrawer } from './TableAnalyticsDrawer';
-import { TableChatPanel } from './TableChatPanel';
+import { type BotChatConfigRequest, TableChatPanel } from './TableChatPanel';
 
 interface PokerTableProps {
   table: ClientTableView;
   myPlayerId: string;
+  leaderboard: LeaderboardEntry[];
   chatMessages: ChatMessage[];
   lastNudge: PlayerNudgeEvent | null;
+  botChatStatus: BotChatStatus;
   muted: boolean;
   bgmEnabled: boolean;
   isDesktop?: boolean;
   externalModalOpen?: boolean;
+  isReconnecting?: boolean;
   cameraPreset: CameraPreset;
   onToggleCameraPreset: () => void;
   onToggleMute: () => void;
@@ -70,6 +76,9 @@ interface PokerTableProps {
   }) => void;
   onAction: (action: PlayerAction) => void;
   onSendChat: (text: string) => void;
+  onConfigureBotChat: (
+    params: BotChatConfigRequest
+  ) => Promise<{ ok: boolean; error?: string; status?: BotChatStatus }>;
 }
 
 const PHASE_LABELS = PHASE_STAGE_LABELS;
@@ -86,12 +95,15 @@ function inferActionTone(label: string): ActionFxTone {
 export function PokerTable({
   table,
   myPlayerId,
+  leaderboard,
   chatMessages,
   lastNudge,
+  botChatStatus,
   muted,
   bgmEnabled,
   isDesktop = true,
   externalModalOpen = false,
+  isReconnecting = false,
   cameraPreset,
   onToggleCameraPreset,
   onToggleMute,
@@ -109,10 +121,12 @@ export function PokerTable({
   onUpdateBlindSettings,
   onAction,
   onSendChat,
+  onConfigureBotChat,
 }: PokerTableProps) {
   const [now, setNow] = useState(() => Date.now());
   const [chatNow, setChatNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
+  const [inspectedPlayerId, setInspectedPlayerId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [quickEmojiOpen, setQuickEmojiOpen] = useState(false);
   const [blindModalOpen, setBlindModalOpen] = useState(false);
@@ -310,7 +324,7 @@ export function PokerTable({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (externalModalOpen || blindModalOpen) return;
+      if (externalModalOpen || blindModalOpen || inspectedPlayerId !== null) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -330,7 +344,7 @@ export function PokerTable({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [externalModalOpen, blindModalOpen]);
+  }, [externalModalOpen, blindModalOpen, inspectedPlayerId]);
 
   const activeBubbles = useMemo(
     () => getActiveBubbleMap(chatMessages, chatNow, CHAT_BUBBLE_TTL_MS),
@@ -547,9 +561,9 @@ export function PokerTable({
           VELVET HOLD&apos;EM
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {/* Primary Panels Group */}
-          <div className="flex items-center divide-x divide-white/[0.06] rounded bg-white/[0.03] border border-white/[0.07]">
+          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-md border border-white/[0.08] bg-[#101416]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             <button
               type="button"
               onClick={() => {
@@ -567,10 +581,10 @@ export function PokerTable({
               className={`touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
                 analyticsOpen
                   ? 'bg-[#D4A853]/14 text-[#F0DFB3]'
-                  : 'text-[#BFC7C3] hover:bg-white/[0.05] hover:text-white'
+                  : 'text-[#C5CECA] hover:bg-white/[0.05] hover:text-white'
               }`}
             >
-              <BarChart3 className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
+              <BarChart3 className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
               <span className="hidden md:inline">牌局数据</span>
             </button>
 
@@ -585,8 +599,8 @@ export function PokerTable({
               data-testid="toggle-quick-emoji-btn"
               className={`touch-manipulation flex xl:hidden h-8 items-center justify-center px-2 text-xs font-medium transition-colors whitespace-nowrap ${
                 quickEmojiOpen
-                  ? 'bg-[#D4A853]/15 text-[#E8CF96]'
-                  : 'text-[#C5CECA] hover:bg-white/[0.04] hover:text-white'
+                  ? 'bg-[#D4A853]/14 text-[#F0DFB3]'
+                  : 'text-[#C5CECA] hover:bg-white/[0.05] hover:text-white'
               }`}
             >
               <SmilePlus className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
@@ -603,8 +617,8 @@ export function PokerTable({
               data-testid="toggle-chat-btn"
               className={`touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
                 chatOpen
-                  ? 'bg-[#D4A853]/15 text-[#E8CF96]'
-                  : 'text-[#C5CECA] hover:bg-white/[0.04] hover:text-white'
+                  ? 'bg-[#D4A853]/14 text-[#F0DFB3]'
+                  : 'text-[#C5CECA] hover:bg-white/[0.05] hover:text-white'
               }`}
             >
               <MessageSquare className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
@@ -618,14 +632,14 @@ export function PokerTable({
           </div>
 
           {/* Audio & Camera Group */}
-          <div className="flex items-center divide-x divide-white/[0.08] rounded border border-white/[0.08] bg-[#101315]/90">
+          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-md border border-white/[0.08] bg-[#101416]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             {isDesktop && (
               <button
                 type="button"
                 onClick={onToggleCameraPreset}
                 aria-label={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
                 title={cameraPreset === 'classic' ? '切换俯瞰视角' : '切换经典视角'}
-                className="touch-manipulation flex h-8 items-center gap-1.5 px-2.5 text-xs font-medium text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors whitespace-nowrap"
+                className="touch-manipulation flex h-8 items-center gap-1.5 px-2.5 text-xs font-medium text-[#C5CECA] hover:bg-white/[0.05] hover:text-white transition-colors whitespace-nowrap"
               >
                 <Eye className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
                 <span className="hidden lg:inline">
@@ -642,8 +656,8 @@ export function PokerTable({
               title={bgmEnabled ? '关闭爵士酒吧环境音乐' : '播放爵士酒吧环境音乐'}
               className={`touch-manipulation flex h-8 items-center gap-1 px-2 sm:px-2.5 text-xs font-medium transition-colors whitespace-nowrap ${
                 bgmEnabled
-                  ? 'text-[#E8CF96] hover:bg-white/[0.04]'
-                  : 'text-[#6F7873] hover:text-white'
+                  ? 'text-[#E8CF96] hover:bg-white/[0.05]'
+                  : 'text-[#6F7873] hover:bg-white/[0.05] hover:text-white'
               }`}
             >
               <Music className="h-3.5 w-3.5" aria-hidden="true" />
@@ -655,20 +669,20 @@ export function PokerTable({
               onClick={onToggleMute}
               aria-label={muted ? '开启桌面音效' : '静音桌面音效'}
               title={muted ? '开启桌面音效' : '静音桌面音效'}
-              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors"
+              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.05] hover:text-white transition-colors"
             >
               {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
             </button>
           </div>
 
           {/* Reference & In-Table Standings Group */}
-          <div className="flex items-center divide-x divide-white/[0.08] rounded border border-white/[0.08] bg-[#101315]/90">
+          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-md border border-white/[0.08] bg-[#101416]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             <button
               type="button"
               onClick={onOpenRankings}
               aria-label="牌型大小说明"
               title="牌型大小说明"
-              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.04] hover:text-white transition-colors"
+              className="touch-manipulation flex h-8 w-7 sm:w-8 items-center justify-center text-[#C5CECA] hover:bg-white/[0.05] hover:text-white transition-colors"
             >
               <HelpCircle className="h-3.5 w-3.5" />
             </button>
@@ -683,7 +697,7 @@ export function PokerTable({
                 }));
                 setAnalyticsOpen(true);
               }}
-              className="touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-3 text-xs font-semibold text-[#E8CF96] hover:bg-[#D4A853]/12 transition-colors whitespace-nowrap shrink-0"
+              className="touch-manipulation flex h-8 items-center gap-1.5 px-2 sm:px-3 text-xs font-semibold text-[#E8CF96] hover:bg-[#D4A853]/14 transition-colors whitespace-nowrap shrink-0"
             >
               <Trophy className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
               <span className="hidden sm:inline">局内排行</span>
@@ -770,6 +784,7 @@ export function PokerTable({
                     canRemoveBot={canRemoveBots}
                     onRemoveBot={onRemoveBot}
                     onNudgePlayer={onNudgePlayer}
+                    onInspectPlayer={setInspectedPlayerId}
                   />
                 );
               })
@@ -1007,6 +1022,7 @@ export function PokerTable({
               actionFx={actionFxMap[selfPlayer.id] ?? null}
               nudgeFx={nudgeFxMap[selfPlayer.id] ?? null}
               isNewlyJoined={Boolean(newlyJoinedIds[selfPlayer.id])}
+              onInspectPlayer={setInspectedPlayerId}
               onOpenAchievements={onOpenAchievements}
             />
           )}
@@ -1017,9 +1033,17 @@ export function PokerTable({
             bigBlind={table.bigBlind}
             myCurrentBet={selfPlayer?.currentBet ?? 0}
             handEvaluationName={table.myHandEvaluation?.categoryName ?? null}
-            statusMessage={statusText}
+            statusMessage={isReconnecting ? '网络重连中，恢复后可继续操作…' : statusText}
+            disabled={isReconnecting}
+            disabledReason={isReconnecting ? '网络重连中，请稍候…' : undefined}
             hotkeysDisabled={
-              externalModalOpen || chatOpen || quickEmojiOpen || blindModalOpen || analyticsOpen
+              isReconnecting ||
+              externalModalOpen ||
+              inspectedPlayerId !== null ||
+              chatOpen ||
+              quickEmojiOpen ||
+              blindModalOpen ||
+              analyticsOpen
             }
             onAction={onAction}
           />
@@ -1033,6 +1057,7 @@ export function PokerTable({
         myPlayerId={myPlayerId}
         unreadCount={unreadCount}
         nowMs={chatNow}
+        botChatStatus={botChatStatus}
         onOpenChange={(next) => {
           if (next) setQuickEmojiOpen(false);
           setChatOpen(next);
@@ -1042,6 +1067,7 @@ export function PokerTable({
           setQuickEmojiOpen(next);
         }}
         onSendChat={onSendChat}
+        onConfigureBotChat={onConfigureBotChat}
       />
 
       <TableAnalyticsDrawer
@@ -1058,6 +1084,32 @@ export function PokerTable({
         onSave={onUpdateBlindSettings}
         onClose={() => setBlindModalOpen(false)}
       />
+
+      {(() => {
+        const inspectedPlayer = inspectedPlayerId
+          ? table.players.find((p) => p.id === inspectedPlayerId) ?? null
+          : null;
+        const inspectedLeaderboard =
+          inspectedPlayer && !inspectedPlayer.isBot
+            ? leaderboard.find((e) => e.playerName === inspectedPlayer.name) ?? null
+            : null;
+        return (
+          <PlayerProfileModal
+            player={inspectedPlayer}
+            isSelf={inspectedPlayer?.id === myPlayerId}
+            isDealer={Boolean(inspectedPlayer && displayDealerSeat === inspectedPlayer.seatIndex)}
+            isSmallBlind={Boolean(inspectedPlayer && displaySbSeat === inspectedPlayer.seatIndex)}
+            isBigBlind={Boolean(inspectedPlayer && displayBbSeat === inspectedPlayer.seatIndex)}
+            matchStats={
+              inspectedPlayer ? table.analytics.playerStats[inspectedPlayer.id] ?? null : null
+            }
+            leaderboardEntry={inspectedLeaderboard}
+            onClose={() => setInspectedPlayerId(null)}
+            onNudgePlayer={onNudgePlayer}
+            onOpenAllAchievements={onOpenAchievements}
+          />
+        );
+      })()}
     </div>
   );
 }
