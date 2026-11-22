@@ -91,7 +91,7 @@ const BOT_CLUB_PRESETS: Record<string, BotClubPreset> = {
   陈默: {
     name: '陈默',
     avatar: 'spade',
-    achievements: ['flush_full', 'trips_master', 'first_blood'],
+    achievements: ['flush_full', 'blind_guardian', 'trips_master', 'first_blood'],
     handsPlayed: 14,
     handsWon: 6,
     points: 1420,
@@ -102,7 +102,7 @@ const BOT_CLUB_PRESETS: Record<string, BotClubPreset> = {
   林澈: {
     name: '林澈',
     avatar: 'owl',
-    achievements: ['bluff_king', 'first_blood'],
+    achievements: ['bluff_king', 'preflop_bandit', 'split_peace', 'first_blood'],
     handsPlayed: 12,
     handsWon: 5,
     points: 1310,
@@ -113,7 +113,7 @@ const BOT_CLUB_PRESETS: Record<string, BotClubPreset> = {
   周屿: {
     name: '周屿',
     avatar: 'fox',
-    achievements: ['allin_winner', 'streak_3', 'first_blood'],
+    achievements: ['seven_two_legend', 'allin_winner', 'streak_3', 'first_blood'],
     handsPlayed: 19,
     handsWon: 10,
     points: 1580,
@@ -124,7 +124,7 @@ const BOT_CLUB_PRESETS: Record<string, BotClubPreset> = {
   苏砚: {
     name: '苏砚',
     avatar: 'crown',
-    achievements: ['mega_pot', 'trips_master', 'first_blood'],
+    achievements: ['mega_pot', 'aces_cracked', 'trips_master', 'first_blood'],
     handsPlayed: 15,
     handsWon: 7,
     points: 1460,
@@ -135,7 +135,7 @@ const BOT_CLUB_PRESETS: Record<string, BotClubPreset> = {
   陆沉: {
     name: '陆沉',
     avatar: 'lion',
-    achievements: ['chip_doubler', 'allin_winner', 'trips_master', 'first_blood'],
+    achievements: ['pocket_rockets', 'chip_doubler', 'allin_winner', 'first_blood'],
     handsPlayed: 24,
     handsWon: 14,
     points: 1840,
@@ -146,7 +146,7 @@ const BOT_CLUB_PRESETS: Record<string, BotClubPreset> = {
   沈舟: {
     name: '沈舟',
     avatar: 'phoenix',
-    achievements: ['royal_legend', 'flush_full', 'mega_pot', 'first_blood'],
+    achievements: ['royal_legend', 'high_card_hero', 'iron_regular', 'mega_pot', 'first_blood'],
     handsPlayed: 32,
     handsWon: 19,
     points: 2180,
@@ -157,7 +157,7 @@ const BOT_CLUB_PRESETS: Record<string, BotClubPreset> = {
   顾言: {
     name: '顾言',
     avatar: 'spade',
-    achievements: ['first_blood'],
+    achievements: ['tuition_paid', 'first_blood'],
     handsPlayed: 6,
     handsWon: 2,
     points: 1090,
@@ -168,7 +168,7 @@ const BOT_CLUB_PRESETS: Record<string, BotClubPreset> = {
   许嘉: {
     name: '许嘉',
     avatar: 'owl',
-    achievements: ['bluff_king', 'trips_master', 'first_blood'],
+    achievements: ['bad_beat_survivor', 'bluff_king', 'trips_master', 'first_blood'],
     handsPlayed: 16,
     handsWon: 8,
     points: 1490,

@@ -145,3 +145,109 @@ test('preserves and sanitizes achievement unlock dates without overwriting earli
   assert.match(formatAchievementDate(t1), /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(formatAchievementDate(undefined), '早期解锁');
 });
+
+test('unlocks witty & tactical poker achievements (7-2 offsuit, AA rockets/cracked, air hero, ninja, bad beat, tuition, whale)', () => {
+  // 1. 7-2 offsuit win + preflop steal + short stack ninja (< 10BB) + split pot
+  const sevenTwoWin = applyHandToAchievementStats(undefined, undefined, {
+    won: true,
+    potWon: 360,
+    netChips: 180,
+    wasAllIn: false,
+    wonByFold: true,
+    communityCardsCount: 0,
+    holeCards: [
+      { rank: 7, suit: 'spades' },
+      { rank: 2, suit: 'hearts' },
+    ],
+    startingHandChips: 140, // < 10 * 20 BB
+    wasSplitPot: true,
+    currentChips: 500,
+    startingChips: 2000,
+    bigBlind: 20,
+  });
+  assert.ok(sevenTwoWin.newlyUnlocked.includes('seven_two_legend'));
+  assert.ok(sevenTwoWin.newlyUnlocked.includes('preflop_bandit'));
+  assert.ok(sevenTwoWin.newlyUnlocked.includes('short_stack_ninja'));
+  assert.ok(sevenTwoWin.newlyUnlocked.includes('split_peace'));
+
+  // Suited 7-2 should NOT unlock 7-2 offsuit legend
+  const suited72 = applyHandToAchievementStats(undefined, undefined, {
+    won: true,
+    potWon: 80,
+    netChips: 40,
+    wasAllIn: false,
+    wonByFold: false,
+    holeCards: [
+      { rank: 7, suit: 'hearts' },
+      { rank: 2, suit: 'hearts' },
+    ],
+    currentChips: 2040,
+    startingChips: 2000,
+    bigBlind: 20,
+  });
+  assert.ok(!suited72.unlocked.includes('seven_two_legend'));
+
+  // 2. High card showdown win + Pocket Aces win + Chip Whale (4x startingChips)
+  const airAndRockets = applyHandToAchievementStats(undefined, undefined, {
+    won: true,
+    potWon: 400,
+    netChips: 200,
+    wasAllIn: false,
+    wonByFold: false,
+    reachedShowdown: true,
+    handCategory: 0, // High Card
+    holeCards: [
+      { rank: 14, suit: 'spades' },
+      { rank: 14, suit: 'diamonds' },
+    ],
+    currentChips: 8200, // >= 4 * 2000
+    startingChips: 2000,
+    bigBlind: 20,
+  });
+  assert.ok(airAndRockets.newlyUnlocked.includes('high_card_hero'));
+  assert.ok(airAndRockets.newlyUnlocked.includes('pocket_rockets'));
+  assert.ok(airAndRockets.newlyUnlocked.includes('chip_whale'));
+
+  // 3. Aces cracked + Bad Beat survivor (lost at showdown with Trips) + Tuition Paid (0 chips)
+  const tragicLoss = applyHandToAchievementStats(undefined, undefined, {
+    won: false,
+    potWon: 0,
+    netChips: -2000,
+    wasAllIn: true,
+    wonByFold: false,
+    reachedShowdown: true,
+    handCategory: 3, // Three of a Kind
+    holeCards: [
+      { rank: 14, suit: 'clubs' },
+      { rank: 14, suit: 'hearts' },
+    ],
+    currentChips: 0,
+    startingChips: 2000,
+    bigBlind: 20,
+  });
+  assert.ok(tragicLoss.newlyUnlocked.includes('aces_cracked'));
+  assert.ok(tragicLoss.newlyUnlocked.includes('bad_beat_survivor'));
+  assert.ok(tragicLoss.newlyUnlocked.includes('tuition_paid'));
+
+  // 4. Big Blind Guardian (3 BB wins) & Iron Regular (25 hands played)
+  let stats = createEmptyAchievementStats();
+  let unlocked: AchievementId[] = [];
+  for (let i = 0; i < 25; i++) {
+    const r = applyHandToAchievementStats(stats, unlocked, {
+      won: i < 3,
+      potWon: i < 3 ? 60 : 0,
+      netChips: i < 3 ? 30 : -10,
+      wasAllIn: false,
+      wonByFold: false,
+      isBigBlind: i < 3,
+      currentChips: 2000,
+      startingChips: 2000,
+      bigBlind: 20,
+    });
+    stats = r.nextStats;
+    unlocked = r.unlocked;
+  }
+  assert.ok(unlocked.includes('blind_guardian'));
+  assert.ok(unlocked.includes('iron_regular'));
+});
+

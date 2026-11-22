@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BellRing, X } from 'lucide-react';
 import { isEmojiOnlyMessage } from '../shared/chatUtils';
 import {
@@ -6,18 +6,12 @@ import {
   type ResolvedPlayerAvatarProfile,
 } from '../shared/playerProfile';
 import type { Card, ChatMessage, ClientPlayerView } from '../shared/types';
+import type { AvatarImpactEvent } from '../utils/avatarImpactFx';
 import { AvatarAchievementShowcase } from './AchievementBadge';
+import { AvatarImpactBubbleCanvas } from './AvatarImpactBubbleCanvas';
 import { ChipStackVisual2D } from './ChipStack2D';
 import { PlayerAvatar } from './PlayerAvatar';
 import { PlayingCard } from './PlayingCard';
-
-export type ActionFxTone = 'call' | 'raise' | 'fold' | 'allin' | 'check' | 'reveal';
-
-export interface SeatActionFx {
-  id: string;
-  text: string;
-  tone: ActionFxTone;
-}
 
 export interface SeatNudgeFx {
   id: string;
@@ -37,7 +31,7 @@ interface SeatNodeProps {
   highlightedCards: Card[];
   secondsRemaining: number | null;
   chatBubble?: ChatMessage | null;
-  actionFx?: SeatActionFx | null;
+  impactFx?: AvatarImpactEvent | null;
   nudgeFx?: SeatNudgeFx | null;
   isNewlyJoined?: boolean;
   compact?: boolean;
@@ -47,88 +41,6 @@ interface SeatNodeProps {
   onNudgePlayer?: (playerId: string) => void;
   onInspectPlayer?: (playerId: string) => void;
   onOpenAchievements?: () => void;
-}
-
-const PARTICLE_VECTORS = [
-  { tx: '-24px', ty: '-22px' },
-  { tx: '22px', ty: '-24px' },
-  { tx: '-28px', ty: '-6px' },
-  { tx: '26px', ty: '-8px' },
-  { tx: '-12px', ty: '-30px' },
-  { tx: '12px', ty: '-30px' },
-  { tx: '-16px', ty: '6px' },
-  { tx: '16px', ty: '6px' },
-];
-
-function getActionToneClasses(tone: ActionFxTone): { text: string; particle: string } {
-  switch (tone) {
-    case 'raise':
-    case 'allin':
-      return {
-        text: 'text-[#F3DFAC] border-[#D4A853]/55 bg-[#12100B]/95',
-        particle: 'bg-[#D4A853]',
-      };
-    case 'call':
-    case 'check':
-      return {
-        text: 'text-[#9AD4B8] border-[#5E9E82]/50 bg-[#0D1613]/95',
-        particle: 'bg-[#8CC9AA]',
-      };
-    case 'fold':
-      return {
-        text: 'text-[#E89B9B] border-[#B85C5C]/45 bg-[#180E10]/95',
-        particle: 'bg-[#D97777]',
-      };
-    case 'reveal':
-    default:
-      return {
-        text: 'text-[#EAE5DA] border-white/25 bg-[#111417]/95',
-        particle: 'bg-[#E5DFD3]',
-      };
-  }
-}
-
-function ActionFloatingOverlay({
-  fx,
-  placement = 'top',
-}: {
-  fx: SeatActionFx;
-  placement?: 'top' | 'bottom';
-}) {
-  const cls = getActionToneClasses(fx.tone);
-  return (
-    <div
-      key={fx.id}
-      data-testid={`action-fx-${fx.id}`}
-      className={`pointer-events-none absolute left-1/2 z-40 ${
-        placement === 'bottom' ? '-bottom-3.5' : '-top-3'
-      }`}
-    >
-      {/* Radial Particle Burst */}
-      <div className="relative">
-        {PARTICLE_VECTORS.map((vec, idx) => (
-          <span
-            key={idx}
-            aria-hidden="true"
-            className={`absolute left-0 top-0 h-1 w-1 rounded-full animate-particle-burst ${cls.particle}`}
-            style={
-              {
-                '--tx': vec.tx,
-                '--ty': vec.ty,
-              } as React.CSSProperties
-            }
-          />
-        ))}
-      </div>
-
-      {/* Crisp Floating Action Label */}
-      <div
-        className={`whitespace-nowrap rounded border px-2 py-0.5 font-mono-num text-[11px] font-semibold tracking-wide shadow-[0_8px_20px_rgba(0,0,0,0.65)] animate-action-float ${cls.text}`}
-      >
-        {fx.text}
-      </div>
-    </div>
-  );
 }
 
 function isCardInSet(card: Card, set: Card[]): boolean {
@@ -148,7 +60,7 @@ export function SeatNode({
   highlightedCards,
   secondsRemaining,
   chatBubble = null,
-  actionFx = null,
+  impactFx = null,
   nudgeFx = null,
   isNewlyJoined = false,
   compact = false,
@@ -161,6 +73,13 @@ export function SeatNode({
 }: SeatNodeProps) {
   const resolved = syncedProfile ?? resolvePlayerAvatarProfile(player, []);
   const clickTimerRef = useRef<number | null>(null);
+  const [avatarHoverPulse, setAvatarHoverPulse] = useState(0);
+
+  const triggerAvatarRipple = () => {
+    if (impactFx) {
+      setAvatarHoverPulse((n) => n + 1);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -199,9 +118,9 @@ export function SeatNode({
     return (
       <div
         data-testid={`seat-${player.id}`}
-        className={`flex items-end justify-center gap-3 sm:gap-4 ${
-          isNewlyJoined ? 'animate-seat-enter' : ''
-        }`}
+        className={`relative flex items-end justify-center gap-3 sm:gap-4 ${
+          impactFx ? 'z-50' : ''
+        } ${isNewlyJoined ? 'animate-seat-enter' : ''}`}
       >
         {/* Crisp 2D Hero Hole Cards (refined proportion complementing the 3D table) */}
         <div
@@ -231,6 +150,8 @@ export function SeatNode({
         <div
           data-seat-anchor={player.id}
           className={`relative overflow-visible min-w-[196px] sm:min-w-[238px] rounded-md px-3 py-2.5 backdrop-blur-md transition-all ${
+            impactFx ? 'z-50' : ''
+          } ${
             isWinner
               ? 'border border-[#D4A853]/85 bg-[#121613]/92 animate-chip-impact'
               : isTurn
@@ -238,8 +159,6 @@ export function SeatNode({
               : 'border border-white/[0.08] bg-[#0B0E10]/86'
           } ${dimmed && !isWinner ? 'opacity-70' : ''}`}
         >
-          {actionFx && <ActionFloatingOverlay fx={actionFx} />}
-
           {nudgeFx && (
             <div
               key={nudgeFx.id}
@@ -312,13 +231,22 @@ export function SeatNode({
           )}
 
           <div className="flex items-center gap-3">
-            {/* Self Avatar: single-click opens personal profile, live stats & achievements */}
+            {/* Self Avatar: Canvas dynamic impact bubble anchored directly above avatar */}
             <div className="relative shrink-0 overflow-visible">
+              <AvatarImpactBubbleCanvas
+                event={impactFx}
+                playerId={player.id}
+                placement="self"
+                interactiveNonce={avatarHoverPulse}
+              />
               <button
                 type="button"
-                onClick={() =>
-                  onInspectPlayer ? onInspectPlayer(player.id) : onOpenAchievements?.()
-                }
+                onMouseEnter={triggerAvatarRipple}
+                onClick={() => {
+                  triggerAvatarRipple();
+                  if (onInspectPlayer) onInspectPlayer(player.id);
+                  else onOpenAchievements?.();
+                }}
                 data-testid={`profile-avatar-${player.id}`}
                 title="单击查看我的档案与成就"
                 aria-label={`查看 ${player.name} 的档案与成就`}
@@ -451,12 +379,14 @@ export function SeatNode({
     <div
       data-testid={`seat-${player.id}`}
       className={`relative flex flex-col items-center gap-1 transition-opacity duration-200 ${
-        !player.connected && !player.isBot ? 'opacity-60' : ''
-      } ${isNewlyJoined ? 'animate-seat-enter' : ''}`}
+        impactFx ? 'z-50' : ''
+      } ${!player.connected && !player.isBot ? 'opacity-60' : ''} ${
+        isNewlyJoined ? 'animate-seat-enter' : ''
+      }`}
     >
       <div
         data-seat-anchor={player.id}
-        className={`relative overflow-visible ${
+        className={`relative overflow-visible ${impactFx ? 'z-50' : ''} ${
           compact ? 'min-w-[152px] sm:min-w-[172px]' : 'min-w-[168px] sm:min-w-[206px]'
         } rounded-md px-2.5 py-2 backdrop-blur-md transition-all ${
           isWinner
@@ -466,8 +396,6 @@ export function SeatNode({
             : 'border border-white/[0.08] bg-[#0B0E10]/84'
         } ${dimmed && !isWinner ? 'opacity-65' : ''}`}
       >
-        {actionFx && <ActionFloatingOverlay fx={actionFx} placement="bottom" />}
-
         {nudgeFx && (
           <div
             key={nudgeFx.id}
@@ -526,11 +454,21 @@ export function SeatNode({
         )}
 
         <div className="flex items-center gap-2.5">
-          {/* Opponent Avatar: single-click opens player dossier & achievements, double-click nudges */}
+          {/* Opponent Avatar: Canvas dynamic impact bubble anchored directly above avatar */}
           <div className="relative shrink-0 overflow-visible">
+            <AvatarImpactBubbleCanvas
+              event={impactFx}
+              playerId={player.id}
+              placement="opponent"
+              interactiveNonce={avatarHoverPulse}
+            />
             <button
               type="button"
-              onClick={handleOpponentAvatarClick}
+              onMouseEnter={triggerAvatarRipple}
+              onClick={() => {
+                triggerAvatarRipple();
+                handleOpponentAvatarClick();
+              }}
               onDoubleClick={handleOpponentAvatarDoubleClick}
               data-testid={`nudge-avatar-${player.id}`}
               title={`单击查看 ${player.name} 的档案与成就 · 双击提醒`}

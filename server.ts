@@ -521,6 +521,12 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
       handCategory = ev.category;
     }
 
+    const reachedShowdown =
+      !p.folded && !wonByFoldOnly && state.communityCards.length === 5;
+    const wasSplitPot = state.winners.length > 1;
+    const isBigBlind = p.seatIndex === state.bigBlindSeatIndex;
+    const startingHandChips = Math.max(0, p.chips + p.totalContributed - potWon);
+
     if (p.isBot) {
       const prevBot = ctx.botStats.get(p.id);
       const botRes = applyHandToAchievementStats(prevBot?.stats, prevBot?.achievements, {
@@ -533,6 +539,12 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
         currentChips: p.chips,
         startingChips: state.startingChips,
         bigBlind: state.bigBlind,
+        holeCards: p.holeCards,
+        communityCardsCount: state.communityCards.length,
+        wasSplitPot,
+        isBigBlind,
+        startingHandChips,
+        reachedShowdown,
       });
       const botDates = mergeAchievementDates(
         prevBot?.achievementDates,
@@ -571,6 +583,12 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
       currentChips: p.chips,
       startingChips: state.startingChips,
       bigBlind: state.bigBlind,
+      holeCards: p.holeCards,
+      communityCardsCount: state.communityCards.length,
+      wasSplitPot,
+      isBigBlind,
+      startingHandChips,
+      reachedShowdown,
     });
 
     const mergedPlayerAch = sanitizeAchievementIds([

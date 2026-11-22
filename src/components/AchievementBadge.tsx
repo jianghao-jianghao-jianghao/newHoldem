@@ -159,6 +159,113 @@ function renderMedalGlyph(id: AchievementId, fg: string) {
           />
         </>
       );
+    case 'seven_two_legend':
+      // Iconic 7-2 jester/wildcard diamond cards glyph
+      return (
+        <>
+          <rect x="4.5" y="5.5" width="8.5" height="12" rx="1.4" fill="none" stroke={fg} strokeWidth="1.7" />
+          <path d="M6.8 9.2 H10.8 L8.2 14.5" fill="none" stroke={fg} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <rect x="11" y="7" width="8.5" height="12" rx="1.4" fill="#151218" stroke={fg} strokeWidth="1.7" />
+          <path d="M13.5 11.2 C13.5 10 17 10 17 11.6 C17 13 13.5 13.8 13.5 15.5 H17.2" fill="none" stroke={fg} strokeWidth="1.5" strokeLinecap="round" />
+        </>
+      );
+    case 'chip_whale':
+      // Stylized geometric whale tail crest
+      return (
+        <>
+          <path
+            d="M12 18.5 V11.5 C12 8.5 8 5.5 5 6.8 C6.8 9.5 8.5 11 10.6 11.5 C9.4 13.8 8.2 15.8 7 17.2 M12 11.5 C12 8.5 16 5.5 19 6.8 C17.2 9.5 15.5 11 13.4 11.5 C14.6 13.8 15.8 15.8 17 17.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M6.5 18.8 H17.5" stroke={fg} strokeWidth="1.8" strokeLinecap="round" />
+        </>
+      );
+    case 'high_card_hero':
+      // Minimalist wind-gust / air blade glyph
+      return (
+        <>
+          <path d="M4.5 9.5 H15.5 C17.5 9.5 17.5 6.5 15.5 6.5 C14.3 6.5 13.6 7.3 13.6 8" fill="none" stroke={fg} strokeWidth="1.9" strokeLinecap="round" />
+          <path d="M4.5 13 H18.2 C19.8 13 19.8 15.8 18 15.8 C16.9 15.8 16.3 15 16.3 14.3" fill="none" stroke={fg} strokeWidth="1.9" strokeLinecap="round" />
+          <path d="M6.5 16.5 H12.8" fill="none" stroke={fg} strokeWidth="1.9" strokeLinecap="round" />
+        </>
+      );
+    case 'short_stack_ninja':
+      // Razor 4-point shuriken emblem
+      return (
+        <>
+          <polygon points="12,3.5 14.2,9.8 20.5,12 14.2,14.2 12,20.5 9.8,14.2 3.5,12 9.8,9.8" fill={fg} />
+          <circle cx="12" cy="12" r="2.1" fill="#1A1710" />
+        </>
+      );
+    case 'pocket_rockets':
+      // Ascending sleek rocket / Ace chevron
+      return (
+        <>
+          <path d="M12 4 C14.8 6.8 16 10 15.5 14.2 L12 12.6 L8.5 14.2 C8 10 9.2 6.8 12 4 Z" fill={fg} />
+          <path d="M8.5 13.5 L6.2 16.5 L9.4 15.8 M15.5 13.5 L17.8 16.5 L14.6 15.8" fill={fg} />
+          <path d="M12 15.2 V19.5" stroke={fg} strokeWidth="2" strokeLinecap="round" />
+        </>
+      );
+    case 'aces_cracked':
+      // Cracked Ace lightning fracture
+      return (
+        <>
+          <polygon points="12,4 18.5,14.5 13.5,14.5 12,11 10.5,14.5 5.5,14.5" fill="none" stroke={fg} strokeWidth="1.8" strokeLinejoin="round" />
+          <polyline points="13.5,5.5 10.5,11.5 13.8,12.2 10.2,19.2" fill="none" stroke={fg} strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      );
+    case 'bad_beat_survivor':
+      // Broken shield / storm bolt emblem
+      return (
+        <>
+          <path d="M12 4.2 L18 6.8 V12 C18 15.8 15.4 18.5 12 19.8 C8.6 18.5 6 15.8 6 12 V6.8 Z" fill="none" stroke={fg} strokeWidth="1.9" strokeLinejoin="round" />
+          <polyline points="12.5,7.2 10.2,11.8 13.4,12.4 11.2,16.8" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      );
+    case 'blind_guardian':
+      // Club shield with inner fortress bar
+      return (
+        <>
+          <path d="M12 4 L18.2 6.6 V11.8 C18.2 15.8 15.5 18.4 12 19.8 C8.5 18.4 5.8 15.8 5.8 11.8 V6.6 Z" fill={fg} />
+          <rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1" fill="#1A2026" />
+        </>
+      );
+    case 'iron_regular':
+      // Classic club clock / veteran ring
+      return (
+        <>
+          <circle cx="12" cy="12" r="7" fill="none" stroke={fg} strokeWidth="2" />
+          <polyline points="12,7.8 12,12 15.2,13.8" fill="none" stroke={fg} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      );
+    case 'preflop_bandit':
+      // Lightning strike fast-steal bolt
+      return (
+        <polygon points="13.5,3.8 6.5,13 11.5,13 10.2,20.2 17.5,10.8 12.6,10.8" fill={fg} />
+      );
+    case 'split_peace':
+      // Balanced twin halves / scales emblem
+      return (
+        <>
+          <line x1="12" y1="5" x2="12" y2="19" stroke={fg} strokeWidth="1.8" strokeLinecap="round" />
+          <line x1="6" y1="8.5" x2="18" y2="8.5" stroke={fg} strokeWidth="1.8" strokeLinecap="round" />
+          <circle cx="7.2" cy="13.8" r="2.2" fill={fg} />
+          <circle cx="16.8" cy="13.8" r="2.2" fill={fg} />
+        </>
+      );
+    case 'tuition_paid':
+      // Graduation cap ("交完学费")
+      return (
+        <>
+          <polygon points="12,6.2 19.5,10.2 12,14.2 4.5,10.2" fill={fg} />
+          <path d="M7.5 12.2 V15.8 C7.5 17 9.5 18 12 18 C14.5 18 16.5 17 16.5 15.8 V12.2" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" />
+          <line x1="19" y1="10.5" x2="19" y2="15.8" stroke={fg} strokeWidth="1.6" strokeLinecap="round" />
+        </>
+      );
     case 'club_tycoon':
     default:
       return (

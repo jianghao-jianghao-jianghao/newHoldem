@@ -32,13 +32,14 @@ import type {
   PlayerAction,
   PlayerNudgeEvent,
 } from '../shared/types';
+import type { AvatarImpactEvent, ImpactBubbleKind } from '../utils/avatarImpactFx';
 import { ActionDock } from './ActionDock';
 import { BlindSettingsModal, type BotChatConfigRequest } from './BlindSettingsModal';
 import { ChipStackVisual2D } from './ChipStack2D';
 import { PlayerProfileModal } from './PlayerProfileModal';
 import { PlayingCard } from './PlayingCard';
 import type { CameraPreset } from './PokerScene3D';
-import { type ActionFxTone, type SeatActionFx, type SeatNudgeFx, SeatNode } from './SeatNode';
+import { type SeatNudgeFx, SeatNode } from './SeatNode';
 import { type AnalyticsTab, TableAnalyticsDrawer } from './TableAnalyticsDrawer';
 import { TableChatPanel } from './TableChatPanel';
 
@@ -87,13 +88,20 @@ interface PokerTableProps {
 
 const PHASE_LABELS = PHASE_STAGE_LABELS;
 
-function inferActionTone(label: string): ActionFxTone {
+function inferImpactKind(label: string): ImpactBubbleKind {
   if (label.includes('全下')) return 'allin';
   if (label.includes('加注') || label.includes('下注')) return 'raise';
   if (label.includes('跟注')) return 'call';
   if (label.includes('弃牌')) return 'fold';
   if (label.includes('亮牌')) return 'reveal';
   return 'check';
+}
+
+function getImpactTtlMs(kind: ImpactBubbleKind): number {
+  if (kind === 'pot_win') return 3750;
+  if (kind === 'allin') return 3350;
+  if (kind === 'raise') return 1750;
+  return 1550;
 }
 
 export function PokerTable({
@@ -141,26 +149,27 @@ export function PokerTable({
   } | null>(null);
   const [lastSeenCount, setLastSeenCount] = useState(0);
 
-  const [actionFxMap, setActionFxMap] = useState<Record<string, SeatActionFx>>({});
+  const [impactFxMap, setImpactFxMap] = useState<Record<string, AvatarImpactEvent>>({});
   const [nudgeFxMap, setNudgeFxMap] = useState<Record<string, SeatNudgeFx>>({});
   const [newlyJoinedIds, setNewlyJoinedIds] = useState<Record<string, boolean>>({});
 
   const prevPlayersRef = useRef<
-    Map<string, { label?: string; handNumber: number; revealed?: boolean }>
+    Map<string, { label?: string; handNumber: number; revealed?: boolean; allIn: boolean }>
   >(new Map());
   const initializedPlayersRef = useRef(false);
-  const actionFxTimersRef = useRef<Map<string, number>>(new Map());
+  const lastWinFxKeyRef = useRef<string>('');
+  const impactFxTimersRef = useRef<Map<string, number>>(new Map());
   const nudgeFxTimersRef = useRef<Map<string, number>>(new Map());
   const joinedTimersRef = useRef<Map<string, number>>(new Map());
 
   // Clean up all independent per-player FX timers on unmount
   useEffect(() => {
-    const actionTimers = actionFxTimersRef.current;
+    const impactTimers = impactFxTimersRef.current;
     const nudgeTimers = nudgeFxTimersRef.current;
     const joinedTimers = joinedTimersRef.current;
     return () => {
-      actionTimers.forEach((id) => window.clearTimeout(id));
-      actionTimers.clear();
+      impactTimers.forEach((id) => window.clearTimeout(id));
+      impactTimers.clear();
       nudgeTimers.forEach((id) => window.clearTimeout(id));
       nudgeTimers.clear();
       joinedTimers.forEach((id) => window.clearTimeout(id));
@@ -176,14 +185,14 @@ export function PokerTable({
     return () => window.clearInterval(id);
   }, [table.turnDeadline, table.nextHandAt]);
 
-  // Detect player join entrances & action transitions for floating text/particles
+  // Detect player join entrances & action transitions for Canvas dynamic impact bubbles
   useEffect(() => {
     const prevMap = prevPlayersRef.current;
     const isInitial = !initializedPlayersRef.current;
     initializedPlayersRef.current = true;
 
     const joinedBatch: string[] = [];
-    const fxBatch: { id: string; fx: SeatActionFx }[] = [];
+    const fxBatch: { id: string; fx: AvatarImpactEvent }[] = [];
 
     for (const p of table.players) {
       const prev = prevMap.get(p.id);
@@ -192,18 +201,35 @@ export function PokerTable({
       }
       const label = p.lastActionLabel;
       const isBlind = label?.startsWith('小盲') || label?.startsWith('大盲');
-      if (
+      const newlyAllIn = Boolean(prev && !prev.allIn && p.allIn && table.phase !== 'waiting');
+      const labelChanged = Boolean(
         prev &&
-        label &&
-        !isBlind &&
-        (prev.label !== label || prev.handNumber !== table.handNumber)
-      ) {
+          label &&
+          !isBlind &&
+          (prev.label !== label || prev.handNumber !== table.handNumber)
+      );
+
+      if (newlyAllIn || (labelChanged && label && label.includes('全下'))) {
+        const wager = p.currentBet > 0 ? p.currentBet : undefined;
         fxBatch.push({
           id: p.id,
           fx: {
-            id: `${p.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            text: label,
-            tone: inferActionTone(label),
+            id: `${p.id}_allin_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            kind: 'allin',
+            title: 'ALL-IN 全下',
+            subtitle: wager ? `全押 ${wager.toLocaleString()}` : '全押决胜',
+            amount: wager,
+          },
+        });
+      } else if (labelChanged && label) {
+        const kind = inferImpactKind(label);
+        fxBatch.push({
+          id: p.id,
+          fx: {
+            id: `${p.id}_${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            kind,
+            title: label,
+            amount: p.currentBet > 0 ? p.currentBet : undefined,
           },
         });
       }
@@ -211,13 +237,14 @@ export function PokerTable({
 
     const nextSnapshot = new Map<
       string,
-      { label?: string; handNumber: number; revealed?: boolean }
+      { label?: string; handNumber: number; revealed?: boolean; allIn: boolean }
     >();
     for (const p of table.players) {
       nextSnapshot.set(p.id, {
         label: p.lastActionLabel,
         handNumber: table.handNumber,
         revealed: p.revealed,
+        allIn: p.allIn,
       });
     }
     prevPlayersRef.current = nextSnapshot;
@@ -247,29 +274,93 @@ export function PokerTable({
     }
 
     if (fxBatch.length > 0) {
-      setActionFxMap((curr) => {
-        const next = { ...curr };
-        fxBatch.forEach(({ id, fx }) => {
-          next[id] = fx;
-        });
-        return next;
+      const winnerIdsAtShowdown =
+        table.phase === 'showdown'
+          ? new Set(table.winners.map((w) => w.playerId))
+          : null;
+
+      const filteredBatch = fxBatch.filter(({ id, fx }) => {
+        if (winnerIdsAtShowdown?.has(id) && fx.kind !== 'allin') {
+          return false;
+        }
+        return true;
       });
-      fxBatch.forEach(({ id, fx }) => {
-        const existing = actionFxTimersRef.current.get(id);
-        if (existing) window.clearTimeout(existing);
-        const timerId = window.setTimeout(() => {
-          actionFxTimersRef.current.delete(id);
-          setActionFxMap((curr) => {
-            if (curr[id]?.id !== fx.id) return curr;
-            const next = { ...curr };
-            delete next[id];
-            return next;
+
+      if (filteredBatch.length > 0) {
+        setImpactFxMap((curr) => {
+          const next = { ...curr };
+          filteredBatch.forEach(({ id, fx }) => {
+            if (curr[id]?.kind === 'pot_win' && fx.kind !== 'allin') {
+              return;
+            }
+            next[id] = fx;
           });
-        }, 1500);
-        actionFxTimersRef.current.set(id, timerId);
-      });
+          return next;
+        });
+        filteredBatch.forEach(({ id, fx }) => {
+          const existing = impactFxTimersRef.current.get(id);
+          if (existing) window.clearTimeout(existing);
+          const timerId = window.setTimeout(() => {
+            impactFxTimersRef.current.delete(id);
+            setImpactFxMap((curr) => {
+              if (curr[id]?.id !== fx.id) return curr;
+              const next = { ...curr };
+              delete next[id];
+              return next;
+            });
+          }, getImpactTtlMs(fx.kind));
+          impactFxTimersRef.current.set(id, timerId);
+        });
+      }
     }
-  }, [table.players, table.handNumber]);
+  }, [table.players, table.handNumber, table.phase, table.winners]);
+
+  // Trigger celebratory Canvas Pot Win chip splash fountain above every winning player's avatar
+  useEffect(() => {
+    if (table.phase !== 'showdown' || table.winners.length === 0) return;
+    const winKey = `${table.handNumber}:${table.winners
+      .map((w) => `${w.playerId}:${w.amount}`)
+      .join(',')}`;
+    if (lastWinFxKeyRef.current === winKey) return;
+    lastWinFxKeyRef.current = winKey;
+
+    const winBatch: { id: string; fx: AvatarImpactEvent }[] = table.winners.map((w) => ({
+      id: w.playerId,
+      fx: {
+        id: `${w.playerId}_win_${table.handNumber}_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 6)}`,
+        kind: 'pot_win',
+        title: `+${w.amount.toLocaleString()}`,
+        subtitle: w.handName ? `赢取底池 · ${w.handName}` : '赢取底池',
+        amount: w.amount,
+        handName: w.handName,
+      },
+    }));
+
+    setImpactFxMap((curr) => {
+      const next = { ...curr };
+      winBatch.forEach(({ id, fx }) => {
+        next[id] = fx;
+      });
+      return next;
+    });
+
+    winBatch.forEach(({ id, fx }) => {
+      const existing = impactFxTimersRef.current.get(id);
+      if (existing) window.clearTimeout(existing);
+      const timerId = window.setTimeout(() => {
+        impactFxTimersRef.current.delete(id);
+        setImpactFxMap((curr) => {
+          if (curr[id]?.id !== fx.id) return curr;
+          const next = { ...curr };
+          delete next[id];
+          return next;
+        });
+      }, getImpactTtlMs('pot_win'));
+      impactFxTimersRef.current.set(id, timerId);
+    });
+  }, [table.phase, table.handNumber, table.winners]);
 
   // Display synchronized nudge bubble & pulse on target seat with independent per-player timer
   useEffect(() => {
@@ -660,7 +751,7 @@ export function PokerTable({
 
           <section
             aria-label="对手座位"
-            className="pointer-events-auto flex flex-wrap items-start justify-center gap-2 sm:gap-3"
+            className="pointer-events-auto relative z-40 flex flex-wrap items-start justify-center gap-2 sm:gap-3"
           >
             {opponents.length === 0 ? (
               <div className="rounded border border-white/[0.08] bg-[#0B0D0E]/88 px-4 py-2 text-center text-xs text-[#9BA5A0]">
@@ -686,7 +777,7 @@ export function PokerTable({
                     highlightedCards={highlightedCards}
                     secondsRemaining={getSecondsLeft(opp.id)}
                     chatBubble={activeBubbles.get(opp.id) ?? null}
-                    actionFx={actionFxMap[opp.id] ?? null}
+                    impactFx={impactFxMap[opp.id] ?? null}
                     nudgeFx={nudgeFxMap[opp.id] ?? null}
                     isNewlyJoined={Boolean(newlyJoinedIds[opp.id])}
                     compact={compactOpponents}
@@ -939,7 +1030,7 @@ export function PokerTable({
               highlightedCards={highlightedCards}
               secondsRemaining={getSecondsLeft(selfPlayer.id)}
               chatBubble={activeBubbles.get(selfPlayer.id) ?? null}
-              actionFx={actionFxMap[selfPlayer.id] ?? null}
+              impactFx={impactFxMap[selfPlayer.id] ?? null}
               nudgeFx={nudgeFxMap[selfPlayer.id] ?? null}
               isNewlyJoined={Boolean(newlyJoinedIds[selfPlayer.id])}
               onInspectPlayer={setInspectedPlayerId}
@@ -1028,7 +1119,6 @@ export function PokerTable({
             }
             leaderboardEntry={inspectedLeaderboard}
             onClose={() => setInspectedPlayerId(null)}
-            onNudgePlayer={onNudgePlayer}
             onOpenAllAchievements={onOpenAchievements}
           />
         );

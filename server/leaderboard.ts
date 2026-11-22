@@ -10,7 +10,7 @@ import {
 } from '../src/shared/achievements';
 import { sanitizeAvatar } from '../src/shared/avatarUtils';
 import { computePlayerLevel } from '../src/shared/playerProfile';
-import type { HandCategory, LeaderboardEntry } from '../src/shared/types';
+import type { Card, HandCategory, LeaderboardEntry } from '../src/shared/types';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const LEADERBOARD_FILE = path.join(DATA_DIR, 'leaderboard.json');
@@ -296,6 +296,12 @@ export class LeaderboardStore {
     currentChips?: number;
     startingChips?: number;
     bigBlind?: number;
+    holeCards?: Card[];
+    communityCardsCount?: number;
+    wasSplitPot?: boolean;
+    isBigBlind?: boolean;
+    startingHandChips?: number;
+    reachedShowdown?: boolean;
   }): { entry: LeaderboardEntry; newlyUnlocked: AchievementId[] } {
     const cleanName = params.playerName.trim();
     if (!cleanName) {
@@ -350,6 +356,12 @@ export class LeaderboardStore {
       currentChips: params.currentChips ?? 0,
       startingChips: params.startingChips ?? 2000,
       bigBlind: params.bigBlind ?? 20,
+      holeCards: params.holeCards,
+      communityCardsCount: params.communityCardsCount,
+      wasSplitPot: params.wasSplitPot,
+      isBigBlind: params.isBigBlind,
+      startingHandChips: params.startingHandChips,
+      reachedShowdown: params.reachedShowdown,
     });
 
     existing.handsPlayed += 1;

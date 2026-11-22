@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Award, BellRing, Flame, Trophy, X } from 'lucide-react';
+import { Award, Flame, Trophy, X } from 'lucide-react';
 import {
   ACHIEVEMENT_MAP,
   ACHIEVEMENT_TIER_LABELS,
@@ -29,7 +29,6 @@ interface PlayerProfileModalProps {
   matchStats: PlayerMatchStats | null;
   leaderboardEntry: LeaderboardEntry | null;
   onClose: () => void;
-  onNudgePlayer?: (playerId: string) => void;
   onOpenAllAchievements?: () => void;
 }
 
@@ -57,7 +56,6 @@ export function PlayerProfileModal({
   matchStats,
   leaderboardEntry,
   onClose,
-  onNudgePlayer,
   onOpenAllAchievements,
 }: PlayerProfileModalProps) {
   useEffect(() => {
@@ -110,7 +108,7 @@ export function PlayerProfileModal({
       aria-modal="true"
       aria-label={`${player.name} 的牌手档案与成就`}
       data-testid="player-profile-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/72 backdrop-blur-sm p-4"
+      className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/72 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
@@ -166,9 +164,10 @@ export function PlayerProfileModal({
 
           <button
             type="button"
+            data-testid="profile-close-btn"
             onClick={onClose}
             aria-label="关闭档案弹窗"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#8E9993] hover:bg-white/[0.07] hover:text-white transition-colors"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#8E9993] hover:bg-white/[0.07] hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -321,46 +320,32 @@ export function PlayerProfileModal({
 
         {/* Footer Actions */}
         <div className="flex items-center justify-between gap-3 border-t border-white/[0.08] bg-[#0A0C0E]/90 px-5 py-3">
-          {isSelf ? (
-            <>
-              <span className="text-[11px] text-[#7C8782]">
-                单击任意头像可随时查看档案
-              </span>
-              {onOpenAllAchievements && (
-                <button
-                  type="button"
-                  data-testid="profile-open-all-achievements-btn"
-                  onClick={() => {
-                    onClose();
-                    onOpenAllAchievements();
-                  }}
-                  className="touch-manipulation rounded-md bg-[#D4A853] px-3.5 py-1.5 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0"
-                >
-                  全部成就墙
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <span className="text-[11px] text-[#7C8782]">
-                双击对手头像可直接轻敲提醒
-              </span>
-              {onNudgePlayer && (
-                <button
-                  type="button"
-                  data-testid="profile-nudge-btn"
-                  onClick={() => {
-                    onNudgePlayer(player.id);
-                    onClose();
-                  }}
-                  className="touch-manipulation inline-flex items-center gap-1.5 rounded-md border border-[#D4A853]/40 bg-[#D4A853]/12 px-3 py-1.5 text-xs font-semibold text-[#F0DFB3] hover:bg-[#D4A853]/22 transition-colors whitespace-nowrap shrink-0"
-                >
-                  <BellRing className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
-                  <span>轻敲提醒</span>
-                </button>
-              )}
-            </>
-          )}
+          <span className="text-[11px] text-[#7C8782]">
+            按 Esc 或点击空白处即可关闭
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {isSelf && onOpenAllAchievements && (
+              <button
+                type="button"
+                data-testid="profile-open-all-achievements-btn"
+                onClick={() => {
+                  onClose();
+                  onOpenAllAchievements();
+                }}
+                className="touch-manipulation rounded-md bg-[#D4A853] px-3.5 py-1.5 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap cursor-pointer"
+              >
+                全部成就墙
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="profile-close-footer-btn"
+              onClick={onClose}
+              className="touch-manipulation rounded-md border border-white/[0.12] bg-white/[0.04] px-3.5 py-1.5 text-xs font-medium text-[#D6DDD9] hover:bg-white/[0.09] hover:text-white transition-colors whitespace-nowrap cursor-pointer"
+            >
+              关闭
+            </button>
+          </div>
         </div>
       </div>
     </div>
