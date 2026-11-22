@@ -266,6 +266,63 @@ function renderMedalGlyph(id: AchievementId, fg: string) {
           <line x1="19" y1="10.5" x2="19" y2="15.8" stroke={fg} strokeWidth="1.6" strokeLinecap="round" />
         </>
       );
+    case 'showdown_streak_3':
+      // Triple showdown cards fan with strike chevron
+      return (
+        <>
+          <rect x="4.8" y="6.8" width="6.2" height="9.4" rx="1.2" fill="none" stroke={fg} strokeWidth="1.6" transform="rotate(-14 7.9 11.5)" />
+          <rect x="8.9" y="5.4" width="6.2" height="9.4" rx="1.2" fill="#1A1710" stroke={fg} strokeWidth="1.7" />
+          <rect x="13" y="6.8" width="6.2" height="9.4" rx="1.2" fill="none" stroke={fg} strokeWidth="1.6" transform="rotate(14 16.1 11.5)" />
+          <polyline points="8.2,17.8 12,20 15.8,17.8" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      );
+    case 'doyle_brunson':
+      // Classic Texas ten-deuce (T2) laurel monogram
+      return (
+        <>
+          <rect x="4.5" y="5.5" width="8.2" height="12" rx="1.4" fill="none" stroke={fg} strokeWidth="1.6" />
+          <path d="M6.4 9.2 H10.8 M8.6 9.2 V14.6" fill="none" stroke={fg} strokeWidth="1.6" strokeLinecap="round" />
+          <rect x="11.2" y="7" width="8.2" height="12" rx="1.4" fill="#151218" stroke={fg} strokeWidth="1.6" />
+          <path d="M13.6 11.2 C13.6 10 17 10 17 11.6 C17 13 13.6 13.8 13.6 15.5 H17.2" fill="none" stroke={fg} strokeWidth="1.5" strokeLinecap="round" />
+        </>
+      );
+    case 'big_slick_win':
+      // Sleek twin Ace-King diamond blades
+      return (
+        <>
+          <path d="M6 17 L9.5 6.5 L13 17 M7.3 13.6 H11.7" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M14.5 7 V17 M18.5 7.5 L14.8 12 L18.8 17" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      );
+    case 'cowboys_win':
+      // Western cowboy hat & star spur crest (KK)
+      return (
+        <>
+          <path d="M4.5 14.2 C7.5 15.8 16.5 15.8 19.5 14.2" fill="none" stroke={fg} strokeWidth="2" strokeLinecap="round" />
+          <path d="M7.2 14.2 L8.8 8.2 C9.8 9.2 11 9.5 12 8.6 C13 9.5 14.2 9.2 15.2 8.2 L16.8 14.2" fill={fg} />
+          <circle cx="12" cy="18.2" r="1.5" fill={fg} />
+        </>
+      );
+    case 'snowmen_win':
+      // Geometric double-8 snowman silhouette
+      return (
+        <>
+          <circle cx="12" cy="8.2" r="3.2" fill="none" stroke={fg} strokeWidth="2" />
+          <circle cx="12" cy="15.2" r="4.3" fill="none" stroke={fg} strokeWidth="2" />
+          <circle cx="12" cy="14.2" r="0.9" fill={fg} />
+          <circle cx="12" cy="16.6" r="0.9" fill={fg} />
+        </>
+      );
+    case 'suited_connector_art':
+      // Interlocked twin spades / sequential chain link
+      return (
+        <>
+          <rect x="4.5" y="9" width="8.5" height="6" rx="3" fill="none" stroke={fg} strokeWidth="2" />
+          <rect x="11" y="9" width="8.5" height="6" rx="3" fill="none" stroke={fg} strokeWidth="2" />
+          <circle cx="12" cy="6" r="1.3" fill={fg} />
+          <circle cx="12" cy="18" r="1.3" fill={fg} />
+        </>
+      );
     case 'club_tycoon':
     default:
       return (
@@ -360,10 +417,10 @@ function AchievementHoverCard({
 }
 
 interface AvatarAchievementShowcaseProps {
+  /** Explicit single equipped medal (null hides medal cleanly; undefined falls back to achievements[0]) */
+  equippedAchievement?: AchievementId | null;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
-  winStreak?: number;
-  maxVisible?: number;
   size?: 'xs' | 'sm';
   tooltipPlacement?: 'top' | 'bottom';
   onOpenAchievements?: () => void;
@@ -371,130 +428,63 @@ interface AvatarAchievementShowcaseProps {
 }
 
 /**
- * Anchored at the top-right of the player's avatar. Hovering or focusing
- * any achievement medal reveals a club-styled card with full unlock condition and date.
+ * Anchored cleanly at the top-right of a player's avatar frame.
+ * Enforces strictly ONE equipped signature medal (zero multi-badge row or +N clutter).
+ * Hovering or focusing reveals the club tooltip with unlock condition and date.
  */
 export function AvatarAchievementShowcase({
+  equippedAchievement,
   achievements = [],
   achievementDates = {},
-  winStreak = 0,
-  maxVisible = 3,
-  size = 'xs',
+  size = 'sm',
   tooltipPlacement = 'top',
   onOpenAchievements,
-  className = 'absolute -top-2 -right-2.5 z-20',
+  className = 'absolute -top-1.5 -right-1.5 z-20',
 }: AvatarAchievementShowcaseProps) {
-  const [hoveredId, setHoveredId] = useState<AchievementId | null>(null);
-  const [hoverExtra, setHoverExtra] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
-  if (achievements.length === 0 && winStreak < 2) return null;
+  const activeId: AchievementId | null =
+    equippedAchievement !== undefined
+      ? equippedAchievement
+      : (achievements[0] ?? null);
 
-  const shown = achievements.slice(0, maxVisible);
-  const extraItems = achievements.slice(maxVisible);
+  if (!activeId) return null;
+  const def = ACHIEVEMENT_MAP.get(activeId);
+  if (!def) return null;
 
   return (
     <div
       data-testid="avatar-badge-showcase"
-      aria-label="玩家成就勋章展示"
-      className={`pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/[0.12] bg-[#0B0D0F]/96 px-1 py-0.5 shadow-[0_4px_12px_rgba(0,0,0,0.65)] ${className}`}
+      aria-label={`佩戴勋章：${def.name}`}
+      className={`pointer-events-auto flex items-center justify-center ${className}`}
       onClick={(e) => e.stopPropagation()}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      {shown.map((id) => {
-        const def = ACHIEVEMENT_MAP.get(id);
-        if (!def) return null;
-        return (
-          <div
-            key={id}
-            className="relative flex items-center"
-            onMouseEnter={() => setHoveredId(id)}
-            onMouseLeave={() => setHoveredId((curr) => (curr === id ? null : curr))}
-          >
-            <button
-              type="button"
-              data-testid={`showcase-medal-${id}`}
-              aria-label={`${def.name}：${def.description}`}
-              onFocus={() => setHoveredId(id)}
-              onBlur={() => setHoveredId((curr) => (curr === id ? null : curr))}
-              onClick={() => {
-                if (onOpenAchievements) {
-                  onOpenAchievements();
-                } else {
-                  setHoveredId((curr) => (curr === id ? null : id));
-                }
-              }}
-              className="flex items-center justify-center rounded-full focus-visible:outline-1 focus-visible:outline-[#D4A853] hover:scale-110 transition-transform cursor-pointer"
-            >
-              <AchievementMedalIcon id={id} size={size} />
-            </button>
+      <button
+        type="button"
+        data-testid={`showcase-medal-${activeId}`}
+        aria-label={`佩戴勋章 ${def.name}：${def.description}`}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
+        onClick={() => {
+          if (onOpenAchievements) {
+            onOpenAchievements();
+          } else {
+            setHovered((curr) => !curr);
+          }
+        }}
+        className="flex items-center justify-center rounded-full ring-2 ring-[#0B0E10] shadow-[0_3px_10px_rgba(0,0,0,0.75)] hover:scale-110 focus-visible:outline-1 focus-visible:outline-[#D4A853] transition-transform cursor-pointer"
+      >
+        <AchievementMedalIcon id={activeId} size={size} />
+      </button>
 
-            {hoveredId === id && (
-              <AchievementHoverCard
-                id={id}
-                unlockedAt={achievementDates[id]}
-                placement={tooltipPlacement}
-              />
-            )}
-          </div>
-        );
-      })}
-
-      {extraItems.length > 0 && (
-        <div
-          className="relative flex items-center"
-          onMouseEnter={() => setHoverExtra(true)}
-          onMouseLeave={() => setHoverExtra(false)}
-        >
-          <button
-            type="button"
-            onFocus={() => setHoverExtra(true)}
-            onBlur={() => setHoverExtra(false)}
-            onClick={onOpenAchievements}
-            className="font-mono-num px-1 text-[10px] font-semibold text-[#E8CF96] hover:text-white leading-none cursor-pointer"
-            aria-label={`另有 ${extraItems.length} 枚成就勋章`}
-          >
-            +{extraItems.length}
-          </button>
-
-          {hoverExtra && (
-            <div
-              role="tooltip"
-              className={`pointer-events-none absolute left-1/2 z-50 w-56 -translate-x-1/2 rounded border border-[#D4A853]/40 bg-[#0D1012]/98 p-2.5 text-left shadow-[0_12px_32px_rgba(0,0,0,0.75)] ${
-                tooltipPlacement === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2'
-              }`}
-            >
-              <div className="border-b border-white/[0.08] pb-1.5 mb-1.5 text-[11px] font-semibold text-[#E8CF96]">
-                更多已解锁勋章 ({extraItems.length})
-              </div>
-              <div className="space-y-1.5">
-                {extraItems.slice(0, 5).map((eid) => {
-                  const edef = ACHIEVEMENT_MAP.get(eid);
-                  if (!edef) return null;
-                  return (
-                    <div key={eid} className="flex items-center justify-between gap-2 text-[11px]">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <AchievementMedalIcon id={eid} size="xs" />
-                        <span className="truncate text-[#EAE6DC]">{edef.name}</span>
-                      </div>
-                      <span className="font-mono-num text-[10px] text-[#8E9893] shrink-0">
-                        {formatAchievementDateTime(achievementDates[eid]).split(' ')[0]}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {winStreak >= 2 && (
-        <span
-          title={`当前 ${winStreak} 连胜`}
-          className="font-mono-num inline-flex items-center gap-0.5 pl-0.5 pr-1 text-[10px] font-semibold text-[#E8CF96] leading-none"
-        >
-          <Flame className="h-2.5 w-2.5 text-[#D4A853]" aria-hidden="true" />
-          {winStreak}
-        </span>
+      {hovered && (
+        <AchievementHoverCard
+          id={activeId}
+          unlockedAt={achievementDates[activeId]}
+          placement={tooltipPlacement}
+        />
       )}
     </div>
   );

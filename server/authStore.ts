@@ -6,8 +6,10 @@ import {
   mergeAchievementDates,
   sanitizeAchievementDates,
   sanitizeAchievementIds,
+  sanitizeEquippedAchievement,
   type AchievementDatesMap,
   type AchievementId,
+  type EquippedAchievementPref,
 } from '../src/shared/achievements';
 import { sanitizeAvatar } from '../src/shared/avatarUtils';
 import type { LeaderboardEntry } from '../src/shared/types';
@@ -25,6 +27,7 @@ export interface EmailAccountProfile {
   bestHandScore: number;
   achievements: AchievementId[];
   achievementDates: AchievementDatesMap;
+  equippedAchievement?: EquippedAchievementPref;
   currentWinStreak: number;
   maxWinStreak: number;
   bgmEnabled: boolean;
@@ -57,6 +60,21 @@ export interface VerifyOtpResult {
   error?: string;
   token?: string;
   profile?: EmailAccountProfile;
+}
+
+export interface LinkedAchievementProfile {
+  avatar?: string;
+  equippedAchievement?: EquippedAchievementPref;
+  points?: number;
+  netChips?: number;
+  handsPlayed?: number;
+  handsWon?: number;
+  bestHandName?: string;
+  bestHandScore?: number;
+  achievements?: AchievementId[];
+  achievementDates?: AchievementDatesMap;
+  currentWinStreak?: number;
+  maxWinStreak?: number;
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -242,6 +260,7 @@ export class EmailAuthStore {
           bestHandScore: typeof acc.bestHandScore === 'number' ? acc.bestHandScore : 0,
           achievements: sanitizeAchievementIds(acc.achievements),
           achievementDates: sanitizeAchievementDates(acc.achievementDates),
+          equippedAchievement: sanitizeEquippedAchievement(acc.equippedAchievement),
           currentWinStreak:
             typeof acc.currentWinStreak === 'number' ? Math.floor(acc.currentWinStreak) : 0,
           maxWinStreak: typeof acc.maxWinStreak === 'number' ? Math.floor(acc.maxWinStreak) : 0,
@@ -335,11 +354,176 @@ export class EmailAuthStore {
     }
   }
 
+  public mergeLinkedProfile(
+    uid: string,
+    linked: LinkedAchievementProfile | undefined,
+    now: number = Date.now()
+  ): EmailAccountProfile | null {
+    const profile = this.accountsByUid.get(uid);
+    if (!profile || !linked) return profile ?? null;
+
+    let changed = false;
+    const incomingAch = sanitizeAchievementIds(linked.achievements ?? []);
+    if (incomingAch.length > 0) {
+      const mergedAch = sanitizeAchievementIds([...profile.achievements, ...incomingAch]);
+      const newlyAdded = mergedAch.filter((id) => !profile.achievements.includes(id));
+      const mergedDates = mergeAchievementDates(
+        { ...profile.achievementDates, ...sanitizeAchievementDates(linked.achievementDates) },
+        mergedAch,
+        newlyAdded,
+        now
+      );
+      if (
+        mergedAch.length !== profile.achievements.length ||
+        Object.keys(mergedDates).length !== Object.keys(profile.achievementDates).length
+      ) {
+        profile.achievements = mergedAch;
+        profile.achievementDates = mergedDates;
+        changed = true;
+      }
+    }
+
+    if (!profile.equippedAchievement && linked.equippedAchievement) {
+      const safeEq = sanitizeEquippedAchievement(linked.equippedAchievement);
+      if (safeEq) {
+        profile.equippedAchievement = safeEq;
+        changed = true;
+      }
+    }
+
+    if (profile.avatar === 'default' && linked.avatar && linked.avatar !== 'default') {
+      profile.avatar = clampAvatar(linked.avatar);
+      changed = true;
+    }
+
+    const linkedHands = Math.max(0, Math.floor(linked.handsPlayed ?? 0));
+    const linkedWon = Math.min(linkedHands, Math.max(0, Math.floor(linked.handsWon ?? 0)));
+    if (linkedHands > profile.handsPlayed) {
+      profile.handsPlayed = linkedHands;
+      profile.handsWon = Math.max(profile.handsWon, linkedWon);
+      if (typeof linked.points === 'number' && Number.isFinite(linked.points)) {
+        profile.points = Math.max(0, Math.min(100_000_000, Math.floor(linked.points)));
+      }
+      if (typeof linked.netChips === 'number' && Number.isFinite(linked.netChips)) {
+        profile.netChips = Math.max(-10_000_000, Math.min(100_000_000, Math.floor(linked.netChips)));
+      }
+      changed = true;
+    } else if (
+      typeof linked.points === 'number' &&
+      Number.isFinite(linked.points) &&
+      linked.points > profile.points
+    ) {
+      profile.points = Math.min(100_000_000, Math.floor(linked.points));
+      changed = true;
+    }
+
+    const linkedCurrentStreak = Math.max(0, Math.floor(linked.currentWinStreak ?? 0));
+    const linkedMaxStreak = Math.max(linkedCurrentStreak, Math.floor(linked.maxWinStreak ?? 0));
+    if (linkedMaxStreak > profile.maxWinStreak) {
+      profile.maxWinStreak = linkedMaxStreak;
+      changed = true;
+    }
+    if (linkedCurrentStreak > profile.currentWinStreak) {
+      profile.currentWinStreak = linkedCurrentStreak;
+      changed = true;
+    }
+
+    const linkedBestScore = Number(linked.bestHandScore) || 0;
+    if (linkedBestScore > profile.bestHandScore && linked.bestHandName) {
+      profile.bestHandScore = linkedBestScore;
+      profile.bestHandName = clampName(linked.bestHandName, profile.bestHandName);
+      changed = true;
+    }
+
+    if (changed) {
+      profile.updatedAt = now;
+      this.save();
+    }
+    return profile;
+  }
+
+  public quickLogin(
+    rawIdentifier: string,
+    defaults?: { displayName?: string; avatar?: string },
+    linkedProfile?: LinkedAchievementProfile,
+    now: number = Date.now()
+  ): VerifyOtpResult {
+    const trimmed = (rawIdentifier ?? '').trim();
+    if (!trimmed) {
+      return { ok: false, error: '请输入昵称或邮箱' };
+    }
+
+    const asEmail = normalizeEmail(trimmed);
+    const emailMode = isValidEmail(asEmail);
+
+    let profile: EmailAccountProfile | undefined;
+    let accountKey = asEmail;
+    let resolvedDisplayName = '';
+
+    if (emailMode) {
+      profile = this.accountsByEmail.get(asEmail);
+      resolvedDisplayName = clampName(defaults?.displayName, asEmail.split('@')[0] || '俱乐部牌手');
+    } else {
+      const cleanName = clampName(trimmed, '俱乐部牌手');
+      resolvedDisplayName = cleanName;
+      const lower = cleanName.toLowerCase();
+      for (const existing of this.accountsByEmail.values()) {
+        if (existing.displayName.trim().toLowerCase() === lower) {
+          profile = existing;
+          accountKey = existing.email;
+          break;
+        }
+      }
+      if (!profile) {
+        const slugHash = crypto.createHash('sha256').update(`member:${lower}`).digest('hex').slice(0, 14);
+        accountKey = `${slugHash}@club.velvet`;
+        profile = this.accountsByEmail.get(accountKey);
+      }
+    }
+
+    if (!profile) {
+      const uid = `u_${crypto.createHash('sha256').update(accountKey).digest('hex').slice(0, 16)}`;
+      profile = {
+        uid,
+        email: accountKey,
+        displayName: resolvedDisplayName,
+        avatar: clampAvatar(linkedProfile?.avatar ?? defaults?.avatar),
+        points: 1000,
+        netChips: 0,
+        handsPlayed: 0,
+        handsWon: 0,
+        bestHandName: '高牌',
+        bestHandScore: 0,
+        achievements: [],
+        achievementDates: {},
+        currentWinStreak: 0,
+        maxWinStreak: 0,
+        bgmEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.accountsByEmail.set(accountKey, profile);
+      this.accountsByUid.set(uid, profile);
+      this.save();
+    } else {
+      profile.updatedAt = now;
+      this.save();
+    }
+
+    if (linkedProfile) {
+      this.mergeLinkedProfile(profile.uid, linkedProfile, now);
+    }
+
+    const token = this.signSessionToken(profile.uid, profile.email, now);
+    return { ok: true, token, profile };
+  }
+
   public verifyOtp(
     rawEmail: string,
     rawCode: string,
     defaults?: { displayName?: string; avatar?: string },
-    now: number = Date.now()
+    now: number = Date.now(),
+    linkedProfile?: LinkedAchievementProfile
   ): VerifyOtpResult {
     const email = normalizeEmail(rawEmail);
     const code = rawCode.trim();
@@ -393,7 +577,7 @@ export class EmailAuthStore {
         uid,
         email,
         displayName: clampName(defaults?.displayName, fallbackName),
-        avatar: clampAvatar(defaults?.avatar),
+        avatar: clampAvatar(linkedProfile?.avatar ?? defaults?.avatar),
         points: 1000,
         netChips: 0,
         handsPlayed: 0,
@@ -414,6 +598,10 @@ export class EmailAuthStore {
     } else {
       profile.updatedAt = now;
       this.save();
+    }
+
+    if (linkedProfile) {
+      this.mergeLinkedProfile(profile.uid, linkedProfile, now);
     }
 
     const token = this.signSessionToken(profile.uid, profile.email, now);
@@ -473,7 +661,12 @@ export class EmailAuthStore {
 
   public updatePreferences(
     uid: string,
-    patch: { displayName?: string; avatar?: string; bgmEnabled?: boolean },
+    patch: {
+      displayName?: string;
+      avatar?: string;
+      bgmEnabled?: boolean;
+      equippedAchievement?: EquippedAchievementPref | null;
+    },
     now: number = Date.now()
   ): EmailAccountProfile | null {
     const acc = this.accountsByUid.get(uid);
@@ -486,6 +679,12 @@ export class EmailAuthStore {
     }
     if (patch.bgmEnabled !== undefined) {
       acc.bgmEnabled = Boolean(patch.bgmEnabled);
+    }
+    if (patch.equippedAchievement !== undefined) {
+      acc.equippedAchievement =
+        patch.equippedAchievement === null
+          ? 'none'
+          : sanitizeEquippedAchievement(patch.equippedAchievement);
     }
     acc.updatedAt = now;
     this.save();

@@ -4,6 +4,7 @@ import {
   Copy,
   Eye,
   LogOut,
+  Music,
   Play,
   RefreshCw,
   SlidersHorizontal,
@@ -16,7 +17,11 @@ import {
   CHAT_WHISPER_TTL_MS,
   getActiveBubbleMap,
 } from '../shared/chatUtils';
-import type { AchievementDatesMap, AchievementId } from '../shared/achievements';
+import type {
+  AchievementDatesMap,
+  AchievementId,
+  EquippedAchievementPref,
+} from '../shared/achievements';
 import {
   resolvePlayerAvatarProfile,
   type ResolvedPlayerAvatarProfile,
@@ -51,6 +56,7 @@ interface PokerTableProps {
     avatar?: string;
     achievements?: AchievementId[];
     achievementDates?: AchievementDatesMap;
+    equippedAchievement?: EquippedAchievementPref;
   };
   chatMessages: ChatMessage[];
   lastNudge: PlayerNudgeEvent | null;
@@ -65,7 +71,6 @@ interface PokerTableProps {
   onToggleMute: () => void;
   onToggleBgm: () => void;
   onOpenAchievements: () => void;
-  onOpenRankings: () => void;
   onLeaveRoom: () => void;
   onStartHand: () => void;
   onRevealCards: () => void;
@@ -122,7 +127,6 @@ export function PokerTable({
   onToggleMute,
   onToggleBgm,
   onOpenAchievements,
-  onOpenRankings,
   onLeaveRoom,
   onStartHand,
   onRevealCards,
@@ -674,15 +678,6 @@ export function PokerTable({
 
           <button
             type="button"
-            onClick={onOpenRankings}
-            aria-label="牌型大小说明"
-            className="touch-manipulation hidden sm:inline-flex h-8 items-center px-2 text-xs text-[#B5C0BA] hover:text-white transition-colors whitespace-nowrap"
-          >
-            牌型
-          </button>
-
-          <button
-            type="button"
             data-testid="open-table-settings-btn"
             onClick={() => setBlindModalOpen(true)}
             aria-label="打开牌桌设置"
@@ -694,10 +689,34 @@ export function PokerTable({
 
           <button
             type="button"
+            data-testid="toggle-bgm-btn"
+            onClick={onToggleBgm}
+            aria-pressed={bgmEnabled && !muted}
+            aria-label={bgmEnabled && !muted ? '关闭爵士背景乐' : '开启爵士背景乐'}
+            title={bgmEnabled && !muted ? '关闭爵士背景乐' : '开启爵士背景乐'}
+            className={`touch-manipulation relative flex h-8 w-8 items-center justify-center rounded-full transition-colors cursor-pointer ${
+              bgmEnabled && !muted
+                ? 'text-[#E8CF96] hover:bg-white/[0.06] hover:text-[#F6E2B3]'
+                : 'text-[#6F7A75] hover:bg-white/[0.06] hover:text-[#B5C0BA]'
+            }`}
+          >
+            <Music className="h-3.5 w-3.5" aria-hidden="true" />
+            {(!bgmEnabled || muted) && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute h-[1.5px] w-4 rotate-45 rounded-full bg-current opacity-85"
+              />
+            )}
+          </button>
+
+          <button
+            type="button"
+            data-testid="toggle-mute-btn"
             onClick={onToggleMute}
+            aria-pressed={!muted}
             aria-label={muted ? '开启声音' : '静音'}
             title={muted ? '开启声音' : '静音'}
-            className="touch-manipulation flex h-8 w-8 items-center justify-center rounded-full text-[#A7B2AC] hover:bg-white/[0.06] hover:text-white transition-colors"
+            className="touch-manipulation flex h-8 w-8 items-center justify-center rounded-full text-[#A7B2AC] hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
           >
             {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
           </button>

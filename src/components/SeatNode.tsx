@@ -286,16 +286,14 @@ export function SeatNode({
                 </span>
               )}
               <AvatarAchievementShowcase
-                achievements={resolved.achievements}
+                equippedAchievement={resolved.equippedAchievement}
                 achievementDates={resolved.achievementDates}
-                winStreak={resolved.winStreak}
-                maxVisible={3}
-                size="xs"
+                size="sm"
                 tooltipPlacement="top"
                 onOpenAchievements={() =>
                   onInspectPlayer ? onInspectPlayer(player.id) : onOpenAchievements?.()
                 }
-                className="absolute -top-2 -right-2.5 z-20"
+                className="absolute -top-1.5 -right-1.5 z-20"
               />
             </div>
 
@@ -511,14 +509,12 @@ export function SeatNode({
             )}
 
             <AvatarAchievementShowcase
-              achievements={resolved.achievements}
+              equippedAchievement={resolved.equippedAchievement}
               achievementDates={resolved.achievementDates}
-              winStreak={resolved.winStreak}
-              maxVisible={2}
               size="xs"
               tooltipPlacement="bottom"
               onOpenAchievements={() => onInspectPlayer?.(player.id)}
-              className="absolute -top-2 -right-2.5 z-20"
+              className="absolute -top-1.5 -right-1.5 z-20"
             />
           </div>
 

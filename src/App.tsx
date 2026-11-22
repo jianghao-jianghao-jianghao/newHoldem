@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AchievementMedalIcon } from './components/AchievementBadge';
-import { AchievementsModal } from './components/AchievementsModal';
+import { AchievementUnlockBanner } from './components/AchievementUnlockBanner';
+import { EmailOtpModal } from './components/EmailOtpModal';
 import { HandRankingsModal } from './components/HandRankingsModal';
+import {
+  PersonalCenterModal,
+  type PersonalCenterTab,
+} from './components/PersonalCenterModal';
 import { type CameraPreset, PokerScene3D } from './components/PokerScene3D';
 import { PokerTable } from './components/PokerTable';
 import { TitleScreen } from './components/TitleScreen';
-import { useAuth } from './context/AuthContext';
+import { type AccountProfile, useAuth } from './context/AuthContext';
 import {
   ACHIEVEMENT_MAP,
   sanitizeAchievementIds,
+  sanitizeEquippedAchievement,
   type AchievementDatesMap,
   type AchievementId,
+  type EquippedAchievementPref,
 } from './shared/achievements';
 import { sanitizeAvatar } from './shared/avatarUtils';
 import { appendChatHistory, MAX_CHAT_HISTORY } from './shared/chatUtils';
@@ -87,6 +93,9 @@ export default function App() {
   const [playerAvatar, setPlayerAvatar] = useState<string>(() => {
     return sanitizeAvatar(localStorage.getItem('velvet_holdem_avatar') ?? 'default');
   });
+  const [equippedPref, setEquippedPref] = useState<EquippedAchievementPref | undefined>(() => {
+    return sanitizeEquippedAchievement(localStorage.getItem('velvet_holdem_equipped_medal'));
+  });
   const [activeRoomId, setActiveRoomId] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
     return (params.get('room') || 'CLUB01').toUpperCase();
@@ -112,7 +121,9 @@ export default function App() {
   ]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [achievementsOpen, setAchievementsOpen] = useState(false);
+  const [personalCenterOpen, setPersonalCenterOpen] = useState(false);
+  const [personalCenterTab, setPersonalCenterTab] = useState<PersonalCenterTab>('achievements');
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [rankingsOpen, setRankingsOpen] = useState(false);
   const [rankingsTab, setRankingsTab] = useState<'rankings' | 'gallery'>('rankings');
   const [unlockedToast, setUnlockedToast] = useState<AchievementId[]>([]);
@@ -145,19 +156,19 @@ export default function App() {
     handNumber: number;
     step: number;
   } | null>(null);
-  const toastTimerRef = useRef<number | null>(null);
   const lastCloudSyncedStampRef = useRef<string>('');
   const hydratedProfileUidRef = useRef<string | null>(null);
   const latestAchievementsRef = useRef<{
     achievements?: AchievementId[];
     achievementDates?: AchievementDatesMap;
+    equippedAchievement?: EquippedAchievementPref;
   }>({});
   const sessionUnlockedRef = useRef<{
     achievements: AchievementId[];
     achievementDates: AchievementDatesMap;
   }>({ achievements: [], achievementDates: {} });
 
-  // Hydrate user profile preferences from verified email account
+  // Hydrate user profile preferences & auto-linked achievements from signed-in account
   useEffect(() => {
     if (!profile) {
       hydratedProfileUidRef.current = null;
@@ -166,18 +177,25 @@ export default function App() {
     if (hydratedProfileUidRef.current === profile.uid) return;
     hydratedProfileUidRef.current = profile.uid;
 
-    if (!playerName.trim() && profile.displayName) {
+    if (profile.displayName) {
       setPlayerName(profile.displayName);
       localStorage.setItem('velvet_holdem_name', profile.displayName);
     }
-    if (profile.avatar && playerAvatar === 'default') {
+    if (profile.avatar && profile.avatar !== 'default') {
       const safe = sanitizeAvatar(profile.avatar);
       setPlayerAvatar(safe);
       localStorage.setItem('velvet_holdem_avatar', safe);
     }
+    if (profile.equippedAchievement !== undefined) {
+      const safeEq = sanitizeEquippedAchievement(profile.equippedAchievement);
+      if (safeEq) {
+        setEquippedPref(safeEq);
+        localStorage.setItem('velvet_holdem_equipped_medal', safeEq);
+      }
+    }
     setBgmEnabled(profile.bgmEnabled);
     soundFx.setBgmEnabled(profile.bgmEnabled);
-  }, [profile, playerName, playerAvatar]);
+  }, [profile]);
 
   // Track desktop (>=768px) vs mobile (<768px) to keep mobile completely 2D
   useEffect(() => {
@@ -316,6 +334,7 @@ export default function App() {
               avatar: joinedRoomRef.current.avatar,
               achievements: latestAchievementsRef.current.achievements,
               achievementDates: latestAchievementsRef.current.achievementDates,
+              equippedAchievement: latestAchievementsRef.current.equippedAchievement,
             } satisfies ClientWsMessage)
           );
         }
@@ -381,11 +400,12 @@ export default function App() {
               ...mergedDates,
             },
           };
-          setUnlockedToast(msg.achievementIds);
-          if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-          toastTimerRef.current = window.setTimeout(() => {
-            setUnlockedToast([]);
-          }, 4800);
+          const sortedUnlocked = sanitizeAchievementIds(msg.achievementIds);
+          if (sortedUnlocked.length > 0) {
+            const topTier = ACHIEVEMENT_MAP.get(sortedUnlocked[0])?.tier ?? 'gold';
+            soundFx.playAchievementUnlock(topTier);
+            setUnlockedToast(sortedUnlocked);
+          }
         } else if (msg.type === 'room_deleted') {
           joinedRoomRef.current = null;
           setTable(null);
@@ -452,7 +472,6 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
       window.removeEventListener('online', handleVisibilityOrOnline);
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       const current = wsRef.current;
       wsRef.current = null;
       current?.close();
@@ -478,6 +497,7 @@ export default function App() {
         avatar: playerAvatar,
         achievements: latestAchievementsRef.current.achievements,
         achievementDates: latestAchievementsRef.current.achievementDates,
+        equippedAchievement: latestAchievementsRef.current.equippedAchievement,
       });
     }
   }, [playerId, seatSecret, playerName, playerAvatar, sendWs]);
@@ -649,10 +669,104 @@ export default function App() {
         achievements: latestAchievementsRef.current.achievements ?? profile?.achievements,
         achievementDates:
           latestAchievementsRef.current.achievementDates ?? profile?.achievementDates,
+        equippedAchievement: equippedPref ?? profile?.equippedAchievement,
       });
     },
-    [playerId, seatSecret, sendWs, profile, updatePreferences]
+    [playerId, seatSecret, sendWs, profile, updatePreferences, equippedPref]
   );
+
+  const handleOpenPersonalCenter = useCallback((tab: PersonalCenterTab = 'achievements') => {
+    setPersonalCenterTab(tab);
+    setPersonalCenterOpen(true);
+  }, []);
+
+  const handleUpdateName = useCallback(
+    (nextRaw: string) => {
+      const cleanName = nextRaw.trim().slice(0, 18);
+      if (!cleanName) return;
+      setPlayerName(cleanName);
+      localStorage.setItem('velvet_holdem_name', cleanName);
+      if (joinedRoomRef.current) {
+        joinedRoomRef.current.name = cleanName;
+        sendWs({ type: 'update_profile', playerName: cleanName });
+      }
+      if (profile) {
+        void updatePreferences({ displayName: cleanName });
+      }
+    },
+    [profile, sendWs, updatePreferences]
+  );
+
+  const handleUpdateAvatar = useCallback(
+    (nextRaw: string) => {
+      const cleanAvatar = sanitizeAvatar(nextRaw);
+      setPlayerAvatar(cleanAvatar);
+      try {
+        localStorage.setItem('velvet_holdem_avatar', cleanAvatar);
+      } catch {
+        // Ignore storage quota errors
+      }
+      if (joinedRoomRef.current) {
+        joinedRoomRef.current.avatar = cleanAvatar;
+        sendWs({ type: 'update_profile', avatar: cleanAvatar });
+      }
+      if (profile) {
+        void updatePreferences({ avatar: cleanAvatar });
+      }
+    },
+    [profile, sendWs, updatePreferences]
+  );
+
+  const handleEquipAchievement = useCallback(
+    (nextPref: EquippedAchievementPref) => {
+      const safe = sanitizeEquippedAchievement(nextPref);
+      if (!safe) return;
+      setEquippedPref(safe);
+      try {
+        localStorage.setItem('velvet_holdem_equipped_medal', safe);
+      } catch {
+        // Ignore storage errors
+      }
+      if (joinedRoomRef.current) {
+        sendWs({ type: 'update_profile', equippedAchievement: safe });
+      }
+      if (profile) {
+        void updatePreferences({ equippedAchievement: safe });
+      }
+    },
+    [profile, sendWs, updatePreferences]
+  );
+
+  const handleEmailAuthSuccess = useCallback((loaded: AccountProfile) => {
+    if (loaded.displayName) {
+      setPlayerName(loaded.displayName);
+      localStorage.setItem('velvet_holdem_name', loaded.displayName);
+    }
+    if (loaded.avatar && loaded.avatar !== 'default') {
+      const safe = sanitizeAvatar(loaded.avatar);
+      setPlayerAvatar(safe);
+      localStorage.setItem('velvet_holdem_avatar', safe);
+    }
+    if (loaded.equippedAchievement) {
+      const safeEq = sanitizeEquippedAchievement(loaded.equippedAchievement);
+      if (safeEq) {
+        setEquippedPref(safeEq);
+        localStorage.setItem('velvet_holdem_equipped_medal', safeEq);
+      }
+    }
+    if (loaded.achievements.length > 0) {
+      sessionUnlockedRef.current = {
+        achievements: sanitizeAchievementIds([
+          ...sessionUnlockedRef.current.achievements,
+          ...loaded.achievements,
+        ]),
+        achievementDates: {
+          ...sessionUnlockedRef.current.achievementDates,
+          ...loaded.achievementDates,
+        },
+      };
+    }
+  }, []);
 
   const handleCreateRoom = useCallback(
     async (params: {
@@ -791,6 +905,16 @@ export default function App() {
 
   const handleToggleBgm = useCallback(() => {
     soundFx.notifyUserInteraction();
+    if (muted) {
+      setMuted(false);
+      soundFx.setMuted(false);
+      setBgmEnabled(true);
+      soundFx.setBgmEnabled(true);
+      if (profile) {
+        void updatePreferences({ bgmEnabled: true });
+      }
+      return;
+    }
     setBgmEnabled((prev) => {
       const next = !prev;
       soundFx.setBgmEnabled(next);
@@ -799,10 +923,19 @@ export default function App() {
       }
       return next;
     });
-  }, [profile, updatePreferences]);
+  }, [muted, profile, updatePreferences]);
 
   const handleToggleCameraPreset = useCallback(() => {
     setCameraPreset((prev) => (prev === 'classic' ? 'overhead' : 'classic'));
+  }, []);
+
+  const handleInspectAchievementToast = useCallback(() => {
+    setUnlockedToast([]);
+    handleOpenPersonalCenter('achievements');
+  }, [handleOpenPersonalCenter]);
+
+  const handleDismissAchievementToast = useCallback(() => {
+    setUnlockedToast([]);
   }, []);
 
   const isLobby = screen === 'title' || !table;
@@ -827,11 +960,17 @@ export default function App() {
     profile?.currentWinStreak ??
     matchedLeaderboardEntry?.currentWinStreak ??
     0;
+  const effectiveEquippedPref =
+    equippedPref ??
+    sanitizeEquippedAchievement(selfTablePlayer?.equippedAchievement) ??
+    sanitizeEquippedAchievement(profile?.equippedAchievement) ??
+    sanitizeEquippedAchievement(matchedLeaderboardEntry?.equippedAchievement);
 
   latestAchievementsRef.current = {
     achievements: currentAchievements.length > 0 ? currentAchievements : undefined,
     achievementDates:
       Object.keys(currentAchievementDates).length > 0 ? currentAchievementDates : undefined,
+    equippedAchievement: effectiveEquippedPref,
   };
 
   const use3D = isDesktop && !webglFailed;
@@ -857,6 +996,9 @@ export default function App() {
           initialName={playerName}
           initialRoom={activeRoomId}
           initialAvatar={playerAvatar}
+          achievements={currentAchievements}
+          achievementDates={currentAchievementDates}
+          equippedPref={effectiveEquippedPref}
           isDesktop={use3D}
           rooms={rooms}
           leaderboard={leaderboard}
@@ -864,7 +1006,8 @@ export default function App() {
           onEnterTable={handleEnterTable}
           onCreateRoom={handleCreateRoom}
           onDeleteRoom={handleDeleteRoom}
-          onOpenAchievements={() => setAchievementsOpen(true)}
+          onOpenPersonalCenter={handleOpenPersonalCenter}
+          onOpenEmailLogin={() => setEmailModalOpen(true)}
           onOpenCardGallery={() => {
             setRankingsTab('gallery');
             setRankingsOpen(true);
@@ -879,6 +1022,7 @@ export default function App() {
             avatar: playerAvatar,
             achievements: currentAchievements,
             achievementDates: currentAchievementDates,
+            equippedAchievement: effectiveEquippedPref,
           }}
           chatMessages={chatMessages}
           lastNudge={lastNudge}
@@ -886,17 +1030,13 @@ export default function App() {
           muted={muted}
           bgmEnabled={bgmEnabled}
           isDesktop={use3D}
-          externalModalOpen={achievementsOpen || rankingsOpen}
+          externalModalOpen={personalCenterOpen || rankingsOpen || emailModalOpen}
           isReconnecting={wsStatus === 'reconnecting'}
           cameraPreset={cameraPreset}
           onToggleCameraPreset={handleToggleCameraPreset}
           onToggleMute={handleToggleMute}
           onToggleBgm={handleToggleBgm}
-          onOpenAchievements={() => setAchievementsOpen(true)}
-          onOpenRankings={() => {
-            setRankingsTab('rankings');
-            setRankingsOpen(true);
-          }}
+          onOpenAchievements={() => handleOpenPersonalCenter('achievements')}
           onLeaveRoom={handleLeaveRoom}
           onStartHand={() => sendWs({ type: 'start_hand' })}
           onRevealCards={handleRevealCards}
@@ -919,35 +1059,12 @@ export default function App() {
         />
       )}
 
-      {/* Achievement Unlocked Celebration Toast */}
-      {unlockedToast.length > 0 && (
-        <div
-          role="status"
-          data-testid="achievement-toast"
-          className="fixed top-14 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2.5 rounded-md border border-[#D4A853]/65 bg-[#121614]/96 px-4 py-2.5 shadow-2xl animate-chip-impact"
-        >
-          <AchievementMedalIcon id={unlockedToast[0]} size="md" />
-          <div className="text-xs">
-            <div className="font-bold text-[#F5E4B8]">
-              解锁新成就 · {ACHIEVEMENT_MAP.get(unlockedToast[0])?.name}
-              {unlockedToast.length > 1 ? ` 等 ${unlockedToast.length} 项` : ''}
-            </div>
-            <div className="text-[11px] text-[#9EB0A6]">
-              {ACHIEVEMENT_MAP.get(unlockedToast[0])?.description}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setUnlockedToast([]);
-              setAchievementsOpen(true);
-            }}
-            className="ml-1 rounded border border-[#D4A853]/40 bg-[#D4A853]/15 px-2 py-1 text-[11px] font-semibold text-[#F5E4B8] hover:bg-[#D4A853]/25 transition-colors whitespace-nowrap"
-          >
-            查看
-          </button>
-        </div>
-      )}
+      {/* Dynamic Achievement Unlocked Celebration Banner */}
+      <AchievementUnlockBanner
+        achievementIds={unlockedToast}
+        onInspect={handleInspectAchievementToast}
+        onDismiss={handleDismissAchievementToast}
+      />
 
       {/* Subtle transient reconnecting banner when connection drops mid-table */}
       {screen === 'playing' && wsStatus === 'reconnecting' && (
@@ -977,14 +1094,32 @@ export default function App() {
         </div>
       )}
 
-      <AchievementsModal
-        open={achievementsOpen}
+      <PersonalCenterModal
+        open={personalCenterOpen}
+        initialTab={personalCenterTab}
         playerName={playerName}
+        playerAvatar={playerAvatar}
         unlockedIds={currentAchievements}
         achievementDates={currentAchievementDates}
+        equippedPref={effectiveEquippedPref}
         winStreak={currentWinStreak}
         stats={matchedLeaderboardEntry?.stats ?? null}
-        onClose={() => setAchievementsOpen(false)}
+        leaderboard={leaderboard}
+        onUpdateName={handleUpdateName}
+        onUpdateAvatar={handleUpdateAvatar}
+        onEquipAchievement={handleEquipAchievement}
+        onRequestEmailLogin={() => setEmailModalOpen(true)}
+        onClose={() => setPersonalCenterOpen(false)}
+      />
+
+      <EmailOtpModal
+        open={emailModalOpen}
+        defaultDisplayName={playerName.trim() || undefined}
+        defaultAvatar={playerAvatar}
+        localAchievements={currentAchievements}
+        localAchievementDates={currentAchievementDates}
+        onClose={() => setEmailModalOpen(false)}
+        onSuccess={handleEmailAuthSuccess}
       />
 
       <HandRankingsModal

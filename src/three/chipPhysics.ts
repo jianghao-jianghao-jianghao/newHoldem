@@ -3,6 +3,17 @@ import type { ChipDenom } from './proceduralTextures';
 export type ChipMotionMode = 'push' | 'throw';
 export type ChipStackTier = 'blind' | 'standard' | 'heavy' | 'allin';
 
+/**
+ * Physical grounding constants for clay chips resting on plush casino wool baize:
+ * - FELT_SINK_DEPTH embeds the bottom beveled edge slightly into the nap so stacks never float.
+ * - CHIP_NEST_OVERLAP interlocks recessed inlays between stacked chips to remove hairline air gaps.
+ * - FELT_COLLISION_FRICTION / CHIP_STACK_FRICTION govern tangential velocity & spin arrest on contact.
+ */
+export const FELT_SINK_DEPTH = 0.0036;
+export const CHIP_NEST_OVERLAP = 0.0014;
+export const FELT_COLLISION_FRICTION = 0.66;
+export const CHIP_STACK_FRICTION = 0.54;
+
 export interface ChipHeightProfileOptions {
   amount: number;
   bigBlind?: number;
@@ -24,6 +35,97 @@ export interface ChipStackHeightProfile {
   intensity: number;
   barrels: ChipBarrelProfile[];
   maxHeightWorld: number;
+}
+
+export interface ChipRestingPoseOptions {
+  barrelIndex: number;
+  levelIndex: number;
+  chipHeight: number;
+  chipRadius: number;
+  seed?: number;
+}
+
+export interface ChipRestingPose {
+  offsetX: number;
+  offsetZ: number;
+  restY: number;
+  yaw: number;
+  microTiltX: number;
+  microTiltZ: number;
+  landingYawDelta: number;
+  landingSlideX: number;
+  landingSlideZ: number;
+}
+
+/**
+ * Fast, deterministic PRNG hash returning a uniform value in [0, 1).
+ */
+function seededHash(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+/**
+ * Computes an organic, physically grounded resting pose for a single stacked clay chip:
+ * - Level 0 sinks slightly into the plush felt nap (FELT_SINK_DEPTH) so chips never float.
+ * - Upper chips nest tightly (chipHeight - CHIP_NEST_OVERLAP) with bounded random horizontal
+ *   micro-displacement and genuine hand-stacked rotational variation.
+ * - Also provides small landing-settle deltas damped by collision friction as newly added chips rest.
+ */
+export function computeChipRestingPose(opts: ChipRestingPoseOptions): ChipRestingPose {
+  const { barrelIndex, levelIndex, chipHeight, chipRadius, seed = 1 } = opts;
+  const baseSeed = seed * 97.31 + (barrelIndex + 1) * 37.73 + (levelIndex + 1) * 19.17;
+
+  const h1 = seededHash(baseSeed + 1.13);
+  const h2 = seededHash(baseSeed + 2.71);
+  const h3 = seededHash(baseSeed + 4.39);
+  const h4 = seededHash(baseSeed + 6.83);
+  const h5 = seededHash(baseSeed + 9.47);
+  const h6 = seededHash(baseSeed + 12.11);
+
+  // Subtle hand-stacked horizontal micro-displacement (level 0 slightly tighter on felt)
+  const maxScatter = Math.min(0.0072, chipRadius * (levelIndex === 0 ? 0.032 : 0.056));
+  const angle = h1 * Math.PI * 2;
+  const radius = Math.sqrt(h2) * maxScatter;
+  // Gentle cumulative lean bounded strictly well below barrel clearance
+  const driftAngle = seededHash(seed * 41.1 + (barrelIndex + 1) * 13.7) * Math.PI * 2;
+  const driftMag = Math.min(0.0042, levelIndex * 0.00045);
+
+  const rawX = Math.cos(angle) * radius + Math.cos(driftAngle) * driftMag;
+  const rawZ = Math.sin(angle) * radius + Math.sin(driftAngle) * driftMag;
+  const maxBound = Math.min(0.011, chipRadius * 0.088);
+  const offsetX = Math.max(-maxBound, Math.min(maxBound, rawX));
+  const offsetZ = Math.max(-maxBound, Math.min(maxBound, rawZ));
+
+  // Grounded vertical elevation: bottom chip embeds slightly into felt; upper layers nest snugly
+  const effectivePitch = Math.max(chipHeight * 0.84, chipHeight - CHIP_NEST_OVERLAP);
+  const restY = chipHeight * 0.5 - FELT_SINK_DEPTH + levelIndex * effectivePitch;
+
+  // Natural non-uniform yaw across full 360° so edge stripes break robotic patterns
+  const yaw = h3 * Math.PI * 2;
+
+  // Level 0 rests completely flat in felt; upper chips carry imperceptible micro-settle tilt
+  const microTiltScale = levelIndex === 0 ? 0 : 0.0042;
+  const microTiltX = (h4 - 0.5) * 2 * microTiltScale;
+  const microTiltZ = (h5 - 0.5) * 2 * microTiltScale;
+
+  // Friction-damped landing rotational & tangential micro-settle for freshly dropped chips
+  const landingYawDelta = (h6 - 0.5) * 0.42;
+  const slideMag = chipRadius * 0.048;
+  const landingSlideX = (h4 - 0.5) * 2 * slideMag;
+  const landingSlideZ = (h5 - 0.5) * 2 * slideMag;
+
+  return {
+    offsetX,
+    offsetZ,
+    restY,
+    yaw,
+    microTiltX,
+    microTiltZ,
+    landingYawDelta,
+    landingSlideX,
+    landingSlideZ,
+  };
 }
 
 /**
@@ -59,8 +161,6 @@ export function computeChipStackHeightProfile(
     return { tier, intensity, barrels: [], maxHeightWorld: opts.chipHeight * 0.5 };
   }
 
-  // Clone and arrange barrels with highest-value / tallest barrels first so cluster layout
-  // places anchor towers at center/back and steps down cleanly toward front/sides.
   const ordered = columns
     .map((col) => [...col].sort((a, b) => b - a))
     .sort((a, b) => {
@@ -70,8 +170,6 @@ export function computeChipStackHeightProfile(
       return sumB - sumA;
     });
 
-  // For multi-barrel All-In or heavy pots where columns ended up identically tall,
-  // redistribute 1-2 chips into a stepped pyramidal cascade while preserving chip count & total bounds.
   if ((tier === 'allin' || tier === 'heavy') && ordered.length >= 2) {
     const firstLen = ordered[0].length;
     const lastIdx = ordered.length - 1;
@@ -84,13 +182,14 @@ export function computeChipStackHeightProfile(
     }
   }
 
+  const pitch = Math.max(opts.chipHeight * 0.84, opts.chipHeight - CHIP_NEST_OVERLAP);
   const barrels: ChipBarrelProfile[] = ordered.map((denoms) => ({
     denoms,
     layerCount: denoms.length,
-    heightWorld: denoms.length * opts.chipHeight,
+    heightWorld: Math.max(0, denoms.length * pitch - FELT_SINK_DEPTH),
   }));
 
-  const maxHeightWorld = Math.max(...barrels.map((b) => b.heightWorld), opts.chipHeight);
+  const maxHeightWorld = Math.max(...barrels.map((b) => b.heightWorld), opts.chipHeight * 0.5);
 
   return {
     tier,
@@ -112,6 +211,7 @@ export interface ChipPhysicsBody {
   targetY: number;
   targetZ: number;
   startX: number;
+  startY: number;
   startZ: number;
   totalDist: number;
   elapsed: number;
@@ -127,6 +227,13 @@ export interface ChipPhysicsBody {
   bounceCount: number;
   maxBounces: number;
   restitution: number;
+  /** Surface/collision friction coefficient in [0.1, 0.95] arresting tangential & angular speed */
+  collisionFriction: number;
+  /** Subtle random rotational impulse applied when chip contacts felt/stack */
+  landingYawImpulse: number;
+  /** Subtle tangential micro-slip applied at impact before friction arrests motion */
+  landingSlipX: number;
+  landingSlipZ: number;
   settled: boolean;
   impactFired: boolean;
 }
@@ -145,60 +252,108 @@ export interface CreateChipPhysicsBodyParams {
   spinX?: number;
   spinZ?: number;
   yaw?: number;
+  /** Explicit collision friction coefficient (defaults to FELT_COLLISION_FRICTION / CHIP_STACK_FRICTION) */
+  collisionFriction?: number;
+  /** Optional deterministic seed for subtle random landing rotation & lateral micro-offset */
+  landingJitterSeed?: number;
+  /** When true, depresses targetY by FELT_SINK_DEPTH so bottom chips sink naturally into felt */
+  sinkIntoFelt?: boolean;
 }
 
-const GRAVITY = 15.6;
+const GRAVITY = 18.6;
 
 /**
  * Creates a rigid-body chip trajectory configured either for felt-sliding push-in
- * (raises, All-In pushes, street pot sweeps) or parabolic throw (blinds/calls).
+ * (raises, All-In pushes, street pot sweeps) or parabolic throw (blinds/calls),
+ * incorporating surface collision friction and organic random landing rotation/offset.
  */
 export function createChipPhysicsBody(params: CreateChipPhysicsBodyParams): ChipPhysicsBody {
-  const dx = params.toX - params.fromX;
-  const dz = params.toZ - params.fromZ;
+  const friction = Math.max(
+    0.1,
+    Math.min(
+      0.95,
+      params.collisionFriction ??
+        (params.mode === 'push' ? FELT_COLLISION_FRICTION : CHIP_STACK_FRICTION)
+    )
+  );
+
+  let targetX = params.toX;
+  let targetZ = params.toZ;
+  let landingYawImpulse = 0;
+  let landingSlipX = 0;
+  let landingSlipZ = 0;
+
+  if (params.landingJitterSeed !== undefined) {
+    const s = params.landingJitterSeed;
+    const hAngle = seededHash(s * 17.3 + 3.1) * Math.PI * 2;
+    const hRad = Math.sqrt(seededHash(s * 29.7 + 5.7)) * 0.0085;
+    targetX += Math.cos(hAngle) * hRad;
+    targetZ += Math.sin(hAngle) * hRad;
+
+    const hYaw = seededHash(s * 43.9 + 8.3) - 0.5;
+    landingYawImpulse = hYaw * (params.mode === 'push' ? 2.6 : 4.2);
+
+    const slipAngle = seededHash(s * 61.1 + 11.9) * Math.PI * 2;
+    const slipSpeed = (0.04 + seededHash(s * 73.3 + 2.3) * 0.07) * (1 - friction * 0.55);
+    landingSlipX = Math.cos(slipAngle) * slipSpeed;
+    landingSlipZ = Math.sin(slipAngle) * slipSpeed;
+  }
+
+  const sinkDelta = params.sinkIntoFelt ? FELT_SINK_DEPTH : 0;
+  const targetY = Math.max(0.002, params.toY - sinkDelta);
+
+  const dx = targetX - params.fromX;
+  const dz = targetZ - params.fromZ;
   const totalDist = Math.hypot(dx, dz);
 
   const duration =
     params.duration ??
     (params.mode === 'push'
-      ? Math.min(0.46, Math.max(0.28, 0.24 + totalDist * 0.065))
-      : Math.min(0.40, Math.max(0.26, 0.25 + totalDist * 0.045)));
+      ? Math.min(0.42, Math.max(0.24, 0.21 + totalDist * 0.055))
+      : Math.min(0.36, Math.max(0.22, 0.21 + totalDist * 0.04)));
 
   const arcHeight =
     params.arcHeight ??
-    (params.mode === 'push' ? Math.min(0.14, 0.045 + totalDist * 0.025) : 0.36 + totalDist * 0.04);
+    (params.mode === 'push'
+      ? Math.min(0.095, 0.028 + totalDist * 0.018)
+      : Math.min(0.38, 0.22 + totalDist * 0.036));
 
   const invDur = 1 / Math.max(0.08, duration);
   const initialVy =
-    (params.toY - params.fromY) * invDur + 0.5 * GRAVITY * duration * (params.mode === 'push' ? 0.38 : 0.92);
+    (targetY - params.fromY) * invDur + 0.5 * GRAVITY * duration * (params.mode === 'push' ? 0.34 : 0.85);
 
   return {
     mode: params.mode,
     x: params.fromX,
     y: params.fromY,
     z: params.fromZ,
-    vx: dx * invDur * (params.mode === 'push' ? 1.32 : 1.0),
+    vx: dx * invDur * (params.mode === 'push' ? 1.24 : 1.0),
     vy: initialVy,
-    vz: dz * invDur * (params.mode === 'push' ? 1.32 : 1.0),
-    targetX: params.toX,
-    targetY: params.toY,
-    targetZ: params.toZ,
+    vz: dz * invDur * (params.mode === 'push' ? 1.24 : 1.0),
+    targetX,
+    targetY,
+    targetZ,
     startX: params.fromX,
+    startY: params.fromY,
     startZ: params.fromZ,
     totalDist,
     elapsed: 0,
     delay: Math.max(0, params.delay),
     duration,
     arcHeight,
-    spinX: params.spinX ?? (params.mode === 'push' ? 0.45 : 6.0),
-    spinZ: params.spinZ ?? (params.mode === 'push' ? 0.35 : 6.0),
+    spinX: params.spinX ?? (params.mode === 'push' ? 0.32 : 3.9),
+    spinZ: params.spinZ ?? (params.mode === 'push' ? 0.24 : 3.9),
     yaw: params.yaw ?? 0,
-    yawVel: params.mode === 'push' ? 2.4 : 7.5,
+    yawVel: params.mode === 'push' ? 1.55 : 4.8,
     pitchTilt: 0,
     rollTilt: 0,
     bounceCount: 0,
-    maxBounces: params.mode === 'push' ? 2 : 2,
-    restitution: params.mode === 'push' ? 0.34 : 0.38,
+    maxBounces: params.mode === 'push' ? 1 : 2,
+    restitution: params.mode === 'push' ? 0.25 : 0.29,
+    collisionFriction: friction,
+    landingYawImpulse,
+    landingSlipX,
+    landingSlipZ,
     settled: false,
     impactFired: false,
   };
@@ -213,9 +368,10 @@ export interface ChipPhysicsStepResult {
 
 /**
  * Advances a chip rigid body by dt seconds:
- * - Push mode applies felt kinetic friction + subtle lift over the betting line + inertia tilt.
- * - Throw mode integrates ballistic gravity.
- * - On surface collision, executes damped elastic rebound micro-bounces before settling cleanly.
+ * - Push mode applies felt kinetic friction + low gliding arc + smooth liftoff/landing tilt.
+ * - Throw mode integrates clean parabolic flight with smooth spin decay before impact.
+ * - Upon impact, applies Coulomb-style collision friction to tangential velocity & angular spin
+ *   along with subtle random landing rotation/slip, settling cleanly into the felt/stack with zero floating.
  */
 export function stepChipPhysicsBody(body: ChipPhysicsBody, dt: number): ChipPhysicsStepResult {
   if (body.settled) {
@@ -240,8 +396,14 @@ export function stepChipPhysicsBody(body: ChipPhysicsBody, dt: number): ChipPhys
 
     if (body.bounceCount === 0) {
       const p = Math.min(1, activeT / body.duration);
+      const smoothY = p * p * (3 - 2 * p);
+      const baseLineY = body.startY + (body.targetY - body.startY) * smoothY;
+      const arcSin = Math.sin(p * Math.PI);
+
       if (body.mode === 'push') {
-        const frictionEase = 1 - Math.pow(1 - p, 2.35);
+        // Felt kinetic friction exponent scales with surface friction coefficient
+        const frictionPower = 2.1 + body.collisionFriction * 0.9;
+        const frictionEase = 1 - Math.pow(1 - p, frictionPower);
         const prevX = body.x;
         const prevZ = body.z;
         body.x = body.startX + (body.targetX - body.startX) * frictionEase;
@@ -250,26 +412,38 @@ export function stepChipPhysicsBody(body: ChipPhysicsBody, dt: number): ChipPhys
         body.vx = (body.x - prevX) / denomDt;
         body.vz = (body.z - prevZ) / denomDt;
 
-        const hop = Math.sin(p * Math.PI) * body.arcHeight;
-        const dropOffset = p > 0.72 ? (p - 0.72) * 0.04 : 0;
-        body.y = body.targetY + hop + (1 - p) * 0.025 - dropOffset;
-        body.vy = p > 0.55 ? -(1.45 + body.arcHeight * 4.5) : 0.4;
+        const hop = arcSin * body.arcHeight;
+        body.y = Math.max(Math.min(body.startY, body.targetY), baseLineY + hop);
+        if (p > 0.5) {
+          body.y = Math.max(body.targetY, body.y);
+        }
+        body.vy = p > 0.5 ? -(1.35 + body.arcHeight * 4.4) : 0.32;
 
-        const speedFactor = Math.max(0, 1 - p * 1.15);
-        body.pitchTilt = Math.sin(p * Math.PI) * 0.14 * speedFactor;
-        body.rollTilt = Math.cos(p * Math.PI) * 0.08 * speedFactor;
-        body.yaw += body.yawVel * subDt * (1 - p * 0.75);
+        // Smooth zero-at-endpoints banking tilt (no abrupt jump at p=0 or p=1)
+        const bankEnvelope = arcSin * (1 - p * 0.45);
+        body.pitchTilt = bankEnvelope * 0.1;
+        body.rollTilt = Math.sin(p * Math.PI * 2) * 0.028 * (1 - p);
+        body.yaw += body.yawVel * subDt * (1 - p * (0.55 + body.collisionFriction * 0.35));
       } else {
-        const ease = 1 - Math.pow(1 - p, 1.85);
+        const ease = 1 - Math.pow(1 - p, 1.95);
+        const prevX = body.x;
+        const prevZ = body.z;
         body.x = body.startX + (body.targetX - body.startX) * ease;
         body.z = body.startZ + (body.targetZ - body.startZ) * ease;
-        body.y = body.targetY + Math.sin(p * Math.PI) * body.arcHeight + (1 - p) * 0.03;
-        body.vy = p > 0.5 ? -(2.1 + body.arcHeight * 3.8) : 0.8;
+        const denomDt = Math.max(0.004, subDt);
+        body.vx = (body.x - prevX) / denomDt;
+        body.vz = (body.z - prevZ) / denomDt;
 
-        const decay = (1 - p) * (1 - p);
-        body.pitchTilt = body.spinX * decay * 0.25;
-        body.rollTilt = body.spinZ * decay * 0.25;
-        body.yaw += body.yawVel * subDt;
+        body.y = Math.max(Math.min(body.startY, body.targetY), baseLineY + arcSin * body.arcHeight);
+        if (p > 0.5) {
+          body.y = Math.max(body.targetY, body.y);
+        }
+        body.vy = p > 0.5 ? -(1.95 + body.arcHeight * 3.4) : 0.68;
+
+        const tiltEnv = arcSin * (1 - p * 0.35);
+        body.pitchTilt = Math.max(-0.4, Math.min(0.4, body.spinX * 0.075 * tiltEnv));
+        body.rollTilt = Math.max(-0.4, Math.min(0.4, body.spinZ * 0.075 * tiltEnv));
+        body.yaw += body.yawVel * subDt * (1 - p * 0.55);
       }
 
       if (p >= 1) {
@@ -278,37 +452,59 @@ export function stepChipPhysicsBody(body: ChipPhysicsBody, dt: number): ChipPhys
         body.y = body.targetY;
         body.bounceCount = 1;
         const impactSpeed = Math.abs(body.vy);
-        body.vy = Math.min(1.6, Math.max(0.32, impactSpeed * body.restitution));
-        body.vx = Math.max(-0.35, Math.min(0.35, body.vx * 0.08));
-        body.vz = Math.max(-0.35, Math.min(0.35, body.vz * 0.08));
-        body.pitchTilt *= -0.4;
-        body.rollTilt *= -0.4;
+
+        // Collision friction arrests tangential momentum & imparts organic landing spin/slip
+        const tangentialRetain = Math.max(0.06, 1 - body.collisionFriction);
+        body.vy = Math.min(0.88, Math.max(0.54, impactSpeed * body.restitution));
+        body.vx = Math.max(
+          -0.16,
+          Math.min(0.16, body.vx * tangentialRetain * 0.14 + body.landingSlipX)
+        );
+        body.vz = Math.max(
+          -0.16,
+          Math.min(0.16, body.vz * tangentialRetain * 0.14 + body.landingSlipZ)
+        );
+        body.yawVel = body.yawVel * tangentialRetain * 0.55 + body.landingYawImpulse;
+        body.pitchTilt = (body.mode === 'push' ? 0.036 : 0.056) * (body.spinX >= 0 ? 1 : -1);
+        body.rollTilt *= -0.32;
         if (!body.impactFired) {
           anyCollided = true;
           body.impactFired = true;
           maxCollisionIntensity = Math.max(
             maxCollisionIntensity,
-            Math.min(1.4, 0.55 + impactSpeed * 0.22)
+            Math.min(1.25, 0.48 + impactSpeed * 0.18)
           );
         }
       }
     } else {
       body.vy -= GRAVITY * subDt;
-      body.x += body.vx * subDt;
-      body.z += body.vz * subDt;
-      body.y += body.vy * subDt;
+      // Friction-governed horizontal & angular braking during micro-bounce
+      const linearDrag = Math.exp(-(12 + body.collisionFriction * 24) * subDt);
+      const angularDrag = Math.exp(-(10 + body.collisionFriction * 20) * subDt);
+      const homePull = 1 - Math.exp(-(14 + body.collisionFriction * 10) * subDt);
 
-      body.vx *= Math.exp(-14 * subDt);
-      body.vz *= Math.exp(-14 * subDt);
-      body.pitchTilt *= Math.exp(-16 * subDt);
-      body.rollTilt *= Math.exp(-16 * subDt);
+      body.x += body.vx * subDt + (body.targetX - body.x) * homePull;
+      body.z += body.vz * subDt + (body.targetZ - body.z) * homePull;
+      body.y += body.vy * subDt;
+      body.yaw += body.yawVel * subDt;
+
+      body.vx *= linearDrag;
+      body.vz *= linearDrag;
+      body.yawVel *= angularDrag;
+      body.pitchTilt *= Math.exp(-24 * subDt);
+      body.rollTilt *= Math.exp(-24 * subDt);
 
       if (body.y <= body.targetY) {
         body.y = body.targetY;
-        if (body.bounceCount < body.maxBounces && Math.abs(body.vy) > 0.18) {
+        const contactRetain = Math.max(0.05, 1 - body.collisionFriction);
+        body.vx *= contactRetain;
+        body.vz *= contactRetain;
+        body.yawVel *= contactRetain;
+
+        if (body.bounceCount < body.maxBounces && Math.abs(body.vy) > 0.24) {
           body.bounceCount += 1;
-          body.vy = Math.abs(body.vy) * body.restitution;
-          body.pitchTilt = (body.bounceCount % 2 === 0 ? 1 : -1) * 0.045;
+          body.vy = Math.abs(body.vy) * body.restitution * (1 - body.collisionFriction * 0.18);
+          body.pitchTilt = (body.bounceCount % 2 === 0 ? 1 : -1) * 0.022;
         } else {
           body.x = body.targetX;
           body.z = body.targetZ;
@@ -316,6 +512,7 @@ export function stepChipPhysicsBody(body: ChipPhysicsBody, dt: number): ChipPhys
           body.vx = 0;
           body.vy = 0;
           body.vz = 0;
+          body.yawVel = 0;
           body.pitchTilt = 0;
           body.rollTilt = 0;
           body.settled = true;
@@ -364,8 +561,8 @@ export function applyStackCollisionImpulse(
 ): void {
   const clamped = Math.min(1.4, Math.max(0.2, intensity));
   state.compressionVel = Math.min(2.2, Math.max(state.compressionVel, clamped * 1.35));
-  state.lateralVelX = Math.max(-0.45, Math.min(0.45, state.lateralVelX + dirX * clamped * 0.18));
-  state.lateralVelZ = Math.max(-0.45, Math.min(0.45, state.lateralVelZ + dirZ * clamped * 0.18));
+  state.lateralVelX = Math.max(-0.45, Math.min(0.45, state.lateralVelX + dirX * clamped * 0.16));
+  state.lateralVelZ = Math.max(-0.45, Math.min(0.45, state.lateralVelZ + dirZ * clamped * 0.16));
 }
 
 /**
@@ -373,10 +570,10 @@ export function applyStackCollisionImpulse(
  * Unconditionally stable across both 60fps GPU and low-fps software WebGL frame intervals.
  */
 export function stepStackSpringPhysics(state: StackSpringState, dt: number): boolean {
-  const kVertical = 340;
-  const cVertical = 22;
-  const kLateral = 260;
-  const cLateral = 19;
+  const kVertical = 360;
+  const cVertical = 25;
+  const kLateral = 280;
+  const cLateral = 22;
 
   const safeDt = Math.min(0.25, Math.max(0.001, dt));
   const subSteps = Math.max(1, Math.ceil(safeDt / 0.008));
@@ -397,9 +594,9 @@ export function stepStackSpringPhysics(state: StackSpringState, dt: number): boo
   }
 
   // Hard physical bounds guard
-  state.compression = Math.max(-0.1, Math.min(0.2, state.compression));
-  state.lateralX = Math.max(-0.04, Math.min(0.04, state.lateralX));
-  state.lateralZ = Math.max(-0.04, Math.min(0.04, state.lateralZ));
+  state.compression = Math.max(-0.08, Math.min(0.18, state.compression));
+  state.lateralX = Math.max(-0.036, Math.min(0.036, state.lateralX));
+  state.lateralZ = Math.max(-0.036, Math.min(0.036, state.lateralZ));
 
   const energy =
     Math.abs(state.compression) +

@@ -28,7 +28,14 @@ export type AchievementId =
   | 'iron_regular'
   | 'preflop_bandit'
   | 'split_peace'
-  | 'tuition_paid';
+  | 'tuition_paid'
+  // Showdown mastery & iconic starting-hand achievements
+  | 'showdown_streak_3'
+  | 'doyle_brunson'
+  | 'big_slick_win'
+  | 'cowboys_win'
+  | 'snowmen_win'
+  | 'suited_connector_art';
 
 export interface AchievementDef {
   id: AchievementId;
@@ -64,6 +71,14 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     priority: 125,
   },
   {
+    id: 'doyle_brunson',
+    name: '传奇 10-2',
+    description: '手持两届 WSOP 冠军传奇起手牌 10-2 赢下底池，致敬多伊尔·布朗森',
+    tier: 'obsidian',
+    category: 'fun',
+    priority: 122,
+  },
+  {
     id: 'mega_pot',
     name: '金池主宰',
     description: '单局赢下至少 60 倍大盲注的超大底池',
@@ -86,6 +101,14 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     tier: 'gold',
     category: 'glory',
     priority: 105,
+  },
+  {
+    id: 'showdown_streak_3',
+    name: '摊牌三连斩',
+    description: '连续 3 次杀入河牌摊牌并亮牌赢下底池，稳准狠的读牌大师',
+    tier: 'gold',
+    category: 'tactics',
+    priority: 102,
   },
   {
     id: 'allin_jackpot',
@@ -168,6 +191,30 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     priority: 70,
   },
   {
+    id: 'cowboys_win',
+    name: '西部牛仔',
+    description: '手持口袋对 K (KK / Cowboys) 策马疾驰赢下底池',
+    tier: 'silver',
+    category: 'fun',
+    priority: 69,
+  },
+  {
+    id: 'big_slick_win',
+    name: '大滑头绝杀',
+    description: '手持经典起手牌 A-K (Big Slick) 强势拿下底池',
+    tier: 'silver',
+    category: 'fun',
+    priority: 68,
+  },
+  {
+    id: 'suited_connector_art',
+    name: '同花连张艺术家',
+    description: '手持同花连张（如 9♠-10♠）进入摊牌并优雅收割底池',
+    tier: 'silver',
+    category: 'tactics',
+    priority: 64,
+  },
+  {
     id: 'chip_doubler',
     name: '筹码翻倍',
     description: '在牌桌中将持有筹码增至初始筹码的 2 倍以上',
@@ -190,6 +237,14 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     tier: 'silver',
     category: 'glory',
     priority: 58,
+  },
+  {
+    id: 'snowmen_win',
+    name: '雪人降临',
+    description: '手持口袋对 8 (88 / Snowmen) 冷静发力赢下底池',
+    tier: 'bronze',
+    category: 'fun',
+    priority: 54,
   },
   {
     id: 'trips_master',
@@ -247,12 +302,40 @@ export const ACHIEVEMENT_MAP = new Map<AchievementId, AchievementDef>(
 
 export type AchievementDatesMap = Partial<Record<AchievementId, number>>;
 
+export type EquippedAchievementPref = AchievementId | 'none';
+
 export const ACHIEVEMENT_TIER_LABELS: Record<AchievementTier, string> = {
   bronze: '铜章',
   silver: '银章',
   gold: '金章',
   obsidian: '传奇黑金',
 };
+
+export function sanitizeEquippedAchievement(raw: unknown): EquippedAchievementPref | undefined {
+  if (raw === 'none') return 'none';
+  if (typeof raw === 'string' && ACHIEVEMENT_MAP.has(raw as AchievementId)) {
+    return raw as AchievementId;
+  }
+  return undefined;
+}
+
+/**
+ * Resolves the single signature medal displayed on a player's avatar frame.
+ * - Explicit `'none'` hides the avatar medal cleanly.
+ * - Explicit unlocked `AchievementId` displays that chosen medal.
+ * - Otherwise falls back to the highest-priority unlocked medal (if any).
+ */
+export function resolveEquippedAchievement(
+  preferred: EquippedAchievementPref | null | undefined,
+  unlocked: AchievementId[]
+): AchievementId | null {
+  if (preferred === 'none') return null;
+  const sorted = sanitizeAchievementIds(unlocked);
+  if (preferred && sorted.includes(preferred)) {
+    return preferred;
+  }
+  return sorted[0] ?? null;
+}
 
 export function sanitizeAchievementIds(raw: unknown): AchievementId[] {
   if (!Array.isArray(raw)) return [];
@@ -353,6 +436,13 @@ export interface PlayerAchievementStats {
   preflopFoldWins?: number;
   badBeatLosses?: number;
   bustCount?: number;
+  currentShowdownWinStreak?: number;
+  maxShowdownWinStreak?: number;
+  doyleBrunsonWins?: number;
+  bigSlickWins?: number;
+  cowboysWins?: number;
+  snowmenWins?: number;
+  suitedConnectorShowdownWins?: number;
 }
 
 export function createEmptyAchievementStats(): PlayerAchievementStats {
@@ -379,6 +469,13 @@ export function createEmptyAchievementStats(): PlayerAchievementStats {
     preflopFoldWins: 0,
     badBeatLosses: 0,
     bustCount: 0,
+    currentShowdownWinStreak: 0,
+    maxShowdownWinStreak: 0,
+    doyleBrunsonWins: 0,
+    bigSlickWins: 0,
+    cowboysWins: 0,
+    snowmenWins: 0,
+    suitedConnectorShowdownWins: 0,
   };
 }
 
@@ -409,6 +506,38 @@ function isSevenTwoOffsuit(cards?: Card[]): boolean {
 function isPocketAces(cards?: Card[]): boolean {
   if (!cards || cards.length !== 2) return false;
   return cards[0].rank === 14 && cards[1].rank === 14;
+}
+
+function isPocketKings(cards?: Card[]): boolean {
+  if (!cards || cards.length !== 2) return false;
+  return cards[0].rank === 13 && cards[1].rank === 13;
+}
+
+function isPocketEights(cards?: Card[]): boolean {
+  if (!cards || cards.length !== 2) return false;
+  return cards[0].rank === 8 && cards[1].rank === 8;
+}
+
+function isBigSlick(cards?: Card[]): boolean {
+  if (!cards || cards.length !== 2) return false;
+  const ranks = [cards[0].rank, cards[1].rank].sort((a, b) => a - b);
+  return ranks[0] === 13 && ranks[1] === 14;
+}
+
+function isDoyleBrunson(cards?: Card[]): boolean {
+  if (!cards || cards.length !== 2) return false;
+  const ranks = [cards[0].rank, cards[1].rank].sort((a, b) => a - b);
+  return ranks[0] === 2 && ranks[1] === 10;
+}
+
+function isSuitedConnector(cards?: Card[]): boolean {
+  if (!cards || cards.length !== 2) return false;
+  if (cards[0].suit !== cards[1].suit) return false;
+  const diff = Math.abs(cards[0].rank - cards[1].rank);
+  if (diff === 1) return true;
+  // Wheel connector A-2 suited
+  const ranks = [cards[0].rank, cards[1].rank].sort((a, b) => a - b);
+  return ranks[0] === 2 && ranks[1] === 14;
 }
 
 export function evaluateAchievementsFromStats(
@@ -444,6 +573,14 @@ export function evaluateAchievementsFromStats(
   if ((stats.badBeatLosses ?? 0) >= 1) unlocked.push('bad_beat_survivor');
   if ((stats.bustCount ?? 0) >= 1) unlocked.push('tuition_paid');
   if (stats.handsPlayed >= 25) unlocked.push('iron_regular');
+
+  // Showdown mastery & iconic starting-hand achievements
+  if ((stats.maxShowdownWinStreak ?? 0) >= 3) unlocked.push('showdown_streak_3');
+  if ((stats.doyleBrunsonWins ?? 0) >= 1) unlocked.push('doyle_brunson');
+  if ((stats.bigSlickWins ?? 0) >= 1) unlocked.push('big_slick_win');
+  if ((stats.cowboysWins ?? 0) >= 1) unlocked.push('cowboys_win');
+  if ((stats.snowmenWins ?? 0) >= 1) unlocked.push('snowmen_win');
+  if ((stats.suitedConnectorShowdownWins ?? 0) >= 1) unlocked.push('suited_connector_art');
 
   // Sort by priority descending so the most prestigious medals appear first
   unlocked.sort(
@@ -483,6 +620,12 @@ export function applyHandToAchievementStats(
     if (base.currentWinStreak > base.maxWinStreak) {
       base.maxWinStreak = base.currentWinStreak;
     }
+    if (isShowdown && !input.wonByFold) {
+      base.currentShowdownWinStreak = (base.currentShowdownWinStreak ?? 0) + 1;
+      if (base.currentShowdownWinStreak > (base.maxShowdownWinStreak ?? 0)) {
+        base.maxShowdownWinStreak = base.currentShowdownWinStreak;
+      }
+    }
     if (input.potWon > base.maxPotWon) {
       base.maxPotWon = input.potWon;
     }
@@ -504,6 +647,21 @@ export function applyHandToAchievementStats(
     if (hasPocketAces) {
       base.pocketAcesWins = (base.pocketAcesWins ?? 0) + 1;
     }
+    if (isDoyleBrunson(input.holeCards)) {
+      base.doyleBrunsonWins = (base.doyleBrunsonWins ?? 0) + 1;
+    }
+    if (isBigSlick(input.holeCards)) {
+      base.bigSlickWins = (base.bigSlickWins ?? 0) + 1;
+    }
+    if (isPocketKings(input.holeCards)) {
+      base.cowboysWins = (base.cowboysWins ?? 0) + 1;
+    }
+    if (isPocketEights(input.holeCards)) {
+      base.snowmenWins = (base.snowmenWins ?? 0) + 1;
+    }
+    if (isShowdown && !input.wonByFold && isSuitedConnector(input.holeCards)) {
+      base.suitedConnectorShowdownWins = (base.suitedConnectorShowdownWins ?? 0) + 1;
+    }
     if (isShowdown && !input.wonByFold && input.handCategory === 0) {
       base.highCardShowdownWins = (base.highCardShowdownWins ?? 0) + 1;
     }
@@ -522,6 +680,9 @@ export function applyHandToAchievementStats(
     }
   } else {
     base.currentWinStreak = 0;
+    if (isShowdown) {
+      base.currentShowdownWinStreak = 0;
+    }
     if (isShowdown && hasPocketAces) {
       base.acesCrackedCount = (base.acesCrackedCount ?? 0) + 1;
     }

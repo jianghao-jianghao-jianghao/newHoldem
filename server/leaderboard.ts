@@ -4,8 +4,10 @@ import {
   applyHandToAchievementStats,
   createEmptyAchievementStats,
   mergeAchievementDates,
+  sanitizeEquippedAchievement,
   type AchievementDatesMap,
   type AchievementId,
+  type EquippedAchievementPref,
   type PlayerAchievementStats,
 } from '../src/shared/achievements';
 import { sanitizeAvatar } from '../src/shared/avatarUtils';
@@ -229,15 +231,37 @@ export class LeaderboardStore {
     return true;
   }
 
+  public syncPlayerEquippedAchievement(
+    playerName: string,
+    equippedAchievement?: EquippedAchievementPref
+  ): boolean {
+    const cleanName = playerName.trim();
+    if (!cleanName || equippedAchievement === undefined) return false;
+    const safe = sanitizeEquippedAchievement(equippedAchievement);
+    if (!safe) return false;
+    const existing = this.entries.get(cleanName);
+    if (!existing) return false;
+    if (existing.equippedAchievement === safe) return false;
+    existing.equippedAchievement = safe;
+    this.entries.set(cleanName, existing);
+    this.save();
+    return true;
+  }
+
   public getPlayerProfile(playerName: string): {
     avatar?: string;
+    equippedAchievement?: EquippedAchievementPref;
     level: number;
     points: number;
+    netChips: number;
     handsPlayed: number;
     handsWon: number;
+    bestHandName: string;
+    bestHandScore: number;
     achievements: AchievementId[];
     achievementDates: AchievementDatesMap;
     currentWinStreak: number;
+    maxWinStreak: number;
     stats: PlayerAchievementStats;
   } {
     const cleanName = playerName.trim();
@@ -246,11 +270,15 @@ export class LeaderboardStore {
       return {
         level: 1,
         points: 1000,
+        netChips: 0,
         handsPlayed: 0,
         handsWon: 0,
+        bestHandName: '高牌',
+        bestHandScore: 0,
         achievements: [],
         achievementDates: {},
         currentWinStreak: 0,
+        maxWinStreak: 0,
         stats: createEmptyAchievementStats(),
       };
     }
@@ -264,13 +292,18 @@ export class LeaderboardStore {
     }).level;
     return {
       avatar: existing.avatar,
+      equippedAchievement: sanitizeEquippedAchievement(existing.equippedAchievement),
       level,
       points: existing.points,
+      netChips: existing.netChips ?? existing.stats?.netChips ?? 0,
       handsPlayed: existing.handsPlayed,
       handsWon: existing.handsWon,
+      bestHandName: existing.bestHandName || '高牌',
+      bestHandScore: existing.bestHandScore ?? 0,
       achievements,
       achievementDates: existing.achievementDates ?? {},
       currentWinStreak: existing.currentWinStreak ?? existing.stats?.currentWinStreak ?? 0,
+      maxWinStreak: existing.maxWinStreak ?? existing.stats?.maxWinStreak ?? 0,
       stats: existing.stats ?? {
         ...createEmptyAchievementStats(),
         handsPlayed: existing.handsPlayed,

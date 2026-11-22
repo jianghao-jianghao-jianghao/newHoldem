@@ -45,6 +45,7 @@ import {
   mergeAchievementDates,
   sanitizeAchievementDates,
   sanitizeAchievementIds,
+  sanitizeEquippedAchievement,
   type AchievementDatesMap,
   type AchievementId,
   type PlayerAchievementStats,
@@ -831,6 +832,69 @@ async function startServer() {
     return raw.slice(7).trim() || null;
   };
 
+  const buildLinkedProfile = (
+    lookupName: string | undefined,
+    localAchievements?: unknown,
+    localAchievementDates?: unknown
+  ) => {
+    const cleanName = (lookupName ?? '').trim();
+    const lbProfile = cleanName ? leaderboard.getPlayerProfile(cleanName) : null;
+    const hasLbRecord = Boolean(
+      lbProfile && (lbProfile.handsPlayed > 0 || lbProfile.achievements.length > 0 || lbProfile.avatar)
+    );
+    const extraAchievements = sanitizeAchievementIds(localAchievements);
+    const extraDates = sanitizeAchievementDates(localAchievementDates);
+    const mergedAch = sanitizeAchievementIds([
+      ...(hasLbRecord && lbProfile ? lbProfile.achievements : []),
+      ...extraAchievements,
+    ]);
+    const mergedDates = {
+      ...(hasLbRecord && lbProfile ? lbProfile.achievementDates : {}),
+      ...extraDates,
+    };
+    if (!hasLbRecord && mergedAch.length === 0) return undefined;
+    return {
+      avatar: hasLbRecord ? lbProfile?.avatar : undefined,
+      equippedAchievement: hasLbRecord ? lbProfile?.equippedAchievement : undefined,
+      points: hasLbRecord ? lbProfile?.points : undefined,
+      netChips: hasLbRecord ? lbProfile?.netChips : undefined,
+      handsPlayed: hasLbRecord ? lbProfile?.handsPlayed : undefined,
+      handsWon: hasLbRecord ? lbProfile?.handsWon : undefined,
+      bestHandName: hasLbRecord ? lbProfile?.bestHandName : undefined,
+      bestHandScore: hasLbRecord ? lbProfile?.bestHandScore : undefined,
+      achievements: mergedAch,
+      achievementDates: mergedDates,
+      currentWinStreak: hasLbRecord ? lbProfile?.currentWinStreak : undefined,
+      maxWinStreak: hasLbRecord ? lbProfile?.maxWinStreak : undefined,
+    };
+  };
+
+  app.post('/api/auth/quick-login', (req, res) => {
+    const { identifier, displayName, avatar, localAchievements, localAchievementDates } =
+      req.body ?? {};
+    const rawId = typeof identifier === 'string' ? identifier.trim() : '';
+    const lookupName =
+      typeof displayName === 'string' && displayName.trim()
+        ? displayName.trim()
+        : rawId.includes('@')
+          ? rawId.split('@')[0]
+          : rawId;
+    const linked = buildLinkedProfile(lookupName, localAchievements, localAchievementDates);
+    const result = authStore.quickLogin(
+      rawId,
+      {
+        displayName: typeof displayName === 'string' ? displayName : undefined,
+        avatar: typeof avatar === 'string' ? avatar : undefined,
+      },
+      linked
+    );
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  });
+
   app.post('/api/auth/send-code', async (req, res) => {
     const email = typeof req.body?.email === 'string' ? req.body.email : '';
     const result = await authStore.requestOtp(email);
@@ -842,14 +906,23 @@ async function startServer() {
   });
 
   app.post('/api/auth/verify-code', (req, res) => {
-    const { email, code, displayName, avatar } = req.body ?? {};
+    const { email, code, displayName, avatar, localAchievements, localAchievementDates } =
+      req.body ?? {};
+    const rawEmail = typeof email === 'string' ? email : '';
+    const lookupName =
+      typeof displayName === 'string' && displayName.trim()
+        ? displayName.trim()
+        : rawEmail.split('@')[0];
+    const linked = buildLinkedProfile(lookupName, localAchievements, localAchievementDates);
     const result = authStore.verifyOtp(
-      typeof email === 'string' ? email : '',
+      rawEmail,
       typeof code === 'string' ? code : '',
       {
         displayName: typeof displayName === 'string' ? displayName : undefined,
         avatar: typeof avatar === 'string' ? avatar : undefined,
-      }
+      },
+      Date.now(),
+      linked
     );
     if (!result.ok) {
       res.status(400).json(result);
@@ -862,10 +935,12 @@ async function startServer() {
     const token = extractBearerToken(req);
     const profile = authStore.verifySessionToken(token);
     if (!profile) {
-      res.status(401).json({ error: '登录状态已失效，请重新验证邮箱' });
+      res.status(401).json({ error: '登录状态已失效，请重新登录' });
       return;
     }
-    res.json({ profile });
+    const linked = buildLinkedProfile(profile.displayName);
+    const hydrated = linked ? (authStore.mergeLinkedProfile(profile.uid, linked) ?? profile) : profile;
+    res.json({ profile: hydrated });
   });
 
   app.patch('/api/auth/profile', (req, res) => {
@@ -875,11 +950,15 @@ async function startServer() {
       res.status(401).json({ error: '请先登录邮箱账号' });
       return;
     }
-    const { displayName, avatar, bgmEnabled } = req.body ?? {};
+    const { displayName, avatar, bgmEnabled, equippedAchievement } = req.body ?? {};
     const updated = authStore.updatePreferences(existing.uid, {
       displayName: typeof displayName === 'string' ? displayName : undefined,
       avatar: typeof avatar === 'string' ? avatar : undefined,
       bgmEnabled: typeof bgmEnabled === 'boolean' ? bgmEnabled : undefined,
+      equippedAchievement:
+        equippedAchievement === null
+          ? 'none'
+          : sanitizeEquippedAchievement(equippedAchievement),
     });
     res.json({ profile: updated });
   });
@@ -1263,7 +1342,16 @@ async function startServer() {
               : profile.avatar
                 ? sanitizeAvatar(profile.avatar)
                 : 'default';
+          const incomingEquipped = sanitizeEquippedAchievement(msg.equippedAchievement);
+          const resolvedEquipped = incomingEquipped ?? profile.equippedAchievement;
+          let leaderboardDirty = false;
           if (leaderboard.syncPlayerAvatar(cleanName, resolvedAvatar)) {
+            leaderboardDirty = true;
+          }
+          if (leaderboard.syncPlayerEquippedAchievement(cleanName, resolvedEquipped)) {
+            leaderboardDirty = true;
+          }
+          if (leaderboardDirty) {
             broadcastLeaderboard();
           }
           const resolvedLevel = computePlayerLevel({
@@ -1279,6 +1367,7 @@ async function startServer() {
             avatar: resolvedAvatar,
             achievements: mergedAch,
             achievementDates: mergedDates,
+            equippedAchievement: resolvedEquipped,
             winStreak: profile.currentWinStreak,
             level: resolvedLevel,
           });
@@ -1322,6 +1411,43 @@ async function startServer() {
         const ctx = rooms.get(session.roomId);
         if (!ctx) {
           sendJson(ws, { type: 'error', message: '牌桌不存在' });
+          return;
+        }
+
+        if (msg.type === 'update_profile') {
+          const seatPlayer = ctx.state.players.find((p) => p.id === session.playerId && !p.isBot);
+          if (!seatPlayer) return;
+          let changed = false;
+          let lbDirty = false;
+          if (typeof msg.playerName === 'string') {
+            const nextName = msg.playerName.trim().slice(0, 18);
+            if (nextName && nextName !== seatPlayer.name) {
+              seatPlayer.name = nextName;
+              changed = true;
+            }
+          }
+          if (typeof msg.avatar === 'string') {
+            const nextAvatar = sanitizeAvatar(msg.avatar);
+            if (nextAvatar !== seatPlayer.avatar) {
+              seatPlayer.avatar = nextAvatar;
+              changed = true;
+              if (leaderboard.syncPlayerAvatar(seatPlayer.name, nextAvatar)) {
+                lbDirty = true;
+              }
+            }
+          }
+          if (msg.equippedAchievement !== undefined) {
+            const safeEquipped = sanitizeEquippedAchievement(msg.equippedAchievement);
+            if (safeEquipped && safeEquipped !== seatPlayer.equippedAchievement) {
+              seatPlayer.equippedAchievement = safeEquipped;
+              changed = true;
+              if (leaderboard.syncPlayerEquippedAchievement(seatPlayer.name, safeEquipped)) {
+                lbDirty = true;
+              }
+            }
+          }
+          if (changed) broadcastRoomState(ctx);
+          if (lbDirty) broadcastLeaderboard();
           return;
         }
 

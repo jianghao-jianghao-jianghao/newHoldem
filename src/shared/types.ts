@@ -1,4 +1,9 @@
-import type { AchievementDatesMap, AchievementId, PlayerAchievementStats } from './achievements';
+import type {
+  AchievementDatesMap,
+  AchievementId,
+  EquippedAchievementPref,
+  PlayerAchievementStats,
+} from './achievements';
 
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 
@@ -77,6 +82,7 @@ export interface TablePlayer {
   lastActionLabel?: string;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
+  equippedAchievement?: EquippedAchievementPref;
   winStreak?: number;
   level?: number;
 }
@@ -231,6 +237,7 @@ export interface ClientPlayerView {
   handEvaluation?: HandEvaluation | null;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
+  equippedAchievement?: EquippedAchievementPref;
   winStreak?: number;
   level?: number;
 }
@@ -280,6 +287,7 @@ export interface LeaderboardEntry {
   updatedAt: number;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
+  equippedAchievement?: EquippedAchievementPref;
   currentWinStreak?: number;
   maxWinStreak?: number;
   stats?: PlayerAchievementStats;
@@ -332,7 +340,14 @@ export type ClientWsMessage =
         avatar?: string;
         achievements?: AchievementId[];
         achievementDates?: AchievementDatesMap;
+        equippedAchievement?: EquippedAchievementPref;
       }
+  | {
+      type: 'update_profile';
+      playerName?: string;
+      avatar?: string;
+      equippedAchievement?: EquippedAchievementPref;
+    }
   | {
       type: 'create_room';
       tableName?: string;

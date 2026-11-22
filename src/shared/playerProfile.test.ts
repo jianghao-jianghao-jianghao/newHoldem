@@ -202,3 +202,60 @@ test('resolvePlayerAvatarProfile updates dynamic rankTier (bronze/silver/gold/di
   assert.equal(diamond.rankTierLabel, '钻石');
   assert.equal(diamond.leaderboardRank, 1);
 });
+
+test('resolvePlayerAvatarProfile resolves strictly one equippedAchievement with explicit override and none option', () => {
+  const leaderboard: LeaderboardEntry[] = [
+    {
+      playerName: '林深',
+      avatar: 'crown',
+      points: 1680,
+      netChips: 680,
+      handsPlayed: 18,
+      handsWon: 9,
+      bestHandName: '葫芦',
+      bestHandScore: 10000,
+      updatedAt: 1000,
+      achievements: ['royal_legend', 'streak_3', 'first_blood'],
+      equippedAchievement: 'streak_3',
+    },
+  ];
+
+  // Inherits leaderboard equippedAchievement when player state has none
+  const fromBoard = resolvePlayerAvatarProfile(
+    {
+      name: '林深',
+      avatar: 'default',
+      achievements: [],
+      isBot: false,
+    },
+    leaderboard
+  );
+  assert.equal(fromBoard.equippedAchievement, 'streak_3');
+
+  // Explicit player equippedAchievement overrides leaderboard preference
+  const explicitOverride = resolvePlayerAvatarProfile(
+    {
+      name: '林深',
+      avatar: 'crown',
+      achievements: ['first_blood'],
+      equippedAchievement: 'first_blood',
+      isBot: false,
+    },
+    leaderboard
+  );
+  assert.equal(explicitOverride.equippedAchievement, 'first_blood');
+
+  // Explicit 'none' hides avatar medal even when achievements are unlocked
+  const explicitlyHidden = resolvePlayerAvatarProfile(
+    {
+      name: '林深',
+      avatar: 'crown',
+      achievements: ['royal_legend'],
+      equippedAchievement: 'none',
+      isBot: false,
+    },
+    leaderboard
+  );
+  assert.equal(explicitlyHidden.equippedAchievement, null);
+});
+

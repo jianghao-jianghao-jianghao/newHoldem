@@ -1,11 +1,14 @@
 import {
   ACHIEVEMENT_MAP,
   createEmptyAchievementStats,
+  resolveEquippedAchievement,
   sanitizeAchievementDates,
   sanitizeAchievementIds,
+  sanitizeEquippedAchievement,
   type AchievementDatesMap,
   type AchievementId,
   type AchievementTier,
+  type EquippedAchievementPref,
   type PlayerAchievementStats,
 } from './achievements';
 import { sanitizeAvatar } from './avatarUtils';
@@ -39,6 +42,7 @@ export interface ResolvedPlayerAvatarProfile {
   avatar: string;
   achievements: AchievementId[];
   achievementDates: AchievementDatesMap;
+  equippedAchievement: AchievementId | null;
   winStreak: number;
   levelInfo: PlayerLevelInfo;
   rankTier: RankTier;
@@ -319,13 +323,21 @@ export function computeLeaderboardRankTier(params: {
 export function resolvePlayerAvatarProfile(
   player: Pick<
     ClientPlayerView,
-    'name' | 'avatar' | 'achievements' | 'achievementDates' | 'winStreak' | 'level' | 'isBot'
+    | 'name'
+    | 'avatar'
+    | 'achievements'
+    | 'achievementDates'
+    | 'equippedAchievement'
+    | 'winStreak'
+    | 'level'
+    | 'isBot'
   >,
   leaderboard: LeaderboardEntry[],
   fallback?: {
     avatar?: string;
     achievements?: AchievementId[];
     achievementDates?: AchievementDatesMap;
+    equippedAchievement?: EquippedAchievementPref;
   }
 ): ResolvedPlayerAvatarProfile {
   const cleanName = player.name.trim();
@@ -394,10 +406,17 @@ export function resolvePlayerAvatarProfile(
     achievements: mergedAchievements,
   });
 
+  const preferredEquipped =
+    sanitizeEquippedAchievement(player.equippedAchievement) ??
+    sanitizeEquippedAchievement(fallback?.equippedAchievement) ??
+    sanitizeEquippedAchievement(lbEntry?.equippedAchievement);
+  const equippedAchievement = resolveEquippedAchievement(preferredEquipped, mergedAchievements);
+
   return {
     avatar,
     achievements: mergedAchievements,
     achievementDates: mergedDates,
+    equippedAchievement,
     winStreak,
     levelInfo,
     rankTier,

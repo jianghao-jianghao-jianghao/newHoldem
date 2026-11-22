@@ -16,7 +16,7 @@ import type {
   LeaderboardEntry,
   PlayerMatchStats,
 } from '../shared/types';
-import { AchievementMedalIcon } from './AchievementBadge';
+import { AchievementMedalIcon, AvatarAchievementShowcase } from './AchievementBadge';
 import { PlayerAvatar } from './PlayerAvatar';
 
 interface PlayerProfileModalProps {
@@ -118,17 +118,26 @@ export function PlayerProfileModal({
         {/* Header: Identity & Position Metadata (zero static pill boxes) */}
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] px-5 py-4">
           <div className="flex items-center gap-3.5 min-w-0">
-            <PlayerAvatar
-              avatar={resolved.avatar}
-              name={player.name}
-              size="lg"
-              level={levelInfo.level}
-              levelTier={levelInfo.tier}
-              levelTitle={levelInfo.title}
-              rankTier={resolved.rankTier}
-              showLevelBadge
-              showRankAura
-            />
+            <div className="relative shrink-0 overflow-visible">
+              <PlayerAvatar
+                avatar={resolved.avatar}
+                name={player.name}
+                size="lg"
+                level={levelInfo.level}
+                levelTier={levelInfo.tier}
+                levelTitle={levelInfo.title}
+                rankTier={resolved.rankTier}
+                showLevelBadge
+                showRankAura
+              />
+              <AvatarAchievementShowcase
+                equippedAchievement={resolved.equippedAchievement}
+                achievementDates={achievementDates}
+                size="sm"
+                tooltipPlacement="bottom"
+                className="absolute -top-1.5 -right-1.5 z-20"
+              />
+            </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="truncate text-base font-semibold tracking-tight text-[#F6F3EC]">
@@ -334,7 +343,7 @@ export function PlayerProfileModal({
                 }}
                 className="touch-manipulation rounded-md bg-[#D4A853] px-3.5 py-1.5 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap cursor-pointer"
               >
-                全部成就墙
+                佩戴勋章 · 个人中心
               </button>
             )}
             <button
