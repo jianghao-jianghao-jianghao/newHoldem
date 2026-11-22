@@ -14,6 +14,7 @@ import {
   type BotChatTrigger,
 } from './server/botChat';
 import { LeaderboardStore } from './server/leaderboard';
+import { authorizeRoomDeletion, secretsMatch } from './server/roomAuth';
 import {
   addPlayerToTable,
   advanceAllInRunoutStep,
@@ -48,6 +49,11 @@ import {
   type AchievementId,
   type PlayerAchievementStats,
 } from './src/shared/achievements';
+import {
+  buildBotInitialStats,
+  computePlayerLevel,
+  getBotClubPreset,
+} from './src/shared/playerProfile';
 import type {
   BotChatStatus,
   ChatMessage,
@@ -78,6 +84,8 @@ interface RoomContext {
   tableName: string;
   createdAt: number;
   isDefault: boolean;
+  creatorId: string | null;
+  creatorSecret: string | null;
   state: TableState;
   chatHistory: ChatMessage[];
   seatSecrets: Map<string, string>;
@@ -154,6 +162,8 @@ function ensureDefaultClubRoom(): RoomContext {
       tableName: '俱乐部大厅桌',
       createdAt: Date.now(),
       isDefault: true,
+      creatorId: null,
+      creatorSecret: null,
       state: createTableState('CLUB01', DEFAULT_SMALL_BLIND, DEFAULT_BIG_BLIND, STARTING_CHIPS),
       chatHistory: [],
       seatSecrets: new Map(),
@@ -183,6 +193,8 @@ function createCustomRoom(params: {
   smallBlind?: number;
   bigBlind?: number;
   startingChips?: number;
+  creatorId?: string | null;
+  creatorSecret?: string | null;
 }): RoomContext {
   const id = normalizeRoomId(params.roomId) || generateRoomId();
   const existing = rooms.get(id);
@@ -197,11 +209,15 @@ function createCustomRoom(params: {
   );
   const cleanName = (params.tableName ?? '').trim().slice(0, 24) || `牌桌 ${id}`;
   const hasServerKey = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
+  const cleanCreatorId = params.creatorId?.trim().slice(0, 48) || null;
+  const cleanCreatorSecret = params.creatorSecret?.trim().slice(0, 64) || null;
 
   const ctx: RoomContext = {
     tableName: cleanName,
     createdAt: Date.now(),
     isDefault: id === 'CLUB01',
+    creatorId: cleanCreatorId && cleanCreatorSecret ? cleanCreatorId : null,
+    creatorSecret: cleanCreatorId && cleanCreatorSecret ? cleanCreatorSecret : null,
     state: createTableState(id, sb, bb, startingChips),
     chatHistory: [],
     seatSecrets: new Map(),
@@ -232,22 +248,20 @@ function canRequesterDeleteRoom(
   requesterSeatSecret?: string | null,
   requireSecretCheck = false
 ): { ok: boolean; status?: number; error?: string } {
-  if (ctx.isDefault || ctx.state.roomId === 'CLUB01') {
-    return { ok: false, status: 403, error: '默认俱乐部大厅桌不可删除' };
-  }
-  const hasActiveHumans = ctx.state.players.some((p) => !p.isBot && p.connected);
-  if (hasActiveHumans && ctx.state.hostId) {
-    if (requesterPlayerId !== ctx.state.hostId) {
-      return { ok: false, status: 403, error: '仅房主或空桌时可删除牌桌' };
-    }
-    if (requireSecretCheck) {
-      const storedSecret = ctx.seatSecrets.get(ctx.state.hostId);
-      if (storedSecret && requesterSeatSecret !== storedSecret) {
-        return { ok: false, status: 403, error: '座位身份校验失败，仅房主本人可删除牌桌' };
-      }
-    }
-  }
-  return { ok: true };
+  return authorizeRoomDeletion(
+    {
+      isDefault: ctx.isDefault,
+      roomId: ctx.state.roomId,
+      hostId: ctx.state.hostId,
+      hasAnyHumanPlayer: ctx.state.players.some((p) => !p.isBot),
+      creatorId: ctx.creatorId,
+      creatorSecret: ctx.creatorSecret,
+      seatSecrets: ctx.seatSecrets,
+    },
+    requesterPlayerId,
+    requesterSeatSecret,
+    requireSecretCheck
+  );
 }
 
 function deleteRoomById(roomId: string): { ok: boolean; error?: string } {
@@ -533,11 +547,19 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
       p.achievements = botRes.unlocked;
       p.achievementDates = botDates;
       p.winStreak = botRes.nextStats.currentWinStreak;
+      p.level = computePlayerLevel({
+        achievements: botRes.unlocked,
+        handsPlayed: botRes.nextStats.handsPlayed,
+        handsWon: botRes.nextStats.handsWon,
+        points: 1000 + botRes.nextStats.netChips + botRes.nextStats.handsWon * 20,
+        explicitLevel: p.level,
+      }).level;
       continue;
     }
 
     const outcome = leaderboard.recordHandOutcome({
       playerName: p.name,
+      avatar: p.avatar,
       netChips,
       won,
       potWon,
@@ -563,6 +585,13 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
     p.achievements = mergedPlayerAch;
     p.achievementDates = mergedPlayerDates;
     p.winStreak = outcome.entry.currentWinStreak ?? 0;
+    p.level = computePlayerLevel({
+      achievements: mergedPlayerAch,
+      handsPlayed: outcome.entry.handsPlayed,
+      handsWon: outcome.entry.handsWon,
+      points: outcome.entry.points,
+      explicitLevel: outcome.entry.level,
+    }).level;
 
     if (outcome.newlyUnlocked.length > 0) {
       for (const session of sessions.values()) {
@@ -871,7 +900,23 @@ async function startServer() {
 
   app.post('/api/rooms', (req, res) => {
     const { tableName, roomId, smallBlind, bigBlind, startingChips } = req.body ?? {};
-    const ctx = createCustomRoom({ tableName, roomId, smallBlind, bigBlind, startingChips });
+    const creatorId =
+      typeof req.headers['x-player-id'] === 'string'
+        ? req.headers['x-player-id'].trim().slice(0, 48)
+        : null;
+    const creatorSecret =
+      typeof req.headers['x-seat-secret'] === 'string'
+        ? req.headers['x-seat-secret'].trim().slice(0, 64)
+        : null;
+    const ctx = createCustomRoom({
+      tableName,
+      roomId,
+      smallBlind,
+      bigBlind,
+      startingChips,
+      creatorId,
+      creatorSecret,
+    });
     broadcastRoomsList();
     res.status(201).json({
       room: {
@@ -896,10 +941,8 @@ async function startServer() {
     }
     const requesterId =
       typeof req.headers['x-player-id'] === 'string'
-        ? req.headers['x-player-id'].trim()
-        : typeof req.query.playerId === 'string'
-          ? req.query.playerId.trim()
-          : null;
+        ? req.headers['x-player-id'].trim().slice(0, 48)
+        : null;
     const requesterSecret =
       typeof req.headers['x-seat-secret'] === 'string'
         ? req.headers['x-seat-secret'].trim().slice(0, 64)
@@ -951,8 +994,8 @@ async function startServer() {
       res.status(403).json({ error: '仅在座玩家可配置当前牌桌的陪练对话' });
       return;
     }
-    const storedSecret = ctx.seatSecrets.get(requesterId);
-    if (storedSecret && requesterSecret !== storedSecret) {
+    const storedSecret = ctx.seatSecrets.get(requesterId) ?? null;
+    if (!storedSecret || !secretsMatch(storedSecret, requesterSecret)) {
       res.status(403).json({ error: '座位身份校验失败' });
       return;
     }
@@ -1193,13 +1236,33 @@ async function startServer() {
             ...clientDates,
             ...profile.achievementDates,
           };
+          const incomingAvatar = sanitizeAvatar(
+            typeof msg.avatar === 'string' ? msg.avatar : undefined
+          );
+          const resolvedAvatar =
+            incomingAvatar !== 'default'
+              ? incomingAvatar
+              : profile.avatar
+                ? sanitizeAvatar(profile.avatar)
+                : 'default';
+          if (leaderboard.syncPlayerAvatar(cleanName, resolvedAvatar)) {
+            broadcastLeaderboard();
+          }
+          const resolvedLevel = computePlayerLevel({
+            achievements: mergedAch,
+            handsPlayed: profile.handsPlayed,
+            handsWon: profile.handsWon,
+            points: profile.points,
+            explicitLevel: profile.level,
+          }).level;
           const res = addPlayerToTable(ctx.state, {
             id: cleanId,
             name: cleanName,
-            avatar: sanitizeAvatar(typeof msg.avatar === 'string' ? msg.avatar : undefined),
+            avatar: resolvedAvatar,
             achievements: mergedAch,
             achievementDates: mergedDates,
             winStreak: profile.currentWinStreak,
+            level: resolvedLevel,
           });
 
           if (!res.ok) {
@@ -1345,11 +1408,48 @@ async function startServer() {
             `陪练 Bot ${ctx.state.players.length + 1}`;
           const botId = `bot_${Date.now()}_${crypto.randomInt(100, 1000)}`;
           const botAvatarPool = ['spade', 'owl', 'fox', 'lion', 'crown', 'phoenix'];
-          const botAvatar = botAvatarPool[ctx.state.players.length % botAvatarPool.length];
+          const fallbackAvatar = botAvatarPool[ctx.state.players.length % botAvatarPool.length];
+          const botPreset = getBotClubPreset(nextName);
+          const lbBotProfile = leaderboard.getPlayerProfile(nextName);
+          const botInit = botPreset ? buildBotInitialStats(botPreset) : null;
+          const botAchievements = sanitizeAchievementIds([
+            ...(lbBotProfile.achievements ?? []),
+            ...(botInit?.achievements ?? []),
+          ]);
+          const botDates: AchievementDatesMap = {
+            ...(botInit?.achievementDates ?? {}),
+            ...(lbBotProfile.achievementDates ?? {}),
+          };
+          const botAvatar =
+            (lbBotProfile.avatar && sanitizeAvatar(lbBotProfile.avatar) !== 'default'
+              ? sanitizeAvatar(lbBotProfile.avatar)
+              : botPreset?.avatar) ?? fallbackAvatar;
+          const botLevel = computePlayerLevel({
+            achievements: botAchievements,
+            handsPlayed: Math.max(lbBotProfile.handsPlayed, botPreset?.handsPlayed ?? 0),
+            handsWon: Math.max(lbBotProfile.handsWon, botPreset?.handsWon ?? 0),
+            points: lbBotProfile.handsPlayed > 0 ? lbBotProfile.points : (botPreset?.points ?? 1000),
+            explicitLevel: Math.max(lbBotProfile.level, botInit?.level ?? 1),
+          }).level;
+          const botWinStreak = Math.max(
+            lbBotProfile.currentWinStreak,
+            botPreset?.currentWinStreak ?? 0
+          );
+          if (botInit) {
+            ctx.botStats.set(botId, {
+              stats: botInit.stats,
+              achievements: botAchievements,
+              achievementDates: botDates,
+            });
+          }
           const added = addPlayerToTable(ctx.state, {
             id: botId,
             name: nextName,
             avatar: botAvatar,
+            achievements: botAchievements,
+            achievementDates: botDates,
+            winStreak: botWinStreak,
+            level: botLevel,
             isBot: true,
           });
           if (!added.ok) {

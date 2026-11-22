@@ -307,6 +307,7 @@ export function addPlayerToTable(
     achievements?: AchievementId[];
     achievementDates?: AchievementDatesMap;
     winStreak?: number;
+    level?: number;
     isBot?: boolean;
     chips?: number;
   }
@@ -326,6 +327,9 @@ export function addPlayerToTable(
     }
     if (typeof params.winStreak === 'number') {
       existing.winStreak = params.winStreak;
+    }
+    if (typeof params.level === 'number' && params.level >= 1) {
+      existing.level = Math.floor(params.level);
     }
     return { ok: true };
   }
@@ -349,6 +353,7 @@ export function addPlayerToTable(
     achievements: params.achievements ?? [],
     achievementDates: params.achievementDates ?? {},
     winStreak: params.winStreak ?? 0,
+    level: typeof params.level === 'number' && params.level >= 1 ? Math.floor(params.level) : 1,
     seatIndex,
     isBot: Boolean(params.isBot),
     connected: true,
@@ -1404,6 +1409,7 @@ export function sanitizeTableForPlayer(state: TableState, viewerId: string): Cli
       achievements: p.achievements ?? [],
       achievementDates: p.achievementDates ?? {},
       winStreak: p.winStreak ?? 0,
+      level: p.level ?? 1,
     };
   });
 

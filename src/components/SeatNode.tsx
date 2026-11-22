@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { BellRing, X } from 'lucide-react';
 import { isEmojiOnlyMessage } from '../shared/chatUtils';
+import {
+  resolvePlayerAvatarProfile,
+  type ResolvedPlayerAvatarProfile,
+} from '../shared/playerProfile';
 import type { Card, ChatMessage, ClientPlayerView } from '../shared/types';
 import { AvatarAchievementShowcase } from './AchievementBadge';
 import { ChipStackVisual2D } from './ChipStack2D';
@@ -38,6 +42,7 @@ interface SeatNodeProps {
   isNewlyJoined?: boolean;
   compact?: boolean;
   canRemoveBot?: boolean;
+  syncedProfile?: ResolvedPlayerAvatarProfile | null;
   onRemoveBot?: (botId: string) => void;
   onNudgePlayer?: (playerId: string) => void;
   onInspectPlayer?: (playerId: string) => void;
@@ -148,11 +153,13 @@ export function SeatNode({
   isNewlyJoined = false,
   compact = false,
   canRemoveBot = false,
+  syncedProfile = null,
   onRemoveBot,
   onNudgePlayer,
   onInspectPlayer,
   onOpenAchievements,
 }: SeatNodeProps) {
+  const resolved = syncedProfile ?? resolvePlayerAvatarProfile(player, []);
   const clickTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -324,9 +331,13 @@ export function SeatNode({
                   />
                 )}
                 <PlayerAvatar
-                  avatar={player.avatar}
+                  avatar={resolved.avatar}
                   name={player.name}
                   size="lg"
+                  level={resolved.levelInfo.level}
+                  levelTier={resolved.levelInfo.tier}
+                  levelTitle={resolved.levelInfo.title}
+                  showLevelBadge
                   className="group-hover:border-[#E8CF96] transition-colors"
                 />
               </button>
@@ -345,9 +356,9 @@ export function SeatNode({
                 </span>
               )}
               <AvatarAchievementShowcase
-                achievements={player.achievements}
-                achievementDates={player.achievementDates}
-                winStreak={player.winStreak}
+                achievements={resolved.achievements}
+                achievementDates={resolved.achievementDates}
+                winStreak={resolved.winStreak}
                 maxVisible={3}
                 size="xs"
                 tooltipPlacement="top"
@@ -531,9 +542,13 @@ export function SeatNode({
                 />
               )}
               <PlayerAvatar
-                avatar={player.avatar}
+                avatar={resolved.avatar}
                 name={player.name}
                 size="sm"
+                level={resolved.levelInfo.level}
+                levelTier={resolved.levelInfo.tier}
+                levelTitle={resolved.levelInfo.title}
+                showLevelBadge
                 className="group-hover:border-[#E8CF96] group-hover:ring-2 group-hover:ring-[#D4A853]/30 transition-all"
               />
             </button>
@@ -554,9 +569,9 @@ export function SeatNode({
             )}
 
             <AvatarAchievementShowcase
-              achievements={player.achievements}
-              achievementDates={player.achievementDates}
-              winStreak={player.winStreak}
+              achievements={resolved.achievements}
+              achievementDates={resolved.achievementDates}
+              winStreak={resolved.winStreak}
               maxVisible={2}
               size="xs"
               tooltipPlacement="bottom"

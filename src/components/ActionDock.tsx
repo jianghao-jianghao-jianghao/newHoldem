@@ -158,7 +158,10 @@ export function ActionDock({
             }`}
             aria-hidden="true"
           />
-          <span className="font-semibold text-[#F0DFB3]">
+          <span
+            data-testid={disabled ? 'action-dock-reconnecting' : 'action-dock-turn-label'}
+            className="font-semibold text-[#F0DFB3]"
+          >
             {disabled ? (disabledReason ?? '网络重连中，请稍候…') : '轮到你行动'}
           </span>
           {handEvaluationName && (

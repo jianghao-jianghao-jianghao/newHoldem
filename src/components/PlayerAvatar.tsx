@@ -1,10 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { AchievementTier } from '../shared/achievements';
 import { getAvatarInitial, isCustomAvatarDataUrl } from '../shared/avatarUtils';
+import type { ResolvedPlayerAvatarProfile } from '../shared/playerProfile';
 
 interface PlayerAvatarProps {
   avatar?: string;
   name: string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  level?: number;
+  levelTier?: AchievementTier;
+  levelTitle?: string;
+  showLevelBadge?: boolean;
+  syncedProfile?: ResolvedPlayerAvatarProfile | null;
   className?: string;
 }
 
@@ -14,6 +21,20 @@ const SIZE_MAP = {
   md: 'h-12 w-12 text-base',
   lg: 'h-14 w-14 text-lg',
   xl: 'h-16 w-16 text-xl',
+};
+
+const TIER_RING_CLASS: Record<AchievementTier, string> = {
+  bronze: 'border-[#B87D52]/75',
+  silver: 'border-[#BAC8D6]/75',
+  gold: 'border-[#D4A853]/85 shadow-[0_0_12px_rgba(212,168,83,0.2)]',
+  obsidian: 'border-[#F2D583]/95 ring-1 ring-[#D4A853]/45 shadow-[0_0_14px_rgba(242,213,131,0.3)]',
+};
+
+const TIER_BADGE_CLASS: Record<AchievementTier, string> = {
+  bronze: 'border-[#B87D52]/70 bg-[#17120E] text-[#E6B894]',
+  silver: 'border-[#B4C4D4]/70 bg-[#10151A] text-[#DDE6F0]',
+  gold: 'border-[#D4A853]/85 bg-[#16130B] text-[#F2DC9F]',
+  obsidian: 'border-[#F2D583]/90 bg-[#0B0C0E] text-[#F8E29E] shadow-[0_0_10px_rgba(212,168,83,0.45)]',
 };
 
 function renderPresetEmblem(id: string, name: string) {
@@ -91,29 +112,65 @@ function renderPresetEmblem(id: string, name: string) {
 }
 
 export function PlayerAvatar({
-  avatar = 'default',
+  avatar,
   name,
   size = 'sm',
+  level,
+  levelTier,
+  levelTitle,
+  showLevelBadge = false,
+  syncedProfile = null,
   className = '',
 }: PlayerAvatarProps) {
+  const effectiveAvatar = avatar ?? syncedProfile?.avatar ?? 'default';
+  const effectiveLevel = level ?? syncedProfile?.levelInfo.level;
+  const effectiveTier = levelTier ?? syncedProfile?.levelInfo.tier;
+  const effectiveTitle = levelTitle ?? syncedProfile?.levelInfo.title;
+
   const [imgFailed, setImgFailed] = useState(false);
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [effectiveAvatar]);
+
   const sizeClass = SIZE_MAP[size];
-  const isCustom = isCustomAvatarDataUrl(avatar) && !imgFailed;
+  const isCustom = isCustomAvatarDataUrl(effectiveAvatar) && !imgFailed;
+  const ringClass = effectiveTier ? TIER_RING_CLASS[effectiveTier] : 'border-[#D4A853]/45';
+  const badgeToneClass = effectiveTier
+    ? TIER_BADGE_CLASS[effectiveTier]
+    : TIER_BADGE_CLASS.bronze;
+  const isLarge = size === 'lg' || size === 'xl';
 
   return (
-    <div
-      className={`${sizeClass} relative shrink-0 overflow-hidden rounded-full border border-[#D4A853]/45 bg-[#121618] select-none ${className}`}
-    >
-      {isCustom ? (
-        <img
-          src={avatar}
-          alt={name || '玩家头像'}
-          referrerPolicy="no-referrer"
-          onError={() => setImgFailed(true)}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        renderPresetEmblem(avatar, name)
+    <div className="relative inline-flex shrink-0 select-none">
+      <div
+        className={`${sizeClass} relative shrink-0 overflow-hidden rounded-full border-[1.5px] bg-[#121618] ${ringClass} ${className}`}
+      >
+        {isCustom ? (
+          <img
+            src={effectiveAvatar}
+            alt={name || '玩家头像'}
+            referrerPolicy="no-referrer"
+            onError={() => setImgFailed(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          renderPresetEmblem(effectiveAvatar, name)
+        )}
+      </div>
+
+      {showLevelBadge && typeof effectiveLevel === 'number' && effectiveLevel >= 1 && (
+        <span
+          data-testid="avatar-level-badge"
+          title={effectiveTitle ? `Lv.${effectiveLevel} ${effectiveTitle}` : `Lv.${effectiveLevel}`}
+          className={`pointer-events-none absolute -bottom-1 -right-1 z-20 inline-flex items-center justify-center rounded-full border font-mono-num font-bold leading-none shadow-[0_2px_6px_rgba(0,0,0,0.82)] ${badgeToneClass} ${
+            isLarge
+              ? 'h-[18px] min-w-[26px] px-1.5 text-[9.5px]'
+              : 'h-[15px] min-w-[22px] px-1 text-[8.5px]'
+          }`}
+        >
+          Lv.{effectiveLevel}
+        </span>
       )}
     </div>
   );

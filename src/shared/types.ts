@@ -78,6 +78,7 @@ export interface TablePlayer {
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
   winStreak?: number;
+  level?: number;
 }
 
 export interface WinnerInfo {
@@ -231,6 +232,7 @@ export interface ClientPlayerView {
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
   winStreak?: number;
+  level?: number;
 }
 
 export interface ClientTableView {
@@ -267,6 +269,8 @@ export interface ClientTableView {
 
 export interface LeaderboardEntry {
   playerName: string;
+  avatar?: string;
+  level?: number;
   points: number;
   netChips: number;
   handsPlayed: number;

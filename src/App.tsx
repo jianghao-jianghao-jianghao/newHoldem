@@ -152,6 +152,10 @@ export default function App() {
     achievements?: AchievementId[];
     achievementDates?: AchievementDatesMap;
   }>({});
+  const sessionUnlockedRef = useRef<{
+    achievements: AchievementId[];
+    achievementDates: AchievementDatesMap;
+  }>({ achievements: [], achievementDates: {} });
 
   // Hydrate user profile preferences from verified email account
   useEffect(() => {
@@ -211,47 +215,95 @@ export default function App() {
     }
   }, []);
 
-  // Connect WebSocket with exponential backoff reconnection & 15s keepalive heartbeat
+  // Connect WebSocket with exponential backoff reconnection & active ping/pong zombie-socket cleanup
   useEffect(() => {
+    const HEARTBEAT_INTERVAL_MS = 15_000;
+    const PONG_TIMEOUT_MS = 5_000;
+
     let disposed = false;
     let reconnectTimer: number | null = null;
     let heartbeatTimer: number | null = null;
+    let pongTimeoutTimer: number | null = null;
     let reconnectAttempt = 0;
+
+    const clearPongTimeout = () => {
+      if (pongTimeoutTimer !== null) {
+        window.clearTimeout(pongTimeoutTimer);
+        pongTimeoutTimer = null;
+      }
+    };
 
     const clearHeartbeat = () => {
       if (heartbeatTimer !== null) {
         window.clearInterval(heartbeatTimer);
         heartbeatTimer = null;
       }
+      clearPongTimeout();
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer !== null) return;
+      setWsStatus('reconnecting');
+      const delayMs = Math.min(8000, 1000 * Math.pow(2, reconnectAttempt));
+      reconnectAttempt = Math.min(reconnectAttempt + 1, 4);
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delayMs);
+    };
+
+    const teardownZombieSocket = (ws: WebSocket, reason: string) => {
+      if (wsRef.current !== ws) return;
+      clearHeartbeat();
+      wsRef.current = null;
+      try {
+        ws.close(4000, reason);
+      } catch {
+        // Ignore close error on already-broken socket
+      }
+      scheduleReconnect();
+    };
+
+    const sendHeartbeatPing = (ws: WebSocket) => {
+      if (wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return;
+      if (pongTimeoutTimer !== null) {
+        teardownZombieSocket(ws, 'Heartbeat pong timeout');
+        return;
+      }
+      try {
+        ws.send(JSON.stringify({ type: 'ping' } satisfies ClientWsMessage));
+      } catch {
+        teardownZombieSocket(ws, 'Heartbeat ping send failed');
+        return;
+      }
+      pongTimeoutTimer = window.setTimeout(() => {
+        pongTimeoutTimer = null;
+        teardownZombieSocket(ws, 'Heartbeat pong timeout');
+      }, PONG_TIMEOUT_MS);
     };
 
     const connect = () => {
       if (disposed) return;
+      clearHeartbeat();
       const ws = new WebSocket(getWsUrl());
       wsRef.current = ws;
-      let awaitingPong = false;
 
       ws.onopen = () => {
+        if (disposed || wsRef.current !== ws) {
+          try {
+            ws.close();
+          } catch {
+            // Ignore
+          }
+          return;
+        }
         reconnectAttempt = 0;
-        awaitingPong = false;
         setWsStatus('connected');
         setErrorMsg(null);
         clearHeartbeat();
         heartbeatTimer = window.setInterval(() => {
-          if (ws.readyState !== WebSocket.OPEN) return;
-          if (awaitingPong) {
-            // No pong/message received since last ping: force-close zombie socket to trigger reconnect
-            clearHeartbeat();
-            try {
-              ws.close(4000, 'Heartbeat timeout');
-            } catch {
-              // Ignore close error
-            }
-            return;
-          }
-          awaitingPong = true;
-          ws.send(JSON.stringify({ type: 'ping' } satisfies ClientWsMessage));
-        }, 15_000);
+          sendHeartbeatPing(ws);
+        }, HEARTBEAT_INTERVAL_MS);
 
         if (joinedRoomRef.current) {
           ws.send(
@@ -270,7 +322,9 @@ export default function App() {
       };
 
       ws.onmessage = (event) => {
-        awaitingPong = false;
+        if (wsRef.current !== ws) return;
+        // Any server frame (including explicit pong) confirms socket liveness
+        clearPongTimeout();
         let msg: ServerWsMessage;
         try {
           msg = JSON.parse(event.data) as ServerWsMessage;
@@ -304,6 +358,29 @@ export default function App() {
           });
           soundFx.playNudge();
         } else if (msg.type === 'achievement_unlocked') {
+          const unlockedAt = Date.now();
+          const mergedIds = sanitizeAchievementIds([
+            ...sessionUnlockedRef.current.achievements,
+            ...msg.achievementIds,
+          ]);
+          const mergedDates: AchievementDatesMap = { ...sessionUnlockedRef.current.achievementDates };
+          for (const id of msg.achievementIds) {
+            if (!mergedDates[id]) mergedDates[id] = unlockedAt;
+          }
+          sessionUnlockedRef.current = {
+            achievements: mergedIds,
+            achievementDates: mergedDates,
+          };
+          latestAchievementsRef.current = {
+            achievements: sanitizeAchievementIds([
+              ...(latestAchievementsRef.current.achievements ?? []),
+              ...mergedIds,
+            ]),
+            achievementDates: {
+              ...(latestAchievementsRef.current.achievementDates ?? {}),
+              ...mergedDates,
+            },
+          };
           setUnlockedToast(msg.achievementIds);
           if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
           toastTimerRef.current = window.setTimeout(() => {
@@ -322,17 +399,36 @@ export default function App() {
         }
       };
 
+      ws.onerror = () => {
+        if (wsRef.current !== ws) return;
+        teardownZombieSocket(ws, 'WebSocket error');
+      };
+
       ws.onclose = () => {
+        if (wsRef.current !== ws) return;
         clearHeartbeat();
-        awaitingPong = false;
-        if (!disposed) {
-          setWsStatus('reconnecting');
-          const delayMs = Math.min(8000, 1000 * Math.pow(2, reconnectAttempt));
-          reconnectAttempt = Math.min(reconnectAttempt + 1, 4);
-          reconnectTimer = window.setTimeout(connect, delayMs);
-        }
+        wsRef.current = null;
+        scheduleReconnect();
       };
     };
+
+    const handleVisibilityOrOnline = () => {
+      if (disposed) return;
+      if (document.visibilityState === 'hidden') return;
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        sendHeartbeatPing(ws);
+      } else if (!ws || ws.readyState === WebSocket.CLOSED) {
+        if (reconnectTimer !== null) {
+          window.clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    window.addEventListener('online', handleVisibilityOrOnline);
 
     connect();
 
@@ -353,9 +449,13 @@ export default function App() {
     return () => {
       disposed = true;
       clearHeartbeat();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      window.removeEventListener('online', handleVisibilityOrOnline);
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      wsRef.current?.close();
+      const current = wsRef.current;
+      wsRef.current = null;
+      current?.close();
     };
   }, [playerId, seatSecret]);
 
@@ -546,8 +646,9 @@ export default function App() {
         seatSecret,
         playerName: cleanName,
         avatar: cleanAvatar,
-        achievements: profile?.achievements,
-        achievementDates: profile?.achievementDates,
+        achievements: latestAchievementsRef.current.achievements ?? profile?.achievements,
+        achievementDates:
+          latestAchievementsRef.current.achievementDates ?? profile?.achievementDates,
       });
     },
     [playerId, seatSecret, sendWs, profile, updatePreferences]
@@ -666,12 +767,13 @@ export default function App() {
 
   const handleAction = useCallback(
     (action: PlayerAction) => {
+      if (wsStatus !== 'connected') return;
       soundFx.notifyUserInteraction();
       if (action.type === 'fold') soundFx.playFold();
       else if (action.type === 'check') soundFx.playCheck();
       sendWs({ type: 'player_action', action });
     },
-    [sendWs]
+    [sendWs, wsStatus]
   );
 
   const handleRevealCards = useCallback(() => {
@@ -712,11 +814,13 @@ export default function App() {
     ...(selfTablePlayer?.achievements ?? []),
     ...(profile?.achievements ?? []),
     ...(matchedLeaderboardEntry?.achievements ?? []),
+    ...sessionUnlockedRef.current.achievements,
   ]);
   const currentAchievementDates: AchievementDatesMap = {
     ...(matchedLeaderboardEntry?.achievementDates ?? {}),
     ...(profile?.achievementDates ?? {}),
     ...(selfTablePlayer?.achievementDates ?? {}),
+    ...sessionUnlockedRef.current.achievementDates,
   };
   const currentWinStreak =
     selfTablePlayer?.winStreak ??
@@ -770,6 +874,11 @@ export default function App() {
           table={table}
           myPlayerId={playerId}
           leaderboard={leaderboard}
+          selfProfileFallback={{
+            avatar: playerAvatar,
+            achievements: currentAchievements,
+            achievementDates: currentAchievementDates,
+          }}
           chatMessages={chatMessages}
           lastNudge={lastNudge}
           botChatStatus={botChatStatus}

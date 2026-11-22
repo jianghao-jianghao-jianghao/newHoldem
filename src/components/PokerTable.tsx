@@ -22,6 +22,11 @@ import {
   CHAT_WHISPER_TTL_MS,
   getActiveBubbleMap,
 } from '../shared/chatUtils';
+import type { AchievementDatesMap, AchievementId } from '../shared/achievements';
+import {
+  resolvePlayerAvatarProfile,
+  type ResolvedPlayerAvatarProfile,
+} from '../shared/playerProfile';
 import { getHandOverviewStats, PHASE_STAGE_LABELS } from '../shared/tableOverview';
 import type {
   BotChatStatus,
@@ -47,6 +52,11 @@ interface PokerTableProps {
   table: ClientTableView;
   myPlayerId: string;
   leaderboard: LeaderboardEntry[];
+  selfProfileFallback?: {
+    avatar?: string;
+    achievements?: AchievementId[];
+    achievementDates?: AchievementDatesMap;
+  };
   chatMessages: ChatMessage[];
   lastNudge: PlayerNudgeEvent | null;
   botChatStatus: BotChatStatus;
@@ -96,6 +106,7 @@ export function PokerTable({
   table,
   myPlayerId,
   leaderboard,
+  selfProfileFallback,
   chatMessages,
   lastNudge,
   botChatStatus,
@@ -762,10 +773,12 @@ export function PokerTable({
             ) : (
               opponents.map((opp) => {
                 const win = winnerMap.get(opp.id);
+                const oppProfile = resolvePlayerAvatarProfile(opp, leaderboard);
                 return (
                   <SeatNode
                     key={opp.id}
                     player={opp}
+                    syncedProfile={oppProfile}
                     isSelf={false}
                     isTurn={table.currentTurnPlayerId === opp.id}
                     isDealer={displayDealerSeat === opp.seatIndex}
@@ -905,8 +918,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="start-hand-btn"
+                  disabled={isReconnecting}
                   onClick={onStartHand}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs sm:text-sm font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs sm:text-sm font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
                   <span>
@@ -923,8 +937,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="reveal-cards-btn"
+                  disabled={isReconnecting}
                   onClick={onRevealCards}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#D4A853]/50 bg-[#0D1012]/94 px-3.5 text-xs sm:text-sm font-semibold text-[#E8CF96] hover:bg-[#171C1F] transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#D4A853]/50 bg-[#0D1012]/94 px-3.5 text-xs sm:text-sm font-semibold text-[#E8CF96] hover:bg-[#171C1F] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <Eye className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
                   <span>亮牌</span>
@@ -935,8 +950,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="toggle-auto-next-btn"
+                  disabled={isReconnecting}
                   onClick={() => onToggleAutoNext(!table.autoNextHandEnabled)}
-                  className={`touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border px-3 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                  className={`touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border px-3 text-xs font-medium transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed ${
                     table.autoNextHandEnabled
                       ? 'border-[#5E9E82]/45 bg-[#0D1713]/92 text-[#9AD4B8]'
                       : 'border-white/[0.14] bg-[#0D1012]/92 text-[#9AA5A0]'
@@ -952,8 +968,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="add-bot-btn"
+                  disabled={isReconnecting}
                   onClick={onAddBot}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-white/[0.1] bg-[#0B0E10]/88 backdrop-blur-sm px-3.5 text-xs sm:text-sm font-medium text-[#D6DDD9] hover:bg-[#151A1D] hover:text-white transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-white/[0.1] bg-[#0B0E10]/88 backdrop-blur-sm px-3.5 text-xs sm:text-sm font-medium text-[#D6DDD9] hover:bg-[#151A1D] hover:text-white transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <UserPlus className="h-3.5 w-3.5 text-[#C8A153]" aria-hidden="true" />
                   <span>添加陪练</span>
@@ -964,8 +981,9 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="topup-chips-btn"
+                  disabled={isReconnecting}
                   onClick={onRebuy}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#34D399]/35 bg-[#0F2119]/90 px-3.5 text-xs sm:text-sm font-semibold text-[#6EE7B7] hover:bg-[#152E23] transition-colors whitespace-nowrap shrink-0"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#34D399]/35 bg-[#0F2119]/90 px-3.5 text-xs sm:text-sm font-semibold text-[#6EE7B7] hover:bg-[#152E23] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>补满筹码 ({table.startingChips.toLocaleString()})</span>
@@ -984,8 +1002,9 @@ export function PokerTable({
               <button
                 type="button"
                 data-testid="rebuy-chips-btn"
+                disabled={isReconnecting}
                 onClick={onRebuy}
-                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0"
+                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>立即补充筹码 ({table.startingChips.toLocaleString()})</span>
@@ -1008,6 +1027,11 @@ export function PokerTable({
           {selfPlayer && (
             <SeatNode
               player={selfPlayer}
+              syncedProfile={resolvePlayerAvatarProfile(
+                selfPlayer,
+                leaderboard,
+                selfProfileFallback
+              )}
               isSelf
               isTurn={table.currentTurnPlayerId === selfPlayer.id}
               isDealer={displayDealerSeat === selfPlayer.seatIndex}
@@ -1089,13 +1113,20 @@ export function PokerTable({
         const inspectedPlayer = inspectedPlayerId
           ? table.players.find((p) => p.id === inspectedPlayerId) ?? null
           : null;
-        const inspectedLeaderboard =
-          inspectedPlayer && !inspectedPlayer.isBot
-            ? leaderboard.find((e) => e.playerName === inspectedPlayer.name) ?? null
-            : null;
+        const inspectedLeaderboard = inspectedPlayer
+          ? leaderboard.find((e) => e.playerName === inspectedPlayer.name) ?? null
+          : null;
+        const inspectedSyncedProfile: ResolvedPlayerAvatarProfile | null = inspectedPlayer
+          ? resolvePlayerAvatarProfile(
+              inspectedPlayer,
+              leaderboard,
+              inspectedPlayer.id === myPlayerId ? selfProfileFallback : undefined
+            )
+          : null;
         return (
           <PlayerProfileModal
             player={inspectedPlayer}
+            syncedProfile={inspectedSyncedProfile}
             isSelf={inspectedPlayer?.id === myPlayerId}
             isDealer={Boolean(inspectedPlayer && displayDealerSeat === inspectedPlayer.seatIndex)}
             isSmallBlind={Boolean(inspectedPlayer && displaySbSeat === inspectedPlayer.seatIndex)}

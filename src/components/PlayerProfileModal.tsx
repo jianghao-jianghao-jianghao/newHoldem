@@ -6,6 +6,10 @@ import {
   formatAchievementDateTime,
   type AchievementTier,
 } from '../shared/achievements';
+import {
+  resolvePlayerAvatarProfile,
+  type ResolvedPlayerAvatarProfile,
+} from '../shared/playerProfile';
 import type {
   ClientPlayerView,
   LeaderboardEntry,
@@ -16,6 +20,7 @@ import { PlayerAvatar } from './PlayerAvatar';
 
 interface PlayerProfileModalProps {
   player: ClientPlayerView | null;
+  syncedProfile?: ResolvedPlayerAvatarProfile | null;
   isSelf: boolean;
   isDealer: boolean;
   isSmallBlind: boolean;
@@ -36,6 +41,7 @@ const TIER_TEXT_CLASS: Record<AchievementTier, string> = {
 
 export function PlayerProfileModal({
   player,
+  syncedProfile = null,
   isSelf,
   isDealer,
   isSmallBlind,
@@ -77,9 +83,13 @@ export function PlayerProfileModal({
       : null;
   const sessionNet = matchStats?.sessionNetChips ?? 0;
 
-  const achievements = player.achievements ?? [];
-  const achievementDates = player.achievementDates ?? {};
-  const winStreak = player.winStreak ?? 0;
+  const resolved =
+    syncedProfile ??
+    resolvePlayerAvatarProfile(player, leaderboardEntry ? [leaderboardEntry] : []);
+  const achievements = resolved.achievements;
+  const achievementDates = resolved.achievementDates;
+  const winStreak = resolved.winStreak;
+  const { levelInfo } = resolved;
 
   const positionLabels: string[] = [];
   if (isDealer) positionLabels.push('庄位 D');
@@ -102,12 +112,26 @@ export function PlayerProfileModal({
         {/* Header: Identity & Position Metadata (zero static pill boxes) */}
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] px-5 py-4">
           <div className="flex items-center gap-3.5 min-w-0">
-            <PlayerAvatar avatar={player.avatar} name={player.name} size="lg" />
+            <PlayerAvatar
+              avatar={resolved.avatar}
+              name={player.name}
+              size="lg"
+              level={levelInfo.level}
+              levelTier={levelInfo.tier}
+              levelTitle={levelInfo.title}
+              showLevelBadge
+            />
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="truncate text-base font-semibold tracking-tight text-[#F6F3EC]">
                   {player.name}
                 </h2>
+                <span
+                  data-testid="profile-level-label"
+                  className={`font-mono-num text-xs font-semibold shrink-0 ${TIER_TEXT_CLASS[levelInfo.tier]}`}
+                >
+                  Lv.{levelInfo.level} · {levelInfo.title}
+                </span>
                 {winStreak >= 2 && (
                   <span className="font-mono-num inline-flex items-center gap-0.5 text-xs font-semibold text-[#E8CF96] shrink-0">
                     <Flame className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />

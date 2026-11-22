@@ -8,6 +8,8 @@ import {
   type AchievementId,
   type PlayerAchievementStats,
 } from '../src/shared/achievements';
+import { sanitizeAvatar } from '../src/shared/avatarUtils';
+import { computePlayerLevel } from '../src/shared/playerProfile';
 import type { HandCategory, LeaderboardEntry } from '../src/shared/types';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -16,6 +18,8 @@ const LEADERBOARD_FILE = path.join(DATA_DIR, 'leaderboard.json');
 const SEED_ENTRIES: LeaderboardEntry[] = [
   {
     playerName: '林深',
+    avatar: 'crown',
+    level: 7,
     points: 1680,
     netChips: 680,
     handsPlayed: 18,
@@ -48,6 +52,8 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
   },
   {
     playerName: '陈默',
+    avatar: 'spade',
+    level: 5,
     points: 1420,
     netChips: 420,
     handsPlayed: 14,
@@ -79,6 +85,8 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
   },
   {
     playerName: '苏晚',
+    avatar: 'phoenix',
+    level: 4,
     points: 1240,
     netChips: 240,
     handsPlayed: 11,
@@ -109,6 +117,8 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
   },
   {
     playerName: '顾北',
+    avatar: 'owl',
+    level: 3,
     points: 1090,
     netChips: 90,
     handsPlayed: 9,
@@ -159,8 +169,17 @@ export class LeaderboardStore {
           for (const item of parsed) {
             const seed = seedMap.get(item.playerName);
             const ach = item.achievements ?? seed?.achievements ?? [];
+            const level = computePlayerLevel({
+              achievements: ach,
+              handsPlayed: item.handsPlayed,
+              handsWon: item.handsWon,
+              points: item.points,
+              explicitLevel: item.level ?? seed?.level,
+            }).level;
             this.entries.set(item.playerName, {
               ...item,
+              avatar: item.avatar ?? seed?.avatar,
+              level,
               achievements: ach,
               achievementDates: item.achievementDates ?? seed?.achievementDates ?? {},
               currentWinStreak: item.currentWinStreak ?? seed?.currentWinStreak ?? 0,
@@ -196,7 +215,26 @@ export class LeaderboardStore {
     }
   }
 
+  public syncPlayerAvatar(playerName: string, avatar?: string): boolean {
+    const cleanName = playerName.trim();
+    if (!cleanName || !avatar) return false;
+    const cleanAvatar = sanitizeAvatar(avatar);
+    if (cleanAvatar === 'default') return false;
+    const existing = this.entries.get(cleanName);
+    if (!existing) return false;
+    if (existing.avatar === cleanAvatar) return false;
+    existing.avatar = cleanAvatar;
+    this.entries.set(cleanName, existing);
+    this.save();
+    return true;
+  }
+
   public getPlayerProfile(playerName: string): {
+    avatar?: string;
+    level: number;
+    points: number;
+    handsPlayed: number;
+    handsWon: number;
     achievements: AchievementId[];
     achievementDates: AchievementDatesMap;
     currentWinStreak: number;
@@ -206,14 +244,31 @@ export class LeaderboardStore {
     const existing = this.entries.get(cleanName);
     if (!existing) {
       return {
+        level: 1,
+        points: 1000,
+        handsPlayed: 0,
+        handsWon: 0,
         achievements: [],
         achievementDates: {},
         currentWinStreak: 0,
         stats: createEmptyAchievementStats(),
       };
     }
+    const achievements = existing.achievements ?? [];
+    const level = computePlayerLevel({
+      achievements,
+      handsPlayed: existing.handsPlayed,
+      handsWon: existing.handsWon,
+      points: existing.points,
+      explicitLevel: existing.level,
+    }).level;
     return {
-      achievements: existing.achievements ?? [],
+      avatar: existing.avatar,
+      level,
+      points: existing.points,
+      handsPlayed: existing.handsPlayed,
+      handsWon: existing.handsWon,
+      achievements,
       achievementDates: existing.achievementDates ?? {},
       currentWinStreak: existing.currentWinStreak ?? existing.stats?.currentWinStreak ?? 0,
       stats: existing.stats ?? {
@@ -229,6 +284,7 @@ export class LeaderboardStore {
 
   public recordHandOutcome(params: {
     playerName: string;
+    avatar?: string;
     netChips: number;
     won: boolean;
     potWon?: number;
@@ -319,8 +375,19 @@ export class LeaderboardStore {
       achResult.newlyUnlocked,
       nowMs
     );
+    const cleanAvatar = params.avatar ? sanitizeAvatar(params.avatar) : undefined;
+    if (cleanAvatar && cleanAvatar !== 'default') {
+      existing.avatar = cleanAvatar;
+    }
     existing.currentWinStreak = achResult.nextStats.currentWinStreak;
     existing.maxWinStreak = achResult.nextStats.maxWinStreak;
+    existing.level = computePlayerLevel({
+      achievements: existing.achievements,
+      handsPlayed: existing.handsPlayed,
+      handsWon: existing.handsWon,
+      points: existing.points,
+      explicitLevel: existing.level,
+    }).level;
     existing.updatedAt = nowMs;
 
     this.entries.set(cleanName, existing);
