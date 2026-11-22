@@ -1169,37 +1169,11 @@ async function startServer() {
     };
   };
 
-  app.post('/api/auth/quick-login', (req, res) => {
-    const ip = getClientIp(req);
-    const rate = otpVerifyLimiter.consume(ip);
-    if (!rate.allowed) {
-      runtimeMetrics.rateLimitRejections += 1;
-      res.status(429).json({ ok: false, error: `登录过于频繁，请 ${rate.retryAfterSec} 秒后再试` });
-      return;
-    }
-    const { identifier, displayName, avatar, localAchievements, localAchievementDates } =
-      req.body ?? {};
-    const rawId = typeof identifier === 'string' ? identifier.trim() : '';
-    const lookupName =
-      typeof displayName === 'string' && displayName.trim()
-        ? displayName.trim()
-        : rawId.includes('@')
-          ? rawId.split('@')[0]
-          : rawId;
-    const linked = buildLinkedProfile(lookupName, localAchievements, localAchievementDates);
-    const result = authStore.quickLogin(
-      rawId,
-      {
-        displayName: typeof displayName === 'string' ? displayName : undefined,
-        avatar: typeof avatar === 'string' ? avatar : undefined,
-      },
-      linked
-    );
-    if (!result.ok) {
-      res.status(400).json(result);
-      return;
-    }
-    res.json(result);
+  app.post('/api/auth/quick-login', (_req, res) => {
+    res.status(410).json({
+      ok: false,
+      error: '已启用纯邮箱验证码登录，请使用邮箱验证码完成登录',
+    });
   });
 
   app.post('/api/auth/send-code', async (req, res) => {

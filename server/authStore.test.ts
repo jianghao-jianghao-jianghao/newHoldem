@@ -133,3 +133,35 @@ test('quickLogin signs in with 1 step via nickname or email and auto-links achie
   assert.ok(secondLogin.profile?.achievements.includes('mega_pot'));
 });
 
+test('verifyOtp auto-links local achievements and stats into verified email account', async () => {
+  const store = new EmailAuthStore({
+    disableDiskPersistence: true,
+    sessionSecret: 'test-session-secret-0123456789abcdef',
+    emailSender: async () => ({ delivered: false, mode: 'preview' }),
+  });
+
+  const t0 = 1_700_000_000_000;
+  const req = await store.requestOtp('verified@club.dev', t0);
+  assert.equal(req.ok, true);
+
+  const verified = store.verifyOtp(
+    'verified@club.dev',
+    req.previewCode!,
+    { displayName: '游客牌手', avatar: 'spade' },
+    t0 + 2_000,
+    {
+      points: 1850,
+      handsPlayed: 12,
+      handsWon: 7,
+      achievements: ['first_blood', 'mega_pot'],
+      achievementDates: { first_blood: t0 - 10_000 },
+    }
+  );
+  assert.equal(verified.ok, true);
+  assert.equal(verified.profile?.email, 'verified@club.dev');
+  assert.equal(verified.profile?.points, 1850);
+  assert.equal(verified.profile?.handsPlayed, 12);
+  assert.ok(verified.profile?.achievements.includes('first_blood'));
+  assert.ok(verified.profile?.achievements.includes('mega_pot'));
+});
+
