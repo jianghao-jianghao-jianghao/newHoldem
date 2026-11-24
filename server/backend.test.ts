@@ -3,6 +3,7 @@ import test from 'node:test';
 import { EmailAuthStore } from './authStore';
 import { HoldemDatabase } from './db';
 import { evaluateGtoSpot } from './gtoCoach';
+import { persistCompletedHandRecord, resolveCompletedHandRecord } from './handPersistence';
 import { computeNormalizedPointsDelta, LeaderboardStore } from './leaderboard';
 import { SlidingWindowRateLimiter } from './rateLimiter';
 import {
@@ -339,5 +340,53 @@ test('evaluateGtoSpot validates duplicate cards and produces accurate preflop & 
     assert.equal(post.street, 'flop');
     assert.ok((post.equity ?? 0) > 0.85);
     assert.equal(post.recommendedAction, 'raise');
+  }
+});
+
+test('multi-hand persistence in the same room saves hand #1 through #4 without skipping (Issue #2 regression)', () => {
+  const db = new HoldemDatabase({ dbPath: ':memory:' });
+  try {
+    const table = createTableState('MULTI_HAND', 10, 20, 2000);
+    addPlayerToTable(table, { id: 'p1', name: 'Alice', chips: 2000 });
+    addPlayerToTable(table, { id: 'p2', name: 'Bob', chips: 2000 });
+
+    for (let handIdx = 1; handIdx <= 4; handIdx++) {
+      startNewHand(table, () => 0.25 + handIdx * 0.1, 10_000 + handIdx * 1000);
+      assert.equal(table.handNumber, handIdx);
+      const actorId = table.currentTurnPlayerId!;
+      const foldRes = applyPlayerAction(table, actorId, { type: 'fold' }, 10_100 + handIdx * 1000);
+      assert.equal(foldRes.ok, true);
+      assert.equal(table.phase, 'showdown');
+
+      const matched = resolveCompletedHandRecord(table.handHistory, table.handNumber);
+      assert.ok(matched, `Expected hand #${handIdx} to resolve from handHistory`);
+      assert.equal(matched!.handNumber, handIdx);
+
+      const persisted = persistCompletedHandRecord(
+        db,
+        table.roomId,
+        table.handHistory,
+        table.handNumber
+      );
+      assert.ok(persisted);
+    }
+
+    const saved = db.getRoomHandHistory('MULTI_HAND', 10);
+    assert.equal(saved.length, 4, `Expected all 4 consecutive hands saved, got ${saved.length}`);
+    assert.deepEqual(
+      saved.map((h) => h.handNumber),
+      [4, 3, 2, 1]
+    );
+
+    // Re-recording hand #4 after a voluntary reveal updates in place without creating duplicates
+    const latest = resolveCompletedHandRecord(table.handHistory, 4)!;
+    latest.players[0].revealed = true;
+    persistCompletedHandRecord(db, table.roomId, table.handHistory, 4);
+    const afterUpdate = db.getRoomHandHistory('MULTI_HAND', 10);
+    assert.equal(afterUpdate.length, 4);
+    assert.equal(afterUpdate[0].handNumber, 4);
+    assert.equal(afterUpdate[0].players[0].revealed, true);
+  } finally {
+    db.close();
   }
 });

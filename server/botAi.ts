@@ -429,12 +429,75 @@ function flopCheckedThrough(state: TableState): boolean {
 }
 
 /**
- * GTO + Session-Exploitative Texas Hold'em AI Engine:
- * - Preflop: 6-max / Heads-Up 169-hand GTO frequency charts + limp isolation + session exploit overlay
+ * Estimates Hero's Range Advantage & Nut Advantage on the current board (inspired by
+ * GTO Wizard / TexasSolver / Pluribus postflop structural heuristics):
+ * - PFA on dry A/K/Q high boards holds strong range & nut advantage -> high-frequency small c-bet.
+ * - Low connected two-tone boards (e.g., 7-6-5ss) shift nut/range advantage toward BB caller ->
+ *   check more often OOP and polarize sizings.
+ */
+export function computeBoardRangeAdvantage(params: {
+  board: Card[];
+  isPfa: boolean;
+  inPosition: boolean;
+  texture: ReturnType<typeof analyzeBoardTexture>;
+}): { rangeAdv: number; nutAdv: number } {
+  const { board, isPfa, inPosition, texture } = params;
+  if (board.length < 3) return { rangeAdv: 0, nutAdv: 0 };
+
+  const ranks = board.map((c) => Number(c.rank)).sort((a, b) => b - a);
+  const highCard = ranks[0] ?? 10;
+  const broadwayCount = ranks.filter((r) => r >= 10).length;
+
+  let rangeAdv = isPfa ? 0.06 : -0.05;
+  let nutAdv = isPfa ? 0.07 : -0.04;
+
+  if (highCard >= 13 && texture.wetness < 0.45) {
+    // High dry board strongly favors preflop aggressor's uncapped overpairs & AK/AQ
+    rangeAdv += isPfa ? 0.08 : -0.08;
+    nutAdv += isPfa ? 0.09 : -0.07;
+  } else if (highCard <= 9 && texture.connectedness >= 0.55) {
+    // Low connected board favors BB defender's two-pair/straight/set density
+    rangeAdv += isPfa ? -0.09 : 0.08;
+    nutAdv += isPfa ? -0.08 : 0.09;
+  }
+
+  if (broadwayCount >= 2) {
+    rangeAdv += isPfa ? 0.04 : -0.03;
+  }
+  if (texture.isPaired) {
+    // Paired boards compress equity and reward small range bets from IP/PFA
+    rangeAdv += inPosition ? 0.04 : -0.02;
+  }
+  if (inPosition) {
+    rangeAdv += 0.03;
+  }
+
+  return {
+    rangeAdv: Math.max(-0.22, Math.min(0.22, Number(rangeAdv.toFixed(3)))),
+    nutAdv: Math.max(-0.22, Math.min(0.22, Number(nutAdv.toFixed(3)))),
+  };
+}
+
+/**
+ * Detects whether the turn card is a "scare card" (overcard A/K/Q or completing flush/straight texture)
+ * that shifts range advantage toward the preflop aggressor for high-EV double-barrelling.
+ */
+function isTurnScareCard(board: Card[], texture: ReturnType<typeof analyzeBoardTexture>): boolean {
+  if (board.length !== 4) return false;
+  const turnCard = board[3];
+  const flopMax = Math.max(...board.slice(0, 3).map((c) => Number(c.rank)));
+  const isOvercard = Number(turnCard.rank) > flopMax && Number(turnCard.rank) >= 12;
+  const completesThreeFlush = texture.flushDrawPossible && board.filter((c) => c.suit === turnCard.suit).length >= 3;
+  return isOvercard || completesThreeFlush;
+}
+
+/**
+ * GTO v3 + Restricted Nash Response (RNR) Safe-Exploitative Texas Hold'em AI Engine:
+ * - Preflop: 6-max / Heads-Up 169-hand GTO frequency charts + <=15BB Nash push/fold + limp isolation + RNR exploit overlay
  * - Postflop: Zero-allocation Monte Carlo equity vs aggression-weighted range,
- *   board texture & range-advantage c-betting, turn probes, OOP check-raise traps/semi-bluffs,
- *   MDF defense, blocker-driven river bluffs, geometric sizing, AND real-time session opponent
- *   profiling & counter-exploitation (strictly scoped to current table session).
+ *   range/nut advantage c-betting, turn probes & scare-card double barrels, OOP check-raise traps/semi-bluffs,
+ *   MDF defense, blocker-driven river polarized bluffs/overbets, geometric sizing, AND real-time Bayesian
+ *   Dirichlet-Beta opponent profiling with RNR safety margin.
  */
 export function chooseBotAction(
   state: TableState,
@@ -646,6 +709,12 @@ export function chooseBotAction(
   const streetsLeft = state.phase === 'flop' ? 3 : state.phase === 'turn' ? 2 : 1;
   const spr = bot.chips / Math.max(1, state.pot);
   const geoFrac = computeGeometricBetFraction(state.pot, effectiveStack, streetsLeft);
+  const { rangeAdv, nutAdv } = computeBoardRangeAdvantage({
+    board,
+    isPfa,
+    inPosition,
+    texture,
+  });
 
   if (available.canCheck) {
     if (!available.canRaise) return { type: 'check' };
@@ -654,22 +723,47 @@ export function chooseBotAction(
       state.phase === 'flop' &&
       isPfa &&
       activeOpponents <= 2 &&
-      texture.isDryHighBoard &&
+      (texture.isDryHighBoard || rangeAdv >= 0.09) &&
       streetRaises === 0;
 
     if (rangeCbetSpot) {
+      const advBoost = Math.max(-0.08, Math.min(0.14, rangeAdv * 0.65));
       const rangeBetFreq =
         effectiveEquity >= 0.58
-          ? Math.min(0.96, 0.88 + (exploit.targetArchetype === 'calling_station' ? 0.06 : 0))
+          ? Math.min(0.96, 0.88 + advBoost + (exploit.targetArchetype === 'calling_station' ? 0.06 : 0))
           : drawBonus >= 0.06
-            ? Math.min(0.92, (0.78 + personality.aggression * 0.4) * Math.min(1.25, exploit.bluffFreqMult))
-            : Math.min(0.92, (0.58 + personality.aggression) * exploit.bluffFreqMult);
+            ? Math.min(0.92, (0.76 + advBoost + personality.aggression * 0.4) * Math.min(1.25, exploit.bluffFreqMult))
+            : Math.min(0.9, (0.56 + advBoost + personality.aggression) * exploit.bluffFreqMult);
       if (r < rangeBetFreq) {
         const cbetSize =
-          effectiveEquity >= 0.65 ? Math.min(0.75, 0.33 * exploit.valueSizeMult) : 0.33;
+          effectiveEquity >= 0.65
+            ? Math.min(0.75, (nutAdv >= 0.12 ? 0.45 : 0.33) * exploit.valueSizeMult)
+            : 0.33;
         return { type: 'raise', amount: pickPotSizedBet(cbetSize) };
       }
       return { type: 'check' };
+    }
+
+    // Turn Scare-Card Double Barrel: PFA leverages overcard/flush scare cards with blockers or equity
+    if (
+      state.phase === 'turn' &&
+      isPfa &&
+      streetRaises === 0 &&
+      activeOpponents <= 2 &&
+      !flopCheckedThrough(state) &&
+      isTurnScareCard(board, texture)
+    ) {
+      if (effectiveEquity >= 0.62 + exploit.valueThresholdDelta) {
+        const barrelMult = Math.min(1.25, Math.max(0.62, geoFrac) * exploit.valueSizeMult);
+        return { type: 'raise', amount: pickPotSizedBet(barrelMult) };
+      }
+      if (
+        (drawBonus >= 0.08 || blockers.bluffScore >= 0.5) &&
+        exploit.targetArchetype !== 'calling_station' &&
+        r < Math.min(0.78, (0.42 + Math.max(0, nutAdv)) * exploit.bluffFreqMult)
+      ) {
+        return { type: 'raise', amount: pickPotSizedBet(0.68) };
+      }
     }
 
     // Turn Probe / Delayed C-Bet when flop checked through: attack capped opponent range
@@ -697,17 +791,24 @@ export function chooseBotAction(
         (activeOpponents === 1 ? 0.68 : 0.74) + exploit.valueThresholdDelta
       );
       if (effectiveEquity >= valueThreshold) {
-        const baseMult =
-          effectiveEquity >= 0.88
+        // Nut advantage supports polarized overbets (up to 1.35x pot) on river
+        const polarOverbet = effectiveEquity >= 0.9 && nutAdv >= 0.08 && spr >= 1.2;
+        const baseMult = polarOverbet
+          ? Math.min(1.35, Math.max(1.05, geoFrac))
+          : effectiveEquity >= 0.88
             ? Math.min(1.25, Math.max(0.75, geoFrac))
             : effectiveEquity >= 0.78
               ? 0.66
               : 0.45;
-        const exploitedMult = Math.min(1.45, Math.max(0.35, baseMult * exploit.valueSizeMult));
+        const exploitedMult = Math.min(1.5, Math.max(0.35, baseMult * exploit.valueSizeMult));
         return { type: 'raise', amount: pickPotSizedBet(exploitedMult) };
       }
-      if (effectiveEquity <= 0.24 && blockers.bluffScore >= 0.45) {
-        const bluffSize = 0.75;
+      if (
+        effectiveEquity <= 0.24 &&
+        blockers.bluffScore >= 0.45 &&
+        !(exploit.targetArchetype === 'calling_station' && exploit.rnrWeight >= 0.45)
+      ) {
+        const bluffSize = nutAdv >= 0.08 ? 1.0 : 0.75;
         const gtoBluffAlpha = computeOptimalBluffRatio(bluffSize * state.pot, state.pot);
         const bluffChance = Math.min(
           0.52,

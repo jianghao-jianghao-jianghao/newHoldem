@@ -133,3 +133,35 @@ test('SessionOpponentProfiler stays strictly session-scoped via resetPlayer and 
   profiler.clearAll();
   assert.equal(profiler.getOpponentRead('bot1').handsObserved, 0);
 });
+
+test('SessionOpponentProfiler applies Beta-Binomial Bayesian posterior shrinkage and RNR safety margin', () => {
+  const profiler = new SessionOpponentProfiler();
+  for (let i = 0; i < 4; i++) {
+    playControlledHand(profiler, 'nit', i);
+  }
+  const read4 = profiler.getOpponentRead('hero');
+  const plan4 = profiler.buildExploitPlan('hero');
+
+  // With only 4 hands, Beta-Binomial shrinkage keeps posterior strictly between GTO prior (0.42) and raw (1.0)
+  assert.ok(
+    read4.posterior.foldToBetPosterior > 0.45 && read4.posterior.foldToBetPosterior < 0.85,
+    `Expected shrunk foldToBet posterior on 4 hands, got ${read4.posterior.foldToBetPosterior}`
+  );
+  assert.ok(read4.rnrSafetyLambda >= 0.72 && read4.rnrSafetyLambda <= 0.95);
+  assert.ok(plan4.rnrWeight > 0 && plan4.rnrWeight <= plan4.confidence);
+  assert.ok(read4.leakTags.length >= 1);
+
+  for (let i = 4; i < 14; i++) {
+    playControlledHand(profiler, 'nit', i);
+  }
+  const read14 = profiler.getOpponentRead('hero');
+  const plan14 = profiler.buildExploitPlan('hero');
+  assert.ok(
+    read14.posterior.foldToBetPosterior > read4.posterior.foldToBetPosterior,
+    'More observed fold hands should move Bayesian posterior higher'
+  );
+  assert.ok(
+    plan14.rnrWeight > plan4.rnrWeight,
+    'More observed hands should increase RNR exploit weight'
+  );
+});

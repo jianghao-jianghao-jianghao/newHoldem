@@ -1,4 +1,3 @@
-import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import {
   buildPlayerPersonaReport,
   sanitizeBehaviorStats,
@@ -10,6 +9,13 @@ import {
   type PlayerPersonaReport,
   type PokerRadarAxisKey,
 } from '../src/shared/playerInsights';
+
+const SchemaType = {
+  OBJECT: 'OBJECT',
+  STRING: 'STRING',
+  INTEGER: 'INTEGER',
+  ARRAY: 'ARRAY',
+} as const;
 
 export const PERSONA_GEMINI_MODEL = 'gemini-4-hydrogen';
 
@@ -60,78 +66,78 @@ const PERSONA_SYSTEM_INSTRUCTION = `你是一位资深德州扑克 GTO 教练兼
 4. 严格输出符合 JSON Schema 的结构化内容。`;
 
 export const PERSONA_RESPONSE_SCHEMA: Record<string, unknown> = {
-  type: Type.OBJECT,
+  type: SchemaType.OBJECT,
   properties: {
     archetypeTitle: {
-      type: Type.STRING,
+      type: SchemaType.STRING,
       description: '4-10字中文性格画像称号，如「紧凶掌控型」「松散粘滞型」',
     },
     summary: {
-      type: Type.STRING,
+      type: SchemaType.STRING,
       description: '60-120字的核心打法性格总评，引用关键统计数据',
     },
     radarInsight: {
-      type: Type.STRING,
+      type: SchemaType.STRING,
       description: '40-90字的六维雷达形态解读，指出突出轴与短板轴的平衡关系',
     },
     radarScores: {
-      type: Type.OBJECT,
+      type: SchemaType.OBJECT,
       description: '基于数据校准的六维 0-100 得分（须忠实于原始统计趋势）',
       properties: {
-        vpip: { type: Type.INTEGER },
-        pfr: { type: Type.INTEGER },
-        aggPct: { type: Type.INTEGER },
-        cbet: { type: Type.INTEGER },
-        showdown: { type: Type.INTEGER },
-        discipline: { type: Type.INTEGER },
+        vpip: { type: SchemaType.INTEGER },
+        pfr: { type: SchemaType.INTEGER },
+        aggPct: { type: SchemaType.INTEGER },
+        cbet: { type: SchemaType.INTEGER },
+        showdown: { type: SchemaType.INTEGER },
+        discipline: { type: SchemaType.INTEGER },
       },
       required: ['vpip', 'pfr', 'aggPct', 'cbet', 'showdown', 'discipline'],
     },
     strengths: {
-      type: Type.ARRAY,
+      type: SchemaType.ARRAY,
       items: {
-        type: Type.OBJECT,
+        type: SchemaType.OBJECT,
         properties: {
-          title: { type: Type.STRING },
-          evidence: { type: Type.STRING },
-          detail: { type: Type.STRING },
+          title: { type: SchemaType.STRING },
+          evidence: { type: SchemaType.STRING },
+          detail: { type: SchemaType.STRING },
         },
         required: ['title', 'evidence', 'detail'],
       },
     },
     weaknesses: {
-      type: Type.ARRAY,
+      type: SchemaType.ARRAY,
       items: {
-        type: Type.OBJECT,
+        type: SchemaType.OBJECT,
         properties: {
-          title: { type: Type.STRING },
-          evidence: { type: Type.STRING },
-          detail: { type: Type.STRING },
+          title: { type: SchemaType.STRING },
+          evidence: { type: SchemaType.STRING },
+          detail: { type: SchemaType.STRING },
         },
         required: ['title', 'evidence', 'detail'],
       },
     },
     habits: {
-      type: Type.ARRAY,
+      type: SchemaType.ARRAY,
       items: {
-        type: Type.OBJECT,
+        type: SchemaType.OBJECT,
         properties: {
-          kind: { type: Type.STRING, enum: ['good', 'bad'] },
-          title: { type: Type.STRING },
-          evidence: { type: Type.STRING },
-          detail: { type: Type.STRING },
+          kind: { type: SchemaType.STRING, enum: ['good', 'bad'] },
+          title: { type: SchemaType.STRING },
+          evidence: { type: SchemaType.STRING },
+          detail: { type: SchemaType.STRING },
         },
         required: ['kind', 'title', 'evidence', 'detail'],
       },
     },
     improvements: {
-      type: Type.ARRAY,
+      type: SchemaType.ARRAY,
       items: {
-        type: Type.OBJECT,
+        type: SchemaType.OBJECT,
         properties: {
-          focus: { type: Type.STRING },
-          targetMetric: { type: Type.STRING },
-          actionPlan: { type: Type.STRING },
+          focus: { type: SchemaType.STRING },
+          targetMetric: { type: SchemaType.STRING },
+          actionPlan: { type: SchemaType.STRING },
         },
         required: ['focus', 'targetMetric', 'actionPlan'],
       },
@@ -222,9 +228,9 @@ export function sanitizeAiPersonaAnalysis(
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
 
-  const archetypeTitle = cleanStr(o.archetypeTitle, 28);
-  const summary = cleanStr(o.summary, 280);
-  const radarInsight = cleanStr(o.radarInsight, 220);
+  const archetypeTitle = cleanStr(o.archetypeTitle ?? o.archetype ?? o.title, 28);
+  const summary = cleanStr(o.summary ?? o.overview, 280);
+  const radarInsight = cleanStr(o.radarInsight ?? o.radarSummary, 220);
 
   if (!archetypeTitle || !summary) return null;
 
@@ -234,9 +240,9 @@ export function sanitizeAiPersonaAnalysis(
     for (const item of list) {
       if (!item || typeof item !== 'object') continue;
       const it = item as Record<string, unknown>;
-      const title = cleanStr(it.title, 48);
-      const evidence = cleanStr(it.evidence, 96);
-      const detail = cleanStr(it.detail, 220);
+      const title = cleanStr(it.title ?? it.name, 48);
+      const evidence = cleanStr(it.evidence ?? it.metric ?? it.data, 96);
+      const detail = cleanStr(it.detail ?? it.description ?? it.explanation, 220);
       if (title && detail) {
         out.push({ title, evidence, detail });
       }
@@ -251,10 +257,10 @@ export function sanitizeAiPersonaAnalysis(
     for (const item of list) {
       if (!item || typeof item !== 'object') continue;
       const it = item as Record<string, unknown>;
-      const kind = it.kind === 'bad' ? 'bad' : 'good';
-      const title = cleanStr(it.title, 48);
-      const evidence = cleanStr(it.evidence, 96);
-      const detail = cleanStr(it.detail, 220);
+      const kind = it.kind === 'bad' || it.type === 'bad' ? 'bad' : 'good';
+      const title = cleanStr(it.title ?? it.name, 48);
+      const evidence = cleanStr(it.evidence ?? it.metric, 96);
+      const detail = cleanStr(it.detail ?? it.description, 220);
       if (title && detail) {
         out.push({ kind, title, evidence, detail });
       }
@@ -269,9 +275,9 @@ export function sanitizeAiPersonaAnalysis(
     for (const item of list) {
       if (!item || typeof item !== 'object') continue;
       const it = item as Record<string, unknown>;
-      const focus = cleanStr(it.focus, 48);
-      const targetMetric = cleanStr(it.targetMetric, 84);
-      const actionPlan = cleanStr(it.actionPlan, 220);
+      const focus = cleanStr(it.focus ?? it.title ?? it.area, 48);
+      const targetMetric = cleanStr(it.targetMetric ?? it.target ?? it.metric, 84);
+      const actionPlan = cleanStr(it.actionPlan ?? it.plan ?? it.action ?? it.detail, 220);
       if (focus && actionPlan) {
         out.push({ focus, targetMetric, actionPlan });
       }
@@ -316,18 +322,24 @@ export function sanitizeAiPersonaAnalysis(
 }
 
 function createSdkGenerator(apiKey: string): GeminiTextGenerator {
-  const ai = new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+  let aiInstance: { models: { generateContent: (args: unknown) => Promise<{ text?: string }> } } | null = null;
+  let thinkingLow: unknown = 'LOW';
 
   return {
     async generateJson({ model, systemInstruction, prompt, responseSchema }) {
-      const response = await ai.models.generateContent({
+      if (!aiInstance) {
+        const sdk = await import('@google/genai');
+        aiInstance = new sdk.GoogleGenAI({
+          apiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            },
+          },
+        }) as unknown as { models: { generateContent: (args: unknown) => Promise<{ text?: string }> } };
+        thinkingLow = sdk.ThinkingLevel?.LOW ?? 'LOW';
+      }
+      const response = await aiInstance.models.generateContent({
         model,
         contents: prompt,
         config: {
@@ -335,7 +347,7 @@ function createSdkGenerator(apiKey: string): GeminiTextGenerator {
           responseMimeType: 'application/json',
           responseSchema,
           thinkingConfig: {
-            thinkingLevel: ThinkingLevel.LOW,
+            thinkingLevel: thinkingLow,
           },
         },
       });
@@ -415,10 +427,60 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function createDeepSeekGenerator(params: {
+  apiKey: string;
+  baseUrl?: string;
+  model?: string;
+}): GeminiTextGenerator {
+  const baseUrl = (params.baseUrl?.trim() || 'https://api.deepseek.com').replace(/\/+$/, '');
+  const resolvedModel = params.model?.trim() || 'deepseek-chat';
+
+  return {
+    async generateJson({ systemInstruction, prompt }) {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(20_000),
+        headers: {
+          Authorization: `Bearer ${params.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: resolvedModel,
+          temperature: 0.3,
+          max_tokens: 1800,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: `${systemInstruction}\n请只输出一个紧凑合法的 JSON 对象（每条描述控制在 40-60 字以内以确保完整输出），字段结构严格按以下模板：\n{"archetypeTitle":"紧凶掌控型","summary":"...","radarInsight":"...","radarScores":{"vpip":50,"pfr":50,"aggPct":60,"cbet":60,"showdown":55,"discipline":80},"strengths":[{"title":"...","evidence":"...","detail":"..."}],"weaknesses":[{"title":"...","evidence":"...","detail":"..."}],"habits":[{"kind":"good","title":"...","evidence":"...","detail":"..."}],"improvements":[{"focus":"...","targetMetric":"...","actionPlan":"..."}]}`,
+            },
+            { role: 'user', content: prompt },
+          ],
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        const err = new Error(`DeepSeek persona API error (${res.status}): ${text}`) as Error & {
+          status?: number;
+        };
+        err.status = res.status;
+        throw err;
+      }
+      const data = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      return data.choices?.[0]?.message?.content ?? '';
+    },
+  };
+}
+
 export async function analyzePlayerPersonaWithGemini(params: {
   playerName?: string;
   behaviorStats: PlayerBehaviorStats | null | undefined;
   apiKey?: string;
+  deepseekApiKey?: string;
+  deepseekBaseUrl?: string;
+  deepseekModel?: string;
   generator?: GeminiTextGenerator;
 }): Promise<PersonaAiResult> {
   const cleanStats = sanitizeBehaviorStats(params.behaviorStats);
@@ -433,17 +495,31 @@ export async function analyzePlayerPersonaWithGemini(params: {
     };
   }
 
-  const resolvedKey = (params.apiKey ?? process.env.GEMINI_API_KEY ?? '').trim();
-  if (!params.generator && !resolvedKey) {
+  const resolvedGeminiKey = (params.apiKey ?? process.env.GEMINI_API_KEY ?? '').trim();
+  const resolvedDeepSeekKey = (params.deepseekApiKey ?? '').trim();
+  if (!params.generator && !resolvedGeminiKey && !resolvedDeepSeekKey) {
     return {
       ok: false,
       code: 'MISSING_API_KEY',
-      error: '服务端尚未配置 GEMINI_API_KEY，当前已基于真实统计绘制六维雷达图与本地画像。',
+      error: '服务端尚未配置 GEMINI_API_KEY 或 DEEPSEEK_API_KEY，当前已基于真实统计绘制六维雷达图与本地画像。',
       personaReport,
     };
   }
 
-  const generator = params.generator ?? createSdkGenerator(resolvedKey);
+  const useDeepSeekFallback = !params.generator && !resolvedGeminiKey && Boolean(resolvedDeepSeekKey);
+  const activeModel = useDeepSeekFallback
+    ? params.deepseekModel?.trim() || process.env.DEEPSEEK_MODEL?.trim() || 'deepseek-chat'
+    : process.env.GEMINI_MODEL?.trim() || PERSONA_GEMINI_MODEL;
+
+  const generator =
+    params.generator ??
+    (useDeepSeekFallback
+      ? createDeepSeekGenerator({
+          apiKey: resolvedDeepSeekKey,
+          baseUrl: params.deepseekBaseUrl ?? process.env.DEEPSEEK_BASE_URL,
+          model: activeModel,
+        })
+      : createSdkGenerator(resolvedGeminiKey));
   const prompt = buildPersonaPromptPayload(
     params.playerName ?? '牌手',
     cleanStats,
@@ -458,7 +534,7 @@ export async function analyzePlayerPersonaWithGemini(params: {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const rawText = await generator.generateJson({
-        model: PERSONA_GEMINI_MODEL,
+        model: activeModel,
         systemInstruction: PERSONA_SYSTEM_INSTRUCTION,
         prompt,
         responseSchema: PERSONA_RESPONSE_SCHEMA,
@@ -467,7 +543,7 @@ export async function analyzePlayerPersonaWithGemini(params: {
       const analysis = sanitizeAiPersonaAnalysis(
         parsed,
         cleanStats.handsPlayed,
-        PERSONA_GEMINI_MODEL
+        activeModel
       );
       if (analysis) {
         return {

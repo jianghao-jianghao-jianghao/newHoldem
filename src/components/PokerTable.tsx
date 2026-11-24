@@ -1348,6 +1348,7 @@ export function PokerTable({
 
       <HandReviewModal
         open={handReviewOpen}
+        roomId={table.roomId}
         mode={handReviewMode}
         bookmarkedHands={bookmarkedHands}
         onToggleBookmark={handleToggleBookmarkHand}

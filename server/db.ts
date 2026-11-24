@@ -147,20 +147,44 @@ export class HoldemDatabase {
           holeCards: p.revealed ? p.holeCards : null,
         })),
       };
-      this.db
+      const summaryJson = JSON.stringify(sanitized);
+      const existing = this.db
         .prepare(
-          `INSERT INTO hand_history (room_id, hand_number, timestamp, pot, small_blind, big_blind, summary_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          'SELECT id FROM hand_history WHERE room_id = ? AND hand_number = ? ORDER BY id DESC LIMIT 1'
         )
-        .run(
-          roomId,
-          record.handNumber,
-          record.timestamp,
-          record.pot,
-          record.smallBlind,
-          record.bigBlind,
-          JSON.stringify(sanitized)
-        );
+        .get(roomId, record.handNumber) as { id?: number } | undefined;
+
+      if (existing && typeof existing.id === 'number') {
+        this.db
+          .prepare(
+            `UPDATE hand_history
+             SET timestamp = ?, pot = ?, small_blind = ?, big_blind = ?, summary_json = ?
+             WHERE id = ?`
+          )
+          .run(
+            record.timestamp,
+            record.pot,
+            record.smallBlind,
+            record.bigBlind,
+            summaryJson,
+            existing.id
+          );
+      } else {
+        this.db
+          .prepare(
+            `INSERT INTO hand_history (room_id, hand_number, timestamp, pot, small_blind, big_blind, summary_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            roomId,
+            record.handNumber,
+            record.timestamp,
+            record.pot,
+            record.smallBlind,
+            record.bigBlind,
+            summaryJson
+          );
+      }
 
       // Keep storage bounded per room
       this.db

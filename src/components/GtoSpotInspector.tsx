@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   buildGtoSpotWorkbench,
+  buildSpotAnalysisRequestPayload,
   collectReportHeroDecisions,
   createFallbackPreflopDecision,
   inferRecommendedNodeLockPreset,
@@ -9,20 +10,32 @@ import {
   type GtoNodeLockRequest,
   type GtoNodeLockResponse,
   type GtoSpotWorkbenchData,
+  type NodeLockExploitResult,
   type NodeLockPresetId,
 } from '../shared/gtoWorkbench';
 import type { HandReviewReport, HandReviewSessionContext } from '../shared/types';
 import { RangeStrategyMatrix } from './RangeStrategyMatrix';
 
+const SERVER_BASE_URL = (
+  (import.meta.env.VITE_SERVER_URL as string | undefined) ?? ''
+)
+  .trim()
+  .replace(/\/+$/, '');
+
+function getGtoApiUrl(path: string): string {
+  return SERVER_BASE_URL ? `${SERVER_BASE_URL}${path}` : path;
+}
+
 interface GtoSpotInspectorProps {
   report: HandReviewReport;
+  roomId?: string;
   sessionProfileContext?: HandReviewSessionContext;
   viewMode: 'gto' | 'nodelock';
   selectedStep: number | null;
   onSelectStep: (step: number) => void;
   /**
-   * Optional hook for Claude's backend `/api/gto/node-lock` integration.
-   * When omitted, client deterministic Bayesian Node-Lock runs instantaneously.
+   * Optional hook for backend `/api/gto/node-lock` integration.
+   * When omitted, automatically calls POST /api/gto/node-lock with instant local fallback.
    */
   onRequestBackendNodeLock?: (req: GtoNodeLockRequest) => Promise<GtoNodeLockResponse>;
 }
@@ -44,10 +57,12 @@ const PRESET_ORDER: NodeLockPresetId[] = [
 
 export function GtoSpotInspector({
   report,
+  roomId,
   sessionProfileContext,
   viewMode,
   selectedStep,
   onSelectStep,
+  onRequestBackendNodeLock,
 }: GtoSpotInspectorProps) {
   const allDecisions = useMemo(() => {
     const recorded = collectReportHeroDecisions(report);
@@ -97,7 +112,7 @@ export function GtoSpotInspector({
     );
   }, [selectedOpponentId, sessionProfileContext]);
 
-  const workbench: GtoSpotWorkbenchData | null = useMemo(() => {
+  const localWorkbench: GtoSpotWorkbenchData | null = useMemo(() => {
     if (!activeEntry) return null;
     return buildGtoSpotWorkbench({
       report,
@@ -117,6 +132,116 @@ export function GtoSpotInspector({
     sampleHands,
     selectedOpponent,
   ]);
+
+  const [serverSpotData, setServerSpotData] = useState<GtoSpotWorkbenchData | null>(null);
+  const [serverExploit, setServerExploit] = useState<NodeLockExploitResult | null>(null);
+
+  // Hydrate live server 3-tier GTO solver (POST /api/gto/spot-analysis)
+  useEffect(() => {
+    if (!activeEntry) {
+      setServerSpotData(null);
+      return;
+    }
+    let cancelled = false;
+    const payload = buildSpotAnalysisRequestPayload(report, activeEntry.decision, roomId);
+    fetch(getGtoApiUrl('/api/gto/spot-analysis'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { ok?: boolean; data?: GtoSpotWorkbenchData } | null) => {
+        if (!cancelled && json?.ok && json.data) {
+          setServerSpotData(json.data);
+        }
+      })
+      .catch(() => {
+        // Silent graceful fallback to deterministic local engine
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [report, activeEntry, roomId]);
+
+  // Hydrate live server Bayesian RNR Node-Lock solver (POST /api/gto/node-lock)
+  useEffect(() => {
+    if (!activeEntry || viewMode !== 'nodelock') {
+      setServerExploit(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const spotRequest = buildSpotAnalysisRequestPayload(report, activeEntry.decision, roomId);
+      const nodeLockReq: GtoNodeLockRequest = {
+        spotRequest,
+        presetId,
+        targetPlayerId: selectedOpponent?.playerId,
+        targetPlayerName: selectedOpponent?.playerName ?? '自定义对手模型',
+        observedDeviationPct: deviationPct,
+        sampleHands,
+        priorStrengthKappa: 16,
+      };
+      const requester = onRequestBackendNodeLock
+        ? onRequestBackendNodeLock(nodeLockReq)
+        : fetch(getGtoApiUrl('/api/gto/node-lock'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nodeLockReq),
+          }).then((res) => (res.ok ? (res.json() as Promise<GtoNodeLockResponse>) : { ok: false }));
+
+      void requester
+        .then((json) => {
+          if (!cancelled && json?.ok && json.exploit) {
+            setServerExploit(json.exploit);
+          }
+        })
+        .catch(() => {
+          // Silent graceful fallback to deterministic local Node-Lock
+        });
+    }, 140);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    report,
+    activeEntry,
+    roomId,
+    viewMode,
+    presetId,
+    deviationPct,
+    sampleHands,
+    selectedOpponent,
+    onRequestBackendNodeLock,
+  ]);
+
+  const workbench: GtoSpotWorkbenchData | null = useMemo(() => {
+    if (!localWorkbench) return null;
+    const matchesServerSpot =
+      serverSpotData &&
+      serverSpotData.handNumber === localWorkbench.handNumber &&
+      serverSpotData.decisionStep === localWorkbench.decisionStep;
+    const mergedBase = matchesServerSpot
+      ? {
+          ...localWorkbench,
+          source: serverSpotData.source,
+          solverMeta: serverSpotData.solverMeta,
+          evLossBB: serverSpotData.evLossBB,
+          evLossPctPot: serverSpotData.evLossPctPot,
+          evGrade: serverSpotData.evGrade,
+          evGradeLabel: serverSpotData.evGradeLabel,
+          actionOptions: serverSpotData.actionOptions,
+          gtoMatrix: serverSpotData.gtoMatrix,
+        }
+      : localWorkbench;
+    return serverExploit
+      ? {
+          ...mergedBase,
+          exploit: serverExploit,
+        }
+      : mergedBase;
+  }, [localWorkbench, serverSpotData, serverExploit]);
 
   if (!activeEntry || !workbench) {
     return (

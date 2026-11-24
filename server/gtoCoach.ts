@@ -14,6 +14,7 @@ import {
   type GtoPosition,
   type PreflopActionMix,
 } from './gtoRanges';
+import type { ExploitPlan, OpponentExploitRead } from './opponentProfiler';
 
 const VALID_SUITS = new Set<Suit>(['spades', 'hearts', 'diamonds', 'clubs']);
 const VALID_POSITIONS = new Set<GtoPosition>(['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB']);
@@ -28,6 +29,10 @@ export interface GtoCoachRequest {
   bigBlind?: number;
   opponents?: number;
   facingRaises?: number;
+  roomId?: string;
+  opponentId?: string;
+  opponentRead?: OpponentExploitRead | null;
+  exploitPlan?: ExploitPlan | null;
   useLlm?: boolean;
 }
 
@@ -48,6 +53,7 @@ export interface GtoCoachReport {
   recommendedAction: 'raise' | 'call' | 'check' | 'fold';
   recommendedSizeBB: number | null;
   rationale: string;
+  exploitativeAdjustment?: string | null;
   llmCoachAdvice?: string | null;
 }
 
@@ -254,13 +260,29 @@ export async function evaluateGtoSpotWithCoach(
   raw: GtoCoachRequest
 ): Promise<GtoCoachReport | { ok: false; error: string }> {
   const base = evaluateGtoSpot(raw);
-  if (!base.ok || !raw.useLlm) {
+  if (!base.ok) {
     return base;
+  }
+
+  const oppRead = raw.opponentRead ?? null;
+  const exploitPlan = raw.exploitPlan ?? null;
+  const exploitativeAdjustment =
+    oppRead && oppRead.handsObserved >= 2 && exploitPlan
+      ? `对手画像「${oppRead.label}」（观测 ${oppRead.handsObserved} 手，RNR 权重 ${Math.round(exploitPlan.rnrWeight * 100)}%）：${exploitPlan.counterSummary}`
+      : null;
+
+  const enrichedBase: GtoCoachReport = {
+    ...base,
+    exploitativeAdjustment,
+  };
+
+  if (!raw.useLlm) {
+    return enrichedBase;
   }
 
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) {
-    return { ...base, llmCoachAdvice: null };
+    return { ...enrichedBase, llmCoachAdvice: null };
   }
 
   const baseUrl = (process.env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com').replace(
@@ -280,12 +302,12 @@ export async function evaluateGtoSpotWithCoach(
       body: JSON.stringify({
         model,
         temperature: 0.3,
-        max_tokens: 220,
+        max_tokens: 260,
         messages: [
           {
             role: 'system',
             content:
-              '你是专业无限注德州扑克 GTO 教练。请基于给定的精确数学指标（手牌、位置、胜率、底池赔率、MDF、阻断牌、建议动作），用 2-3 句简明中文给出实战思路与注意事项，不要编造数据。',
+              '你是专业无限注德州扑克 GTO 与剥削策略教练。请基于给定的精确数学指标（手牌、位置、胜率、底池赔率、MDF、阻断牌、建议动作，以及可选的贝叶斯对手画像与 RNR 剥削建议），用 2-3 句简明中文给出实战思路与注意事项，不要编造数据。',
           },
           {
             role: 'user',
@@ -302,6 +324,16 @@ export async function evaluateGtoSpotWithCoach(
               recommendedAction: base.recommendedAction,
               recommendedSizeBB: base.recommendedSizeBB,
               rationale: base.rationale,
+              opponentProfile: oppRead
+                ? {
+                    archetype: oppRead.label,
+                    handsObserved: oppRead.handsObserved,
+                    posteriorVpip: oppRead.posterior.vpipPosterior,
+                    posteriorFoldToBet: oppRead.posterior.foldToBetPosterior,
+                    leaks: oppRead.leakTags,
+                    rnrPlan: exploitPlan?.counterSummary ?? null,
+                  }
+                : null,
             }),
           },
         ],
@@ -309,14 +341,14 @@ export async function evaluateGtoSpotWithCoach(
     });
 
     if (!res.ok) {
-      return { ...base, llmCoachAdvice: null };
+      return { ...enrichedBase, llmCoachAdvice: null };
     }
     const data = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
     const advice = data.choices?.[0]?.message?.content?.trim() || null;
-    return { ...base, llmCoachAdvice: advice };
+    return { ...enrichedBase, llmCoachAdvice: advice };
   } catch {
-    return { ...base, llmCoachAdvice: null };
+    return { ...enrichedBase, llmCoachAdvice: null };
   }
 }

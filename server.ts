@@ -7,7 +7,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { EmailAuthStore } from './server/authStore';
-import { BOT_PERSONALITY_PROFILES, chooseBotAction } from './server/botAi';
+import { chooseBotAction } from './server/botAi';
+import { chooseBotActionWithAiEnhancement } from './server/botAiAdvisor';
 import {
   buildBotChatMessages,
   requestDeepSeekReply,
@@ -15,11 +16,13 @@ import {
   type BotChatTrigger,
 } from './server/botChat';
 import { getSharedDatabase } from './server/db';
-import { evaluateGtoSpotWithCoach, type GtoCoachRequest } from './server/gtoCoach';
+import { sharedGtoSpotCache } from './server/gtoSolver';
+import { persistCompletedHandRecord, resolveCompletedHandRecord } from './server/handPersistence';
 import { generateHandReview } from './server/handReview';
+import { registerAuthRoutes } from './server/http/authRoutes';
+import { registerGtoAndPersonaRoutes } from './server/http/gtoRoutes';
 import { LeaderboardStore, type LeaderboardMode } from './server/leaderboard';
 import { SessionOpponentProfiler } from './server/opponentProfiler';
-import { analyzePlayerPersonaWithGemini } from './server/personaAi';
 import { SlidingWindowRateLimiter } from './server/rateLimiter';
 import { authorizeRoomDeletion, secretsMatch } from './server/roomAuth';
 import { buildSessionReviewSummary } from './src/shared/sessionReview';
@@ -642,18 +645,13 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
   // Update strictly session-scoped opponent profiler with showdown reveals & hand completion
   ctx.opponentProfiler.observeHandEnd(state);
 
-  const latestHandRecord =
-    state.handHistory.length > 0 ? state.handHistory[state.handHistory.length - 1] : null;
-  const matchedHandRecord =
-    latestHandRecord && latestHandRecord.handNumber === state.handNumber ? latestHandRecord : null;
+  const matchedHandRecord = resolveCompletedHandRecord(state.handHistory, state.handNumber);
   const rawBehaviorDeltas = matchedHandRecord
     ? extractHandBehaviorDeltas(matchedHandRecord)
     : {};
 
   leaderboard.runBatch(() => {
-    if (matchedHandRecord) {
-      sharedDb.recordHandHistory(state.roomId, matchedHandRecord);
-    }
+    persistCompletedHandRecord(sharedDb, state.roomId, state.handHistory, state.handNumber);
 
     const handDeparted = ctx.departedContributors.filter(
       (d) => d.handNumber === state.handNumber && d.totalContributed > 0
@@ -1036,22 +1034,46 @@ function scheduleBotTurnIfNeeded(ctx: RoomContext): void {
   if (!activePlayer || !activePlayer.isBot) return;
 
   const thinkMs = 700 + crypto.randomInt(0, 1100);
+  const scheduledHandNumber = state.handNumber;
   ctx.botTimer = setTimeout(() => {
     ctx.botTimer = null;
-    if (state.currentTurnPlayerId !== activePlayer.id) return;
+    if (state.handNumber !== scheduledHandNumber || state.currentTurnPlayerId !== activePlayer.id) {
+      return;
+    }
     if (!state.players.some((p) => !p.isBot && p.connected)) return;
 
-    const t0 = performance.now();
-    const action = chooseBotAction(state, activePlayer.id, cryptoRng, ctx.opponentProfiler);
-    const elapsed = performance.now() - t0;
-    runtimeMetrics.botDecisionsCount += 1;
-    runtimeMetrics.botDecisionTotalMs += elapsed;
+    const commitBotAction = (action: ReturnType<typeof chooseBotAction>, elapsed: number) => {
+      if (state.handNumber !== scheduledHandNumber || state.currentTurnPlayerId !== activePlayer.id) {
+        return;
+      }
+      runtimeMetrics.botDecisionsCount += 1;
+      runtimeMetrics.botDecisionTotalMs += elapsed;
 
-    ctx.opponentProfiler.observeAction(state, activePlayer.id, action);
-    const res = applyPlayerAction(state, activePlayer.id, action, Date.now(), { stepAllIn: true });
-    if (res.ok) {
-      broadcastRoomState(ctx);
+      ctx.opponentProfiler.observeAction(state, activePlayer.id, action);
+      const res = applyPlayerAction(state, activePlayer.id, action, Date.now(), { stepAllIn: true });
+      if (res.ok) {
+        broadcastRoomState(ctx);
+      }
+    };
+
+    const t0 = performance.now();
+    const useAiEnhance =
+      process.env.AI_BOT_ENHANCEMENT?.trim().toLowerCase() === 'true' &&
+      Boolean(process.env.DEEPSEEK_API_KEY?.trim());
+    if (useAiEnhance && state.phase !== 'preflop' && state.pot >= state.bigBlind * 8) {
+      void chooseBotActionWithAiEnhancement({
+        state,
+        botId: activePlayer.id,
+        profiler: ctx.opponentProfiler,
+        rng: cryptoRng,
+      }).then((decision) => {
+        commitBotAction(decision.action, performance.now() - t0);
+      });
+      return;
     }
+
+    const action = chooseBotAction(state, activePlayer.id, cryptoRng, ctx.opponentProfiler);
+    commitBotAction(action, performance.now() - t0);
   }, thinkMs);
 }
 
@@ -1176,7 +1198,14 @@ async function startServer() {
       activeSessions: sessions.size,
       memoryRssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
       persistence: 'sqlite',
-      botEngine: 'gto-v2',
+      botEngine: 'gto-v3-rnr',
+      gtoSolverCacheSize: sharedGtoSpotCache.size,
+      aiProviders: {
+        deepseek: Boolean(process.env.DEEPSEEK_API_KEY?.trim()),
+        gemini: Boolean(process.env.GEMINI_API_KEY?.trim()),
+        texasSolver: Boolean(process.env.TEXASSOLVER_BIN?.trim()),
+        botAiEnhancement: process.env.AI_BOT_ENHANCEMENT?.trim().toLowerCase() === 'true',
+      },
     });
   });
 
@@ -1194,30 +1223,12 @@ async function startServer() {
       rateLimitRejections: runtimeMetrics.rateLimitRejections,
       botDecisionsCount: runtimeMetrics.botDecisionsCount,
       avgBotDecisionMs,
+      gtoSolverCache: {
+        size: sharedGtoSpotCache.size,
+        hits: sharedGtoSpotCache.hits,
+        misses: sharedGtoSpotCache.misses,
+      },
     });
-  });
-
-  app.get('/api/bot/profiles', (_req, res) => {
-    res.json({ profiles: BOT_PERSONALITY_PROFILES });
-  });
-
-  app.post('/api/gto/evaluate', async (req, res) => {
-    const ip = getClientIp(req);
-    const rate = gtoEvalLimiter.consume(ip);
-    if (!rate.allowed) {
-      runtimeMetrics.rateLimitRejections += 1;
-      res.status(429).json({
-        ok: false,
-        error: `GTO 评估请求过于频繁，请 ${rate.retryAfterSec} 秒后再试`,
-      });
-      return;
-    }
-    const result = await evaluateGtoSpotWithCoach((req.body ?? {}) as GtoCoachRequest);
-    if (!result.ok) {
-      res.status(400).json(result);
-      return;
-    }
-    res.json(result);
   });
 
   const extractBearerToken = (req: express.Request): string | null => {
@@ -1226,218 +1237,32 @@ async function startServer() {
     return raw.slice(7).trim() || null;
   };
 
-  app.post('/api/persona/analyze', async (req, res) => {
-    const ip = getClientIp(req);
-    const rate = personaAiLimiter.consume(ip);
-    if (!rate.allowed) {
+  registerGtoAndPersonaRoutes({
+    app,
+    getClientIp,
+    extractBearerToken,
+    normalizeRoomId,
+    getRoom: (roomId) => rooms.get(roomId),
+    gtoEvalLimiter,
+    personaAiLimiter,
+    authStore,
+    leaderboard,
+    onRateLimitRejected: () => {
       runtimeMetrics.rateLimitRejections += 1;
-      res.status(429).json({
-        ok: false,
-        code: 'RATE_LIMITED',
-        error: `AI 画像分析请求过于频繁，请 ${rate.retryAfterSec} 秒后再试`,
-      });
-      return;
-    }
-
-    const token = extractBearerToken(req);
-    const authProfile = token ? authStore.verifySessionToken(token) : null;
-    const rawName =
-      typeof req.body?.playerName === 'string'
-        ? req.body.playerName.trim().slice(0, 24)
-        : '';
-    const resolvedName = rawName || authProfile?.displayName || '牌手';
-    const lbProfile = resolvedName ? leaderboard.getPlayerProfile(resolvedName) : null;
-    const bodyStats = req.body?.behaviorStats
-      ? sanitizeBehaviorStats(req.body.behaviorStats)
-      : null;
-
-    const candidates = [
-      authProfile?.behaviorStats ? sanitizeBehaviorStats(authProfile.behaviorStats) : null,
-      lbProfile?.behaviorStats ? sanitizeBehaviorStats(lbProfile.behaviorStats) : null,
-      bodyStats,
-    ].filter((x): x is PlayerBehaviorStats => Boolean(x));
-
-    const bestStats =
-      candidates.sort((a, b) => b.handsPlayed - a.handsPlayed)[0] ?? null;
-
-    const result = await analyzePlayerPersonaWithGemini({
-      playerName: resolvedName,
-      behaviorStats: bestStats,
-    });
-
-    if (!result.ok) {
-      const statusCode =
-        result.code === 'NO_DATA'
-          ? 400
-          : result.code === 'RATE_LIMITED'
-            ? 429
-            : result.code === 'MISSING_API_KEY' ||
-                result.code === 'API_KEY_INVALID' ||
-                result.code === 'UPSTREAM_ERROR'
-              ? 503
-              : 500;
-      res.status(statusCode).json(result);
-      return;
-    }
-
-    res.json(result);
+    },
   });
 
-  const buildLinkedProfile = (
-    lookupName: string | undefined,
-    localAchievements?: unknown,
-    localAchievementDates?: unknown
-  ) => {
-    const cleanName = (lookupName ?? '').trim();
-    const lbProfile = cleanName ? leaderboard.getPlayerProfile(cleanName) : null;
-    const hasLbRecord = Boolean(
-      lbProfile && (lbProfile.handsPlayed > 0 || lbProfile.achievements.length > 0 || lbProfile.avatar)
-    );
-    const extraAchievements = sanitizeAchievementIds(localAchievements);
-    const extraDates = sanitizeAchievementDates(localAchievementDates);
-    const mergedAch = sanitizeAchievementIds([
-      ...(hasLbRecord && lbProfile ? lbProfile.achievements : []),
-      ...extraAchievements,
-    ]);
-    const mergedDates = {
-      ...(hasLbRecord && lbProfile ? lbProfile.achievementDates : {}),
-      ...extraDates,
-    };
-    if (!hasLbRecord && mergedAch.length === 0) return undefined;
-    return {
-      avatar: hasLbRecord ? lbProfile?.avatar : undefined,
-      equippedAchievement: hasLbRecord ? lbProfile?.equippedAchievement : undefined,
-      points: hasLbRecord ? lbProfile?.points : undefined,
-      netChips: hasLbRecord ? lbProfile?.netChips : undefined,
-      handsPlayed: hasLbRecord ? lbProfile?.handsPlayed : undefined,
-      handsWon: hasLbRecord ? lbProfile?.handsWon : undefined,
-      bestHandName: hasLbRecord ? lbProfile?.bestHandName : undefined,
-      bestHandScore: hasLbRecord ? lbProfile?.bestHandScore : undefined,
-      achievements: mergedAch,
-      achievementDates: mergedDates,
-      currentWinStreak: hasLbRecord ? lbProfile?.currentWinStreak : undefined,
-      maxWinStreak: hasLbRecord ? lbProfile?.maxWinStreak : undefined,
-    };
-  };
-
-  app.post('/api/auth/quick-login', (_req, res) => {
-    res.status(410).json({
-      ok: false,
-      error: '已启用纯邮箱验证码登录，请使用邮箱验证码完成登录',
-    });
-  });
-
-  app.post('/api/auth/send-code', async (req, res) => {
-    const ip = getClientIp(req);
-    const rate = otpSendLimiter.consume(ip);
-    if (!rate.allowed) {
+  registerAuthRoutes({
+    app,
+    getClientIp,
+    extractBearerToken,
+    otpSendLimiter,
+    otpVerifyLimiter,
+    authStore,
+    leaderboard,
+    onRateLimitRejected: () => {
       runtimeMetrics.rateLimitRejections += 1;
-      res.status(429).json({
-        ok: false,
-        error: `请求过于频繁，请 ${rate.retryAfterSec} 秒后再试`,
-        retryAfterSec: rate.retryAfterSec,
-      });
-      return;
-    }
-    const email = typeof req.body?.email === 'string' ? req.body.email : '';
-    const result = await authStore.requestOtp(email);
-    if (!result.ok) {
-      res.status(result.retryAfterSec ? 429 : 400).json(result);
-      return;
-    }
-    res.json(result);
-  });
-
-  app.post('/api/auth/verify-code', (req, res) => {
-    const ip = getClientIp(req);
-    const rate = otpVerifyLimiter.consume(ip);
-    if (!rate.allowed) {
-      runtimeMetrics.rateLimitRejections += 1;
-      res.status(429).json({
-        ok: false,
-        error: `验证过于频繁，请 ${rate.retryAfterSec} 秒后再试`,
-      });
-      return;
-    }
-    const { email, code, displayName, avatar, localAchievements, localAchievementDates } =
-      req.body ?? {};
-    const rawEmail = typeof email === 'string' ? email : '';
-    const lookupName =
-      typeof displayName === 'string' && displayName.trim()
-        ? displayName.trim()
-        : rawEmail.split('@')[0];
-    const linked = buildLinkedProfile(lookupName, localAchievements, localAchievementDates);
-    const result = authStore.verifyOtp(
-      rawEmail,
-      typeof code === 'string' ? code : '',
-      {
-        displayName: typeof displayName === 'string' ? displayName : undefined,
-        avatar: typeof avatar === 'string' ? avatar : undefined,
-      },
-      Date.now(),
-      linked
-    );
-    if (!result.ok) {
-      res.status(400).json(result);
-      return;
-    }
-    res.json(result);
-  });
-
-  app.get('/api/auth/session', (req, res) => {
-    const token = extractBearerToken(req);
-    const profile = authStore.verifySessionToken(token);
-    if (!profile) {
-      res.status(401).json({ error: '登录状态已失效，请重新登录' });
-      return;
-    }
-    const linked = buildLinkedProfile(profile.displayName);
-    const hydrated = linked ? (authStore.mergeLinkedProfile(profile.uid, linked) ?? profile) : profile;
-    res.json({ profile: hydrated });
-  });
-
-  app.patch('/api/auth/profile', (req, res) => {
-    const token = extractBearerToken(req);
-    const existing = authStore.verifySessionToken(token);
-    if (!existing) {
-      res.status(401).json({ error: '请先登录邮箱账号' });
-      return;
-    }
-    const { displayName, avatar, bgmEnabled, equippedAchievement } = req.body ?? {};
-    const updated = authStore.updatePreferences(existing.uid, {
-      displayName: typeof displayName === 'string' ? displayName : undefined,
-      avatar: typeof avatar === 'string' ? avatar : undefined,
-      bgmEnabled: typeof bgmEnabled === 'boolean' ? bgmEnabled : undefined,
-      equippedAchievement:
-        equippedAchievement === null
-          ? 'none'
-          : sanitizeEquippedAchievement(equippedAchievement),
-    });
-    res.json({ profile: updated });
-  });
-
-  app.post('/api/auth/sync-outcome', (req, res) => {
-    const token = extractBearerToken(req);
-    const existing = authStore.verifySessionToken(token);
-    if (!existing) {
-      res.status(401).json({ error: '请先登录邮箱账号' });
-      return;
-    }
-    const { entry, avatar } = req.body ?? {};
-    const updated = authStore.syncMatchOutcome(
-      existing.uid,
-      entry,
-      typeof avatar === 'string' ? avatar : undefined
-    );
-    res.json({ profile: updated });
-  });
-
-  app.post('/api/auth/logout', (req, res) => {
-    const token = extractBearerToken(req);
-    if (token) {
-      authStore.revokeSessionToken(token);
-    }
-    res.json({ ok: true });
+    },
   });
 
   app.get('/api/leaderboard', (req, res) => {
@@ -2114,6 +1939,10 @@ async function startServer() {
           if (verifiedUid) {
             ctx.playerUids.set(cleanId, verifiedUid);
           }
+          const warmStats = verifiedAccount?.behaviorStats ?? lbProfile.behaviorStats ?? null;
+          if (warmStats) {
+            ctx.opponentProfiler.seedPriorFromBehaviorStats(cleanId, warmStats);
+          }
           ctx.consecutiveTimeouts.set(cleanId, 0);
 
           session.roomId = targetRoomId;
@@ -2241,6 +2070,12 @@ async function startServer() {
             sendJson(ws, { type: 'error', message: res.error ?? '当前无法亮牌' });
             return;
           }
+          persistCompletedHandRecord(
+            sharedDb,
+            ctx.state.roomId,
+            ctx.state.handHistory,
+            ctx.state.handNumber
+          );
           broadcastRoomState(ctx);
           return;
         }

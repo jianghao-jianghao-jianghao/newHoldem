@@ -31,6 +31,7 @@ export interface SessionReviewFetchResult {
 
 interface HandReviewModalProps {
   open: boolean;
+  roomId?: string;
   mode?: 'browse' | 'leaving';
   initialHandNumber?: number | null;
   bookmarkedHands?: number[];
@@ -69,6 +70,7 @@ type DetailViewTab = 'streets' | 'gto' | 'nodelock';
 
 export function HandReviewModal({
   open,
+  roomId,
   mode = 'browse',
   initialHandNumber = null,
   bookmarkedHands = [],
@@ -867,6 +869,7 @@ export function HandReviewModal({
                   {(detailTab === 'gto' || detailTab === 'nodelock') && (
                     <GtoSpotInspector
                       report={report}
+                      roomId={roomId}
                       sessionProfileContext={
                         report.sessionProfileContext ?? summary.sessionProfileContext
                       }
