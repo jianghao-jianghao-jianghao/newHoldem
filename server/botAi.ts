@@ -487,7 +487,9 @@ function isTurnScareCard(board: Card[], texture: ReturnType<typeof analyzeBoardT
   const turnCard = board[3];
   const flopMax = Math.max(...board.slice(0, 3).map((c) => Number(c.rank)));
   const isOvercard = Number(turnCard.rank) > flopMax && Number(turnCard.rank) >= 12;
-  const completesThreeFlush = texture.flushDrawPossible && board.filter((c) => c.suit === turnCard.suit).length >= 3;
+  const completesThreeFlush =
+    texture.maxSuitCount >= 3 &&
+    board.filter((c) => c.suit === turnCard.suit).length >= 3;
   return isOvercard || completesThreeFlush;
 }
 

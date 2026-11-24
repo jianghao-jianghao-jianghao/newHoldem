@@ -22,7 +22,7 @@ export interface RegisterGtoRoutesDeps {
   app: express.Express;
   getClientIp: (req: express.Request) => string;
   extractBearerToken: (req: express.Request) => string | null;
-  normalizeRoomId: (raw: unknown) => string;
+  normalizeRoomId: (raw?: string) => string;
   getRoom: (roomId: string) => GtoRouteRoomView | undefined;
   gtoEvalLimiter: SlidingWindowRateLimiter;
   personaAiLimiter: SlidingWindowRateLimiter;

@@ -187,7 +187,10 @@ export function GtoSpotInspector({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(nodeLockReq),
-          }).then((res) => (res.ok ? (res.json() as Promise<GtoNodeLockResponse>) : { ok: false }));
+          }).then(
+            (res): Promise<GtoNodeLockResponse> =>
+              res.ok ? (res.json() as Promise<GtoNodeLockResponse>) : Promise.resolve({ ok: false })
+          );
 
       void requester
         .then((json) => {

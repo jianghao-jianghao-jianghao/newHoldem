@@ -403,7 +403,7 @@ function synthesizeReportFromSpotRequest(req: GtoSpotAnalysisRequest): HandRevie
     bigBlind: req.bigBlind,
     pot: req.potBeforeChips,
     netDelta: 0,
-    outcome: 'tie',
+    outcome: 'split',
     overallScore: 80,
     grade: 'B',
     headline: 'GTO 服务端节点求解',
@@ -420,9 +420,10 @@ function synthesizeReportFromSpotRequest(req: GtoSpotAnalysisRequest): HandRevie
                 ? '转牌圈'
                 : '河牌圈',
         boardCards: visibleBoard,
-        potAtStart: req.potBeforeChips,
-        potAtEnd: req.potBeforeChips + (req.heroBetChips ?? req.toCallChips),
-        actions: [],
+        boardSummary: '',
+        potStart: req.potBeforeChips,
+        potEnd: req.potBeforeChips + (req.heroBetChips ?? req.toCallChips),
+        events: [],
         heroDecisions: [
           {
             step: req.decisionStep,
