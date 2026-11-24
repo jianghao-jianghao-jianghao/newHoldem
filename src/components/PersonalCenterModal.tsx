@@ -392,26 +392,26 @@ export function PersonalCenterModal({
       aria-modal="true"
       aria-label="个人中心"
       data-testid="personal-center-modal"
-      className="personal-center-modal pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/76 backdrop-blur-md p-3 sm:p-6"
+      className="personal-center-modal pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/76 backdrop-blur-sm p-3 sm:p-6"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[89dvh] w-full max-w-[944px] flex-col md:flex-row overflow-hidden rounded-2xl border border-white/[0.08] bg-[#12110F] text-[#EFECE4] shadow-[0_36px_96px_rgba(0,0,0,0.84)] ring-1 ring-white/[0.04]"
+        className="flex max-h-[89dvh] w-full max-w-[944px] flex-col md:flex-row overflow-hidden rounded-lg border border-white/[0.1] bg-[#0B0D0F] text-[#F3F1EC] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Left Identity Spine */}
-        <aside className="flex w-full md:w-[272px] shrink-0 flex-col justify-between md:overflow-y-auto chat-scroll border-b md:border-b-0 md:border-r border-white/[0.06] bg-[#0F0E0C] px-6 py-6 sm:px-6 sm:py-7">
+        <aside className="flex w-full md:w-[272px] shrink-0 flex-col justify-between md:overflow-y-auto chat-scroll border-b md:border-b-0 md:border-r border-white/[0.08] bg-[#090B0C] px-5 py-6">
           <div>
             {/* Mobile Close Row */}
             <div className="mb-4 flex items-center justify-between md:hidden">
-              <span className="font-display text-sm font-semibold tracking-wide text-[#DED7CB]">
+              <span className="font-display text-sm font-bold tracking-tight text-[#F5F2EB]">
                 牌手档案
               </span>
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="关闭个人中心"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-[#8E877D] hover:bg-white/[0.06] hover:text-[#F4F0E8] cursor-pointer"
+                className="flex h-8 w-8 items-center justify-center rounded border border-white/[0.08] text-[#9AA5A0] hover:bg-white/[0.05] hover:text-white cursor-pointer"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -459,7 +459,7 @@ export function PersonalCenterModal({
                       (e.currentTarget as HTMLInputElement).blur();
                     }
                   }}
-                  className="w-full border-b border-transparent bg-transparent pb-0.5 text-center font-display text-xl font-semibold tracking-tight text-[#F5F1E8] placeholder:text-[#5E584F] hover:border-white/[0.14] focus:border-[#C9A25B] focus:outline-none transition-colors"
+                  className="w-full border-b border-transparent bg-transparent pb-0.5 text-center font-display text-xl font-bold tracking-tight text-[#F5F2EB] placeholder:text-[#606A65] hover:border-white/[0.14] focus:border-[#D4A853] focus:outline-none transition-colors"
                 />
               </div>
 
@@ -472,48 +472,52 @@ export function PersonalCenterModal({
                 <span aria-hidden="true" className="text-white/20">
                   ·
                 </span>
-                <span className="font-mono-num text-[#9F988D]">
+                <span className="font-mono-num text-[#9AA5A0]">
                   Lv.{previewProfile.levelInfo.level}
                 </span>
               </div>
 
               {showRealEmail && (
-                <p className="mt-1 max-w-full truncate text-[11px] text-[#756E65]">
+                <p className="mt-1 max-w-full truncate text-[11px] text-[#7D8782]">
                   {profile?.email}
                 </p>
               )}
             </div>
 
-            {/* 2x2 Floating Stat Tiles */}
-            <div className="mt-7 grid grid-cols-2 gap-2.5">
-              <div className="rounded-xl border border-white/[0.055] bg-white/[0.025] px-3.5 py-3 transition-colors hover:border-white/[0.1]">
-                <div className="text-[11px] text-[#847D73]">积分</div>
-                <div className="mt-1.5 font-mono-num text-[17px] leading-none font-semibold text-[#E4CB96]">
-                  {previewProfile.points.toLocaleString()}
+            {/* 2x2 Unboxed Hairline Stat Ledger */}
+            <div className="mt-6 border-y border-white/[0.08] divide-y divide-white/[0.08]">
+              <div className="grid grid-cols-2 divide-x divide-white/[0.08] py-2.5">
+                <div className="pr-3">
+                  <div className="text-[11px] text-[#7E8883]">积分</div>
+                  <div className="mt-1 font-mono-num text-sm leading-none font-bold text-[#E8CF96]">
+                    {previewProfile.points.toLocaleString()}
+                  </div>
+                </div>
+                <div className="pl-3">
+                  <div className="text-[11px] text-[#7E8883]">胜率</div>
+                  <div className="mt-1 font-mono-num text-sm leading-none font-bold text-[#F3F1EC]">
+                    {winRate}
+                  </div>
                 </div>
               </div>
-              <div className="rounded-xl border border-white/[0.055] bg-white/[0.025] px-3.5 py-3 transition-colors hover:border-white/[0.1]">
-                <div className="text-[11px] text-[#847D73]">胜率</div>
-                <div className="mt-1.5 font-mono-num text-[17px] leading-none font-semibold text-[#EFECE4]">
-                  {winRate}
+              <div className="grid grid-cols-2 divide-x divide-white/[0.08] py-2.5">
+                <div className="pr-3">
+                  <div className="text-[11px] text-[#7E8883]">最高连胜</div>
+                  <div className="mt-1 font-mono-num text-sm leading-none font-bold text-[#F3F1EC]">
+                    {maxWinStreak}
+                    <span className="ml-0.5 text-[11px] font-normal text-[#7E8883]">局</span>
+                  </div>
                 </div>
-              </div>
-              <div className="rounded-xl border border-white/[0.055] bg-white/[0.025] px-3.5 py-3 transition-colors hover:border-white/[0.1]">
-                <div className="text-[11px] text-[#847D73]">最高连胜</div>
-                <div className="mt-1.5 font-mono-num text-[17px] leading-none font-semibold text-[#EFECE4]">
-                  {maxWinStreak}
-                  <span className="ml-0.5 text-xs font-normal text-[#857E74]">局</span>
-                </div>
-              </div>
-              <div className="rounded-xl border border-white/[0.055] bg-white/[0.025] px-3.5 py-3 transition-colors hover:border-white/[0.1]">
-                <div className="text-[11px] text-[#847D73]">最大底池</div>
-                <div className="mt-1.5 font-mono-num text-[17px] leading-none font-semibold text-[#EFECE4]">
-                  {maxPotWon > 0 ? maxPotWon.toLocaleString() : '—'}
+                <div className="pl-3">
+                  <div className="text-[11px] text-[#7E8883]">最大底池</div>
+                  <div className="mt-1 font-mono-num text-sm leading-none font-bold text-[#F3F1EC]">
+                    {maxPotWon > 0 ? maxPotWon.toLocaleString() : '—'}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Dynamic Win-Rate Composition Ring */}
+            {/* Dynamic Win-Rate Composition Ring (Unboxed) */}
             <WinCompositionRing
               handsPlayed={handsPlayed}
               handsWon={handsWon}
@@ -523,13 +527,13 @@ export function PersonalCenterModal({
           </div>
 
           {/* Quiet Account Action */}
-          <div className="mt-6 pt-4">
+          <div className="mt-6 pt-4 border-t border-white/[0.08]">
             {profile ? (
               <button
                 type="button"
                 data-testid="pc-signout-btn"
                 onClick={() => void handleSignOut()}
-                className="touch-manipulation inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] text-xs text-[#948D82] hover:border-white/[0.12] hover:text-[#EFECE4] transition-colors cursor-pointer"
+                className="touch-manipulation inline-flex h-9 w-full items-center justify-center gap-1.5 rounded border border-white/[0.12] bg-transparent text-xs text-[#9AA5A0] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer"
               >
                 <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>退出登录</span>
@@ -542,7 +546,7 @@ export function PersonalCenterModal({
                   onClose();
                   onRequestEmailLogin();
                 }}
-                className="touch-manipulation inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-[#C9A25B]/40 bg-[#C9A25B]/[0.06] text-xs font-medium text-[#E8D09B] hover:border-[#C9A25B]/75 hover:bg-[#C9A25B]/14 transition-colors cursor-pointer"
+                className="touch-manipulation inline-flex h-9 w-full items-center justify-center gap-1.5 rounded bg-[#D4A853] text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors cursor-pointer"
               >
                 <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>登录账号</span>
@@ -551,14 +555,14 @@ export function PersonalCenterModal({
           </div>
         </aside>
 
-        {/* Right Modern Card Canvas */}
-        <section className="flex min-h-0 flex-1 flex-col bg-[#141310]">
-          {/* Clear Hierarchical Segmented Tab Header */}
-          <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-3.5 sm:px-7">
+        {/* Right Editorial Ledger Canvas */}
+        <section className="flex min-h-0 flex-1 flex-col bg-[#0B0D0F]">
+          {/* Restraint Underline Tab Header (matches TableAnalyticsDrawer) */}
+          <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] bg-[#090B0C] px-5 sm:px-6">
             <div
               role="tablist"
               aria-label="个人中心分区"
-              className="inline-flex items-center gap-1 rounded-xl border border-white/[0.06] bg-[#0F0E0C]/85 p-1"
+              className="flex items-center gap-5"
             >
               <button
                 type="button"
@@ -566,16 +570,16 @@ export function PersonalCenterModal({
                 data-testid="pc-tab-achievements"
                 aria-selected={activeTab === 'achievements'}
                 onClick={() => setActiveTab('achievements')}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-medium tracking-wide transition-all cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 py-3.5 border-b-2 -mb-px text-xs transition-colors cursor-pointer whitespace-nowrap ${
                   activeTab === 'achievements'
-                    ? 'bg-[#23201B] text-[#F4E7C8] shadow-[0_2px_10px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.08]'
-                    : 'text-[#8C857A] hover:text-[#DFD9CE]'
+                    ? 'border-[#D4A853] font-semibold text-[#E8CF96]'
+                    : 'border-transparent text-[#8B9590] hover:text-white'
                 }`}
               >
                 <span>勋章陈列</span>
                 <span
                   className={`font-mono-num text-[11px] font-normal ${
-                    activeTab === 'achievements' ? 'text-[#C9A25B]' : 'text-[#6F685F]'
+                    activeTab === 'achievements' ? 'text-[#D4A853]' : 'text-[#6F7873]'
                   }`}
                 >
                   {unlockedIds.length}/{ACHIEVEMENTS.length}
@@ -588,17 +592,17 @@ export function PersonalCenterModal({
                 data-testid="pc-tab-insights"
                 aria-selected={activeTab === 'insights'}
                 onClick={() => setActiveTab('insights')}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-medium tracking-wide transition-all cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 py-3.5 border-b-2 -mb-px text-xs transition-colors cursor-pointer whitespace-nowrap ${
                   activeTab === 'insights'
-                    ? 'bg-[#23201B] text-[#F4E7C8] shadow-[0_2px_10px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.08]'
-                    : 'text-[#8C857A] hover:text-[#DFD9CE]'
+                    ? 'border-[#D4A853] font-semibold text-[#E8CF96]'
+                    : 'border-transparent text-[#8B9590] hover:text-white'
                 }`}
               >
                 <span>打法画像</span>
                 {personaReport.handsPlayed > 0 && (
                   <span
                     className={`font-mono-num text-[11px] font-normal ${
-                      activeTab === 'insights' ? 'text-[#C9A25B]' : 'text-[#6F685F]'
+                      activeTab === 'insights' ? 'text-[#D4A853]' : 'text-[#6F7873]'
                     }`}
                   >
                     {personaReport.handsPlayed}手
@@ -612,10 +616,10 @@ export function PersonalCenterModal({
                 data-testid="pc-tab-profile"
                 aria-selected={activeTab === 'profile'}
                 onClick={() => setActiveTab('profile')}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-medium tracking-wide transition-all cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 py-3.5 border-b-2 -mb-px text-xs transition-colors cursor-pointer whitespace-nowrap ${
                   activeTab === 'profile'
-                    ? 'bg-[#23201B] text-[#F4E7C8] shadow-[0_2px_10px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.08]'
-                    : 'text-[#8C857A] hover:text-[#DFD9CE]'
+                    ? 'border-[#D4A853] font-semibold text-[#E8CF96]'
+                    : 'border-transparent text-[#8B9590] hover:text-white'
                 }`}
               >
                 <span>形象设置</span>
@@ -627,7 +631,7 @@ export function PersonalCenterModal({
               data-testid="personal-center-close-btn"
               onClick={onClose}
               aria-label="关闭个人中心"
-              className="hidden md:flex h-8 w-8 items-center justify-center rounded-full text-[#898277] hover:bg-white/[0.06] hover:text-[#F4F0E8] transition-colors cursor-pointer"
+              className="hidden md:flex h-8 w-8 items-center justify-center rounded border border-white/[0.08] text-[#9AA5A0] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -635,9 +639,9 @@ export function PersonalCenterModal({
 
           {activeTab === 'achievements' ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              {/* Secondary Filter Bar (Clean Hierarchy, No Redundant Unequip Button) */}
-              <div className="flex flex-wrap items-center justify-between gap-3 px-6 pt-4 pb-2 sm:px-7">
-                <div className="flex items-center gap-1.5 text-xs">
+              {/* Secondary Hairline Category Filter */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-5 pt-3 sm:px-6">
+                <div className="flex items-center gap-4 text-xs">
                   {(['all', 'glory', 'fun', 'tactics'] as const).map((cat) => {
                     const active = category === cat;
                     const label = cat === 'all' ? '全部' : ACHIEVEMENT_CATEGORY_LABELS[cat];
@@ -647,10 +651,10 @@ export function PersonalCenterModal({
                         type="button"
                         data-testid={`pc-ach-cat-${cat}`}
                         onClick={() => setCategory(cat)}
-                        className={`rounded-lg px-2.5 py-1 font-medium transition-colors cursor-pointer ${
+                        className={`pb-2.5 border-b-2 -mb-px transition-colors cursor-pointer ${
                           active
-                            ? 'bg-white/[0.07] text-[#F0DFB3]'
-                            : 'text-[#80796F] hover:bg-white/[0.03] hover:text-[#D8D2C6]'
+                            ? 'border-[#D4A853] font-semibold text-[#E8CF96]'
+                            : 'border-transparent text-[#8B9590] hover:text-white'
                         }`}
                       >
                         {label}
@@ -660,21 +664,21 @@ export function PersonalCenterModal({
                 </div>
 
                 {activeEquippedDef && (
-                  <div className="text-[11px] text-[#8E877D]">
+                  <div className="pb-2.5 text-[11px] text-[#7E8883]">
                     当前佩戴
-                    <strong className="ml-1.5 font-medium text-[#E4CB96]">
+                    <strong className="ml-1.5 font-semibold text-[#E8CF96]">
                       {activeEquippedDef.name}
                     </strong>
                   </div>
                 )}
               </div>
 
-              {/* Airy Tactile Card Grid of Medals */}
-              <div className="chat-scroll flex-1 overflow-y-auto px-6 py-4 sm:px-7 sm:py-5">
+              {/* Crisp Editorial Medal Grid */}
+              <div className="chat-scroll flex-1 overflow-y-auto px-5 py-5 sm:px-6">
                 {unlockedList.length > 0 && (
                   <div
                     data-testid="pc-unlocked-medals-grid"
-                    className="grid grid-cols-2 sm:grid-cols-3 gap-4"
+                    className="grid grid-cols-2 sm:grid-cols-3 gap-3.5"
                   >
                     {unlockedList.map((ach) => {
                       const equipped = activeEquippedId === ach.id;
@@ -689,17 +693,17 @@ export function PersonalCenterModal({
                           data-achievement-card={ach.id}
                           aria-pressed={equipped}
                           onClick={() => handleEquipMedal(ach.id)}
-                          className={`group touch-manipulation relative flex flex-col items-center rounded-2xl border px-4 py-5 text-center transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:z-10 active:scale-[0.99] cursor-pointer ${
+                          className={`group touch-manipulation relative flex flex-col items-center rounded border px-4 py-4.5 text-center transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:z-10 active:scale-[0.99] cursor-pointer ${
                             equipped
-                              ? 'border-[#C9A25B]/65 bg-[#1D1912] shadow-[0_12px_28px_rgba(0,0,0,0.36)]'
-                              : 'border-white/[0.065] bg-[#191714]/95 hover:border-[#C9A25B]/45 hover:bg-[#1F1C18] hover:shadow-[0_12px_26px_rgba(0,0,0,0.42)]'
+                              ? 'border-[#D4A853]/70 bg-[#D4A853]/[0.07]'
+                              : 'border-white/[0.08] bg-white/[0.015] hover:border-[#D4A853]/45 hover:bg-white/[0.03]'
                           }`}
                         >
                           <span
-                            className={`absolute top-3 right-3 inline-flex items-center gap-0.5 text-[10px] font-medium transition-opacity ${
+                            className={`absolute top-2.5 right-2.5 inline-flex items-center gap-0.5 text-[10px] font-medium transition-opacity ${
                               equipped
-                                ? 'text-[#E4CB96]'
-                                : 'text-[#A69F93] opacity-0 group-hover:opacity-100'
+                                ? 'text-[#E8CF96]'
+                                : 'text-[#9AA5A0] opacity-0 group-hover:opacity-100'
                             }`}
                           >
                             {equipped ? (
@@ -716,8 +720,8 @@ export function PersonalCenterModal({
                             <AchievementMedalIcon id={ach.id} size="md" />
                           </div>
 
-                          <div className="mt-3.5 flex items-center justify-center gap-1.5 max-w-full">
-                            <span className="truncate text-xs font-semibold text-[#F4F0E8]">
+                          <div className="mt-3 flex items-center justify-center gap-1.5 max-w-full">
+                            <span className="truncate text-xs font-semibold text-[#F3F1EC]">
                               {ach.name}
                             </span>
                             <span
@@ -727,12 +731,12 @@ export function PersonalCenterModal({
                             </span>
                           </div>
 
-                          <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-[#948D82]">
+                          <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-[#9AA5A0]">
                             {ach.description}
                           </p>
 
                           {unlockDate && (
-                            <span className="mt-auto pt-3 font-mono-num text-[10px] text-[#706960]">
+                            <span className="mt-auto pt-2.5 font-mono-num text-[10px] text-[#7D8782]">
                               {unlockDate}
                             </span>
                           )}
@@ -743,30 +747,30 @@ export function PersonalCenterModal({
                 )}
 
                 {lockedList.length > 0 && (
-                  <div className={unlockedList.length > 0 ? 'mt-8' : ''}>
-                    <div className="mb-3.5 flex items-center justify-between text-[11px] font-medium text-[#7A736A]">
+                  <div className={unlockedList.length > 0 ? 'mt-6 pt-5 border-t border-white/[0.08]' : ''}>
+                    <div className="mb-3 flex items-center justify-between text-[11px] font-medium text-[#7E8883]">
                       <span>未解锁勋章</span>
                       <span className="font-mono-num">{lockedList.length} 枚</span>
                     </div>
                     <div
                       data-testid="pc-locked-medals-grid"
-                      className="grid grid-cols-2 sm:grid-cols-3 gap-4"
+                      className="grid grid-cols-2 sm:grid-cols-3 gap-3.5"
                     >
                       {lockedList.map((ach) => (
                         <div
                           key={ach.id}
                           data-testid={`pc-achievement-card-${ach.id}`}
-                          className="relative flex flex-col items-center rounded-2xl border border-white/[0.045] bg-[#11100E]/85 px-4 py-4.5 text-center opacity-55 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:opacity-80"
+                          className="relative flex flex-col items-center rounded border border-white/[0.06] bg-[#090B0C] px-4 py-4 text-center opacity-55 transition-opacity hover:opacity-80"
                         >
                           <Lock
-                            className="absolute top-3 right-3 h-3 w-3 text-[#655F56]"
+                            className="absolute top-2.5 right-2.5 h-3 w-3 text-[#6F7873]"
                             aria-hidden="true"
                           />
 
                           <AchievementMedalIcon id={ach.id} size="md" locked />
 
                           <div className="mt-3 flex items-center justify-center gap-1.5 max-w-full">
-                            <span className="truncate text-xs font-medium text-[#CFC9BE]">
+                            <span className="truncate text-xs font-medium text-[#C6D0CB]">
                               {ach.name}
                             </span>
                             <span
@@ -776,7 +780,7 @@ export function PersonalCenterModal({
                             </span>
                           </div>
 
-                          <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-[#7E776D]">
+                          <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-[#7E8883]">
                             {ach.description}
                           </p>
                         </div>
@@ -846,7 +850,7 @@ export function PersonalCenterModal({
             return (
               <div
                 data-testid="pc-insights-panel"
-                className="chat-scroll flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6 space-y-5"
+                className="chat-scroll flex-1 overflow-y-auto px-5 py-5 sm:px-6 space-y-6"
               >
                 {/* Archetype Masthead */}
                 <div className="flex flex-wrap items-end justify-between gap-3">
@@ -854,24 +858,24 @@ export function PersonalCenterModal({
                     <div className="flex flex-wrap items-baseline gap-2.5">
                       <h3
                         data-testid="pc-persona-archetype"
-                        className="font-display text-xl font-semibold tracking-tight text-[#F5F1E8]"
+                        className="font-display text-lg font-bold tracking-tight text-[#F5F2EB]"
                       >
                         {activeAiAnalysis?.archetypeTitle || personaReport.archetype.title}
                       </h3>
                       {!activeAiAnalysis && (
-                        <span className="font-mono-num text-[11px] tracking-wider text-[#C9A25B]">
+                        <span className="font-mono-num text-[11px] tracking-wider text-[#D4A853]">
                           {personaReport.archetype.englishTag}
                         </span>
                       )}
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 font-mono-num text-[11px] text-[#857E74]">
+                    <div className="flex flex-wrap items-center gap-2 font-mono-num text-[11px] text-[#7E8883]">
                       <span>{personaReport.maturityLabel}</span>
                       {activeAiAnalysis && (
                         <>
                           <span aria-hidden="true" className="text-white/20">
                             ·
                           </span>
-                          <span className="text-[#88B99E]">
+                          <span className="text-[#8CC9AA]">
                             已按近 {activeAiAnalysis.analyzedHands} 手实战更新
                           </span>
                         </>
@@ -885,16 +889,16 @@ export function PersonalCenterModal({
                       data-testid="pc-ai-analyze-btn"
                       disabled={aiLoading}
                       onClick={() => void requestAiPersonaAnalysis(true)}
-                      className="touch-manipulation inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.025] px-3.5 text-xs font-medium text-[#DDD6C9] hover:border-[#C9A25B]/55 hover:bg-white/[0.05] hover:text-[#EFE0BC] disabled:opacity-50 transition-colors cursor-pointer"
+                      className="touch-manipulation inline-flex h-8 items-center gap-1.5 rounded border border-white/[0.12] bg-transparent px-3 text-xs font-medium text-[#C6D0CB] hover:border-[#D4A853]/60 hover:bg-white/[0.05] hover:text-[#E8CF96] disabled:opacity-50 transition-colors cursor-pointer"
                     >
                       {aiLoading ? (
                         <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#C9A25B]" aria-hidden="true" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#D4A853]" aria-hidden="true" />
                           <span>解读中</span>
                         </>
                       ) : (
                         <>
-                          <RefreshCw className="h-3 w-3 text-[#C9A25B]" aria-hidden="true" />
+                          <RefreshCw className="h-3 w-3 text-[#D4A853]" aria-hidden="true" />
                           <span>{activeAiAnalysis ? '更新解读' : '生成深度解读'}</span>
                         </>
                       )}
@@ -902,112 +906,112 @@ export function PersonalCenterModal({
                   )}
                 </div>
 
-                {/* 6-Metric Airy Stat Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                {/* Unboxed 6-Column Hairline Metrics Strip */}
+                <div className="grid grid-cols-3 sm:grid-cols-6 sm:divide-x divide-white/[0.08] border-y border-white/[0.08] py-2.5 gap-y-2.5 sm:gap-y-0">
                   {[
                     {
                       label: '入池 VPIP',
                       value:
                         personaReport.handsPlayed > 0 ? `${personaReport.metrics.vpipPct}%` : '—',
-                      tone: 'text-[#EFECE4]',
+                      tone: 'text-[#F3F1EC]',
                     },
                     {
                       label: '加注 PFR',
                       value:
                         personaReport.handsPlayed > 0 ? `${personaReport.metrics.pfrPct}%` : '—',
-                      tone: 'text-[#EFECE4]',
+                      tone: 'text-[#F3F1EC]',
                     },
                     {
                       label: '进攻 Agg%',
                       value:
                         personaReport.handsPlayed > 0 ? `${personaReport.metrics.aggPct}%` : '—',
-                      tone: 'text-[#E4CB96]',
+                      tone: 'text-[#E8CF96]',
                     },
                     {
-                      label: '持续下注 C-Bet',
+                      label: '持续下注',
                       value:
                         personaReport.metrics.cbetPct !== null
                           ? `${personaReport.metrics.cbetPct}%`
                           : '—',
-                      tone: 'text-[#EFECE4]',
+                      tone: 'text-[#F3F1EC]',
                     },
                     {
-                      label: '摊牌胜率 W$SD',
+                      label: '摊牌 W$SD',
                       value:
                         personaReport.metrics.wsdPct !== null
                           ? `${personaReport.metrics.wsdPct}%`
                           : '—',
-                      tone: 'text-[#EFECE4]',
+                      tone: 'text-[#F3F1EC]',
                     },
                     {
-                      label: '盈亏 BB/100',
+                      label: 'BB/100',
                       value:
                         personaReport.handsPlayed > 0
                           ? `${personaReport.metrics.bbPer100 >= 0 ? '+' : ''}${personaReport.metrics.bbPer100}`
                           : '—',
                       tone:
                         personaReport.metrics.bbPer100 >= 0
-                          ? 'text-[#7BB598]'
-                          : 'text-[#D97C72]',
+                          ? 'text-[#8CC9AA]'
+                          : 'text-[#E07A7A]',
                     },
                   ].map((m) => (
                     <div
                       key={m.label}
-                      className="rounded-xl border border-white/[0.055] bg-[#191714]/88 px-3 py-3 transition-colors hover:border-white/[0.11]"
+                      className="sm:px-2.5 sm:first:pl-0 sm:last:pr-0"
                     >
-                      <div className="text-[10px] text-[#847D73] whitespace-nowrap">{m.label}</div>
-                      <div className={`mt-1.5 font-mono-num text-[15px] leading-none font-semibold ${m.tone}`}>
+                      <div className="text-[10px] text-[#7E8883] whitespace-nowrap">{m.label}</div>
+                      <div className={`mt-1 font-mono-num text-sm leading-none font-bold ${m.tone}`}>
                         {m.value}
                       </div>
                     </div>
                   ))}
                 </div>
 
-                {/* 2-Card Hero Row: Radar Card + Executive Summary Card */}
-                <div className="grid grid-cols-1 lg:grid-cols-[292px_1fr] gap-4 items-stretch">
-                  <PlayerRadarChart
-                    axes={displayRadarAxes}
-                    handsPlayed={personaReport.handsPlayed}
-                    aiCalibrated={Boolean(activeAiAnalysis?.radarScores)}
-                  />
+                {/* Unboxed 2-Column Hero Row: Radar + Executive Summary */}
+                <div className="grid grid-cols-1 lg:grid-cols-[276px_1fr] gap-5 lg:gap-0 lg:divide-x divide-white/[0.08] items-stretch">
+                  <div className="lg:pr-5">
+                    <PlayerRadarChart
+                      axes={displayRadarAxes}
+                      handsPlayed={personaReport.handsPlayed}
+                      aiCalibrated={Boolean(activeAiAnalysis?.radarScores)}
+                    />
+                  </div>
 
                   <div
                     data-testid="pc-ai-summary-card"
-                    className="flex flex-col justify-between rounded-2xl border border-white/[0.06] bg-[#191714]/92 p-5 shadow-[0_8px_24px_rgba(0,0,0,0.22)] space-y-4"
+                    className="flex flex-col justify-between lg:pl-5 space-y-4"
                   >
-                    <div className="space-y-3.5">
-                      <div className="flex items-baseline justify-between gap-2 border-b border-white/[0.06] pb-2.5">
-                        <span className="text-xs font-medium tracking-wide text-[#E4CB96]">
-                          牌风总评
-                        </span>
-                        <span className="font-mono-num text-[11px] text-[#857E74]">
+                    <div className="space-y-3">
+                      <div className="flex items-baseline justify-between gap-2 border-b border-white/[0.08] pb-2">
+                        <span className="text-xs font-semibold text-[#E8CF96]">牌风总评</span>
+                        <span className="font-mono-num text-[11px] text-[#7E8883]">
                           AF {personaReport.handsPlayed > 0 ? personaReport.metrics.aggressionFactor : '—'}
                         </span>
                       </div>
 
                       {aiLoading ? (
                         <div
-                          className="flex items-center gap-2 py-4 text-xs text-[#ABA397]"
+                          className="flex items-center gap-2 py-4 text-xs text-[#9AA5A0]"
                           data-testid="pc-ai-loading"
                         >
                           <Loader2
-                            className="h-3.5 w-3.5 animate-spin text-[#C9A25B]"
+                            className="h-3.5 w-3.5 animate-spin text-[#D4A853]"
                             aria-hidden="true"
                           />
                           <span>正在整理近期对局指标…</span>
                         </div>
                       ) : (
                         <>
-                          <p className="text-[12.5px] leading-[1.78] text-[#DDD7CC]">
+                          <p className="text-xs leading-[1.8] text-[#D2DCD7]">
                             {activeAiAnalysis?.summary ?? personaReport.archetype.summary}
                           </p>
 
                           {activeAiAnalysis?.radarInsight && (
-                            <div className="rounded-xl bg-white/[0.025] px-3.5 py-3 space-y-1">
-                              <div className="text-[10px] font-medium tracking-wide text-[#928B80]">
+                            <div className="border-t border-white/[0.08] pt-3 space-y-1">
+                              <div className="text-[10px] font-medium text-[#7E8883]">
                                 形态注记
                               </div>
-                              <p className="text-[11.5px] leading-relaxed text-[#ADA69B]">
+                              <p className="text-[11.5px] leading-relaxed text-[#9AA5A0]">
                                 {activeAiAnalysis.radarInsight}
                               </p>
                             </div>
@@ -1019,13 +1023,13 @@ export function PersonalCenterModal({
                     {aiError && (
                       <div
                         data-testid="pc-ai-error"
-                        className="flex items-start justify-between gap-3 border-t border-[#C9A25B]/25 pt-2.5 text-[11px] leading-relaxed text-[#DFC289]"
+                        className="flex items-start justify-between gap-3 border-t border-[#D4A853]/30 pt-2.5 text-[11px] leading-relaxed text-[#E8CF96]"
                       >
                         <span>{aiError}</span>
                         <button
                           type="button"
                           onClick={() => void requestAiPersonaAnalysis(true)}
-                          className="shrink-0 underline underline-offset-2 text-[#EFE0BC] hover:text-white cursor-pointer"
+                          className="shrink-0 underline underline-offset-2 text-[#F5E4B8] hover:text-white cursor-pointer"
                         >
                           重试
                         </button>
@@ -1034,170 +1038,168 @@ export function PersonalCenterModal({
                   </div>
                 </div>
 
-                {/* Modular Trait Cards + Actionable Plan Card */}
+                {/* Unboxed Hairline Trait Ledger + Actionable Plan */}
                 {personaReport.handsPlayed === 0 ? (
-                  <div className="rounded-2xl border border-white/[0.06] bg-[#191714]/80 px-5 py-8 text-center text-xs leading-relaxed text-[#8E877D]">
+                  <div className="border-y border-white/[0.08] py-8 text-center text-xs leading-relaxed text-[#7E8883]">
                     完成对局后，系统将结合 VPIP、PFR、Agg% 与复盘记录绘制六维雷达，并归纳你的牌风优劣、对局习惯与改进建议。
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {/* Card 1: Core Strengths */}
-                      <div className="rounded-2xl border border-white/[0.06] bg-[#181613]/92 p-5 space-y-3.5">
-                        <h4 className="border-b border-white/[0.06] pb-2 text-xs font-medium tracking-wide text-[#88B99E]">
-                          核心优势
-                        </h4>
-                        {displayStrengths.length === 0 ? (
-                          <p className="text-[11.5px] text-[#7D766C]">
-                            随着对局增加将自动提炼核心优势。
-                          </p>
-                        ) : (
-                          <div className="space-y-3.5">
-                            {displayStrengths.map((item) => (
-                              <div key={item.id} className="space-y-1">
-                                <div className="text-xs font-semibold text-[#F2EEE6]">
-                                  {item.title}
-                                </div>
-                                {item.evidence && (
-                                  <div className="font-mono-num text-[10px] text-[#888177]">
-                                    {item.evidence}
+                    {/* 2x2 Hairline Trait Ledger */}
+                    <div className="border-y border-white/[0.08] divide-y divide-white/[0.08]">
+                      {/* Row 1: Strengths | Weaknesses */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.08]">
+                        <div className="py-4 sm:pr-5 space-y-3">
+                          <h4 className="text-xs font-semibold text-[#8CC9AA]">核心优势</h4>
+                          {displayStrengths.length === 0 ? (
+                            <p className="text-[11.5px] text-[#7E8883]">
+                              随着对局增加将自动提炼核心优势。
+                            </p>
+                          ) : (
+                            <div className="space-y-3">
+                              {displayStrengths.map((item) => (
+                                <div key={item.id} className="space-y-0.5">
+                                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                    <span className="text-xs font-semibold text-[#F3F1EC]">
+                                      {item.title}
+                                    </span>
+                                    {item.evidence && (
+                                      <span className="font-mono-num text-[10px] text-[#7D8782]">
+                                        {item.evidence}
+                                      </span>
+                                    )}
                                   </div>
-                                )}
-                                <p className="text-[11.5px] leading-relaxed text-[#ABA499]">
-                                  {item.detail}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                                  <p className="text-[11.5px] leading-relaxed text-[#9AA5A0]">
+                                    {item.detail}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="py-4 sm:pl-5 space-y-3">
+                          <h4 className="text-xs font-semibold text-[#E07A7A]">主要短板与漏洞</h4>
+                          {displayWeaknesses.length === 0 ? (
+                            <p className="text-[11.5px] text-[#7E8883]">
+                              当前样本暂未检出明显结构性漏洞。
+                            </p>
+                          ) : (
+                            <div className="space-y-3">
+                              {displayWeaknesses.map((item) => (
+                                <div key={item.id} className="space-y-0.5">
+                                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                    <span className="text-xs font-semibold text-[#F3F1EC]">
+                                      {item.title}
+                                    </span>
+                                    {item.evidence && (
+                                      <span className="font-mono-num text-[10px] text-[#7D8782]">
+                                        {item.evidence}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11.5px] leading-relaxed text-[#9AA5A0]">
+                                    {item.detail}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Card 2: Main Weaknesses */}
-                      <div className="rounded-2xl border border-white/[0.06] bg-[#181613]/92 p-5 space-y-3.5">
-                        <h4 className="border-b border-white/[0.06] pb-2 text-xs font-medium tracking-wide text-[#D89A8E]">
-                          主要短板与漏洞
-                        </h4>
-                        {displayWeaknesses.length === 0 ? (
-                          <p className="text-[11.5px] text-[#7D766C]">
-                            当前样本暂未检出明显结构性漏洞。
-                          </p>
-                        ) : (
-                          <div className="space-y-3.5">
-                            {displayWeaknesses.map((item) => (
-                              <div key={item.id} className="space-y-1">
-                                <div className="text-xs font-semibold text-[#F2EEE6]">
-                                  {item.title}
-                                </div>
-                                {item.evidence && (
-                                  <div className="font-mono-num text-[10px] text-[#888177]">
-                                    {item.evidence}
+                      {/* Row 2: Good Habits | Bad Habits */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.08]">
+                        <div className="py-4 sm:pr-5 space-y-3">
+                          <h4 className="text-xs font-semibold text-[#E8CF96]">良好习惯</h4>
+                          {displayGoodHabits.length === 0 ? (
+                            <p className="text-[11.5px] text-[#7E8883]">
+                              完成 3 局以上后生成稳定习惯记录。
+                            </p>
+                          ) : (
+                            <div className="space-y-3">
+                              {displayGoodHabits.map((item) => (
+                                <div key={item.id} className="space-y-0.5">
+                                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                    <span className="text-xs font-semibold text-[#F3F1EC]">
+                                      {item.title}
+                                    </span>
+                                    {item.evidence && (
+                                      <span className="font-mono-num text-[10px] text-[#7D8782]">
+                                        {item.evidence}
+                                      </span>
+                                    )}
                                   </div>
-                                )}
-                                <p className="text-[11.5px] leading-relaxed text-[#ABA499]">
-                                  {item.detail}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                                  <p className="text-[11.5px] leading-relaxed text-[#9AA5A0]">
+                                    {item.detail}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
 
-                      {/* Card 3: Good Habits */}
-                      <div className="rounded-2xl border border-white/[0.06] bg-[#181613]/92 p-5 space-y-3.5">
-                        <h4 className="border-b border-white/[0.06] pb-2 text-xs font-medium tracking-wide text-[#DEC58C]">
-                          良好习惯
-                        </h4>
-                        {displayGoodHabits.length === 0 ? (
-                          <p className="text-[11.5px] text-[#7D766C]">
-                            完成 3 局以上后生成稳定习惯记录。
-                          </p>
-                        ) : (
-                          <div className="space-y-3.5">
-                            {displayGoodHabits.map((item) => (
-                              <div key={item.id} className="space-y-1">
-                                <div className="text-xs font-semibold text-[#F2EEE6]">
-                                  {item.title}
-                                </div>
-                                {item.evidence && (
-                                  <div className="font-mono-num text-[10px] text-[#888177]">
-                                    {item.evidence}
+                        <div className="py-4 sm:pl-5 space-y-3">
+                          <h4 className="text-xs font-semibold text-[#D4A853]">需戒除的习惯</h4>
+                          {displayBadHabits.length === 0 ? (
+                            <p className="text-[11.5px] text-[#7E8883]">
+                              当前暂未检出重复性坏习惯。
+                            </p>
+                          ) : (
+                            <div className="space-y-3">
+                              {displayBadHabits.map((item) => (
+                                <div key={item.id} className="space-y-0.5">
+                                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                    <span className="text-xs font-semibold text-[#F3F1EC]">
+                                      {item.title}
+                                    </span>
+                                    {item.evidence && (
+                                      <span className="font-mono-num text-[10px] text-[#7D8782]">
+                                        {item.evidence}
+                                      </span>
+                                    )}
                                   </div>
-                                )}
-                                <p className="text-[11.5px] leading-relaxed text-[#ABA499]">
-                                  {item.detail}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Card 4: Habits to Fix */}
-                      <div className="rounded-2xl border border-white/[0.06] bg-[#181613]/92 p-5 space-y-3.5">
-                        <h4 className="border-b border-white/[0.06] pb-2 text-xs font-medium tracking-wide text-[#C99D6B]">
-                          需戒除的习惯
-                        </h4>
-                        {displayBadHabits.length === 0 ? (
-                          <p className="text-[11.5px] text-[#7D766C]">
-                            当前暂未检出重复性坏习惯。
-                          </p>
-                        ) : (
-                          <div className="space-y-3.5">
-                            {displayBadHabits.map((item) => (
-                              <div key={item.id} className="space-y-1">
-                                <div className="text-xs font-semibold text-[#F2EEE6]">
-                                  {item.title}
+                                  <p className="text-[11.5px] leading-relaxed text-[#9AA5A0]">
+                                    {item.detail}
+                                  </p>
                                 </div>
-                                {item.evidence && (
-                                  <div className="font-mono-num text-[10px] text-[#888177]">
-                                    {item.evidence}
-                                  </div>
-                                )}
-                                <p className="text-[11.5px] leading-relaxed text-[#ABA499]">
-                                  {item.detail}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Actionable Improvements Card */}
+                    {/* Actionable Improvements Ledger */}
                     {displayImprovements.length > 0 && (
-                      <div
-                        data-testid="pc-ai-improvements"
-                        className="rounded-2xl border border-[#C9A25B]/20 bg-[#191714]/92 p-5 space-y-3.5"
-                      >
-                        <div className="flex items-baseline justify-between gap-2 border-b border-white/[0.06] pb-2.5">
-                          <h4 className="text-xs font-medium tracking-wide text-[#E4CB96]">
-                            阶段改进建议
-                          </h4>
-                          <span className="font-mono-num text-[10px] text-[#80796F]">
+                      <div data-testid="pc-ai-improvements" className="space-y-2.5">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <h4 className="text-xs font-semibold text-[#E8CF96]">阶段改进建议</h4>
+                          <span className="font-mono-num text-[10px] text-[#7E8883]">
                             {activeAiAnalysis ? '基于实测数据' : '统计基线'}
                           </span>
                         </div>
-                        <div className="divide-y divide-white/[0.055]">
+                        <div className="divide-y divide-white/[0.08] border-y border-white/[0.08]">
                           {displayImprovements.map((imp, idx) => (
                             <div
                               key={`${imp.focus}-${idx}`}
-                              className="grid grid-cols-[26px_1fr] gap-2 py-3.5 first:pt-1 last:pb-0"
+                              className="grid grid-cols-[26px_1fr] gap-2 py-3"
                             >
-                              <span className="font-mono-num text-[11px] text-[#9A845A] pt-0.5">
+                              <span className="font-mono-num text-[11px] font-semibold text-[#D4A853] pt-0.5">
                                 {String(idx + 1).padStart(2, '0')}
                               </span>
                               <div className="space-y-1">
                                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                  <span className="text-xs font-semibold text-[#F4F0E8]">
+                                  <span className="text-xs font-semibold text-[#F3F1EC]">
                                     {imp.focus}
                                   </span>
                                   {imp.targetMetric && (
-                                    <span className="font-mono-num text-[10px] text-[#C9A25B]">
+                                    <span className="font-mono-num text-[10px] text-[#D4A853]">
                                       {imp.targetMetric}
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-[11.5px] leading-relaxed text-[#B2ABA0]">
+                                <p className="text-[11.5px] leading-relaxed text-[#9AA5A0]">
                                   {imp.actionPlan}
                                 </p>
                               </div>
@@ -1209,22 +1211,20 @@ export function PersonalCenterModal({
                   </>
                 )}
 
-                {/* Linked Per-Hand Review & Session Profiler Card */}
+                {/* Linked Per-Hand Review & Session Profiler Ledger */}
                 {(personaReport.totalReviewedDecisions > 0 ||
                   personaReport.exposedPatterns.length > 0 ||
                   personaReport.recentSnapshots.length > 0) && (
                   <div
                     data-testid="pc-linked-session-profile"
-                    className="rounded-2xl border border-white/[0.06] bg-[#181613]/92 p-5 space-y-4"
+                    className="border-t border-white/[0.08] pt-5 space-y-4"
                   >
-                    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-white/[0.06] pb-2.5">
-                      <h4 className="text-xs font-medium tracking-wide text-[#E4CB96]">
-                        复盘与当局画像联动
-                      </h4>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <h4 className="text-xs font-semibold text-[#EAE6DC]">复盘与当局画像联动</h4>
                       {personaReport.reviewAccuracyPct !== null && (
-                        <span className="font-mono-num text-[11px] text-[#9A9388]">
+                        <span className="font-mono-num text-[11px] text-[#9AA5A0]">
                           决策达标率{' '}
-                          <strong className="text-[#88B99E]">
+                          <strong className="text-[#8CC9AA]">
                             {personaReport.reviewAccuracyPct}%
                           </strong>{' '}
                           （{personaReport.totalReviewedDecisions} 节点）
@@ -1233,26 +1233,23 @@ export function PersonalCenterModal({
                     </div>
 
                     {personaReport.exposedPatterns.length > 0 && (
-                      <div className="space-y-2.5">
-                        <div className="text-[11px] text-[#847D73]">
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-[#7E8883]">
                           牌桌上最常被对手捕捉的倾向
                         </div>
-                        <div className="space-y-2.5">
+                        <div className="divide-y divide-white/[0.08] border-y border-white/[0.08]">
                           {personaReport.exposedPatterns.map((ep) => (
-                            <div
-                              key={ep.pattern}
-                              className="rounded-xl bg-white/[0.025] px-4 py-3 space-y-1"
-                            >
+                            <div key={ep.pattern} className="py-3 space-y-1">
                               <div className="flex items-center justify-between gap-2 text-xs">
-                                <span className="font-semibold text-[#EFE0BC]">{ep.label}</span>
-                                <span className="font-mono-num text-[11px] text-[#8A8379]">
+                                <span className="font-semibold text-[#E8CF96]">{ep.label}</span>
+                                <span className="font-mono-num text-[11px] text-[#7D8782]">
                                   触发 {ep.count} 局
                                 </span>
                               </div>
-                              <p className="text-[11.5px] leading-relaxed text-[#B2ABA0]">
+                              <p className="text-[11.5px] leading-relaxed text-[#9AA5A0]">
                                 反制风险：{ep.counterRisk}
                               </p>
-                              <p className="text-[11.5px] leading-relaxed text-[#88B99E]">
+                              <p className="text-[11.5px] leading-relaxed text-[#8CC9AA]">
                                 调整方向：{ep.adaptationTip}
                               </p>
                             </div>
@@ -1262,9 +1259,9 @@ export function PersonalCenterModal({
                     )}
 
                     {personaReport.recentSnapshots.length > 0 && (
-                      <div className="space-y-2 border-t border-white/[0.06] pt-3.5">
-                        <div className="text-[11px] text-[#847D73]">近期对局轨迹</div>
-                        <div className="divide-y divide-white/[0.045]">
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-[#7E8883]">近期对局轨迹</div>
+                        <div className="divide-y divide-white/[0.06] border-y border-white/[0.08]">
                           {[...personaReport.recentSnapshots]
                             .reverse()
                             .slice(0, 5)
@@ -1274,21 +1271,21 @@ export function PersonalCenterModal({
                                 className="flex items-center justify-between gap-2 text-[11px] py-2"
                               >
                                 <div className="flex items-center gap-2.5 min-w-0">
-                                  <span className="font-mono-num text-[#7D766C]">
+                                  <span className="font-mono-num text-[#7D8782]">
                                     第 {snap.handNumber} 局
                                   </span>
-                                  <span className="truncate text-[#DDD7CC]">
+                                  <span className="truncate text-[#F3F1EC]">
                                     {SESSION_PATTERN_META[snap.detectedPattern]?.label ??
                                       '均衡难读'}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-3 font-mono-num shrink-0">
-                                  <span className="text-[#8E877D]">
+                                  <span className="text-[#9AA5A0]">
                                     精准 {snap.optimalCount} / 失误 {snap.mistakeCount}
                                   </span>
                                   <span
                                     className={
-                                      snap.netBB >= 0 ? 'text-[#7BB598]' : 'text-[#D97C72]'
+                                      snap.netBB >= 0 ? 'text-[#8CC9AA]' : 'text-[#E07A7A]'
                                     }
                                   >
                                     {snap.netBB >= 0 ? `+${snap.netBB}` : snap.netBB} BB
@@ -1304,20 +1301,18 @@ export function PersonalCenterModal({
               </div>
             );
           })() : (
-            <div className="chat-scroll flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6 space-y-5">
-              {/* Emblem Gallery Card */}
-              <div className="rounded-2xl border border-white/[0.06] bg-[#191714]/92 p-5">
-                <div className="mb-4 flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium tracking-wide text-[#DDD6C9]">
-                    俱乐部徽章
-                  </span>
+            <div className="chat-scroll flex-1 overflow-y-auto px-5 py-5 sm:px-6 space-y-6">
+              {/* Emblem Gallery Section (Unboxed) */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-2.5">
+                  <span className="text-xs font-semibold text-[#EAE6DC]">俱乐部徽章</span>
 
                   <div className="flex items-center gap-2">
                     {isCustomAvatarDataUrl(playerAvatar) && (
                       <button
                         type="button"
                         onClick={() => onUpdateAvatar('default')}
-                        className="touch-manipulation inline-flex h-8 items-center gap-1 rounded-xl border border-white/[0.1] px-2.5 text-xs text-[#9C958A] hover:text-[#F4F0E8] transition-colors cursor-pointer"
+                        className="touch-manipulation inline-flex h-8 items-center gap-1 rounded border border-white/[0.12] px-2.5 text-xs text-[#9AA5A0] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer"
                       >
                         <RotateCcw className="h-3 w-3" aria-hidden="true" />
                         <span>恢复默认</span>
@@ -1327,7 +1322,7 @@ export function PersonalCenterModal({
                       type="button"
                       data-testid="upload-avatar-btn"
                       onClick={() => fileInputRef.current?.click()}
-                      className="touch-manipulation inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.025] px-3 text-xs font-medium text-[#D8D2C6] hover:border-[#C9A25B]/55 hover:text-[#EFE0BC] transition-colors cursor-pointer"
+                      className="touch-manipulation inline-flex h-8 items-center gap-1.5 rounded border border-white/[0.12] bg-transparent px-3 text-xs font-medium text-[#C6D0CB] hover:border-[#D4A853]/60 hover:bg-white/[0.05] hover:text-[#E8CF96] transition-colors cursor-pointer"
                     >
                       <Upload className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>上传图片</span>
@@ -1356,10 +1351,10 @@ export function PersonalCenterModal({
                           setUploadError(null);
                           onUpdateAvatar(preset.id);
                         }}
-                        className={`touch-manipulation flex flex-col items-center justify-center gap-2 rounded-xl py-3 px-1.5 transition-all cursor-pointer ${
+                        className={`touch-manipulation flex flex-col items-center justify-center gap-2 rounded border py-3 px-1.5 transition-colors cursor-pointer ${
                           selected
-                            ? 'bg-[#C9A25B]/14 text-[#EFE0BC] ring-1 ring-[#C9A25B]/65'
-                            : 'bg-white/[0.02] text-[#8C857A] hover:bg-white/[0.05] hover:text-[#F4F0E8]'
+                            ? 'border-[#D4A853]/70 bg-[#D4A853]/[0.08] text-[#E8CF96]'
+                            : 'border-white/[0.06] bg-white/[0.015] text-[#9AA5A0] hover:border-white/[0.14] hover:text-white'
                         }`}
                       >
                         <PlayerAvatar
@@ -1376,31 +1371,31 @@ export function PersonalCenterModal({
                 </div>
 
                 {uploadError && (
-                  <p role="alert" className="mt-2.5 text-xs text-[#D97C72]">
+                  <p role="alert" className="text-xs text-[#E07A7A]">
                     {uploadError}
                   </p>
                 )}
               </div>
 
-              {/* Equipped Medal Summary Card (No Redundant Unequip Button) */}
-              <div className="rounded-2xl border border-white/[0.06] bg-[#191714]/92 p-5 flex items-center justify-between gap-4">
+              {/* Equipped Medal Summary Section (Unboxed, No Redundant Unequip Button) */}
+              <div className="border-t border-white/[0.08] pt-5 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5 min-w-0">
                   {activeEquippedId && activeEquippedDef ? (
                     <>
                       <AchievementMedalIcon id={activeEquippedId} size="md" />
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-[#F4F0E8]">
+                        <div className="text-xs font-semibold text-[#F3F1EC]">
                           {activeEquippedDef.name}
                         </div>
-                        <div className="mt-0.5 text-[11px] text-[#8A8379]">
+                        <div className="mt-0.5 text-[11px] text-[#7E8883]">
                           当前佩戴勋章 · {ACHIEVEMENT_TIER_LABELS[activeEquippedDef.tier]}
                         </div>
                       </div>
                     </>
                   ) : (
                     <div>
-                      <div className="text-xs font-medium text-[#CFC9BE]">暂未佩戴勋章</div>
-                      <div className="mt-0.5 text-[11px] text-[#80796F]">
+                      <div className="text-xs font-medium text-[#C6D0CB]">暂未佩戴勋章</div>
+                      <div className="mt-0.5 text-[11px] text-[#7E8883]">
                         前往勋章陈列挑选一枚展示在头像旁
                       </div>
                     </div>
@@ -1411,7 +1406,7 @@ export function PersonalCenterModal({
                   type="button"
                   data-testid="pc-goto-medals-btn"
                   onClick={() => setActiveTab('achievements')}
-                  className="touch-manipulation shrink-0 h-8 rounded-xl border border-white/[0.1] bg-white/[0.025] px-3.5 text-xs font-medium text-[#E6CE98] hover:border-[#C9A25B]/60 hover:bg-white/[0.05] transition-colors cursor-pointer"
+                  className="touch-manipulation shrink-0 h-8 rounded border border-white/[0.12] bg-transparent px-3.5 text-xs font-medium text-[#E8CF96] hover:border-[#D4A853]/60 hover:bg-white/[0.05] transition-colors cursor-pointer"
                 >
                   {activeEquippedId ? '更换勋章' : '挑选勋章'}
                 </button>

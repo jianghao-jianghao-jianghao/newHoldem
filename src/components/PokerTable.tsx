@@ -1256,62 +1256,68 @@ export function PokerTable({
           onClick={() => setLeavePromptOpen(false)}
         >
           <div
-            className="w-full max-w-[420px] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141310] text-[#EFECE4] shadow-[0_28px_80px_rgba(0,0,0,0.85)] ring-1 ring-white/[0.04]"
+            className="w-full max-w-[400px] overflow-hidden rounded-lg border border-white/[0.1] bg-[#0B0D0F] text-[#F3F1EC] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4">
-              <div>
-                <h2 className="font-display text-base font-semibold tracking-tight text-[#F5F1E8]">
-                  离开前，要复盘本场吗？
-                </h2>
-                <div className="mt-2 flex flex-wrap items-baseline gap-2 text-xs text-[#9A9388]">
-                  <span className="font-mono-num text-[#E4CB96]">
-                    共 {completedHeroHands} 手
-                  </span>
-                  {myMatchStats && (
-                    <>
-                      <span aria-hidden="true" className="text-white/20">·</span>
-                      <span
-                        className={`font-mono-num font-medium ${
-                          myMatchStats.sessionNetChips > 0
-                            ? 'text-[#7BB598]'
-                            : myMatchStats.sessionNetChips < 0
-                              ? 'text-[#D97C72]'
-                              : 'text-[#C8C1B6]'
-                        }`}
-                      >
-                        净盈亏{' '}
-                        {myMatchStats.sessionNetChips >= 0
-                          ? `+${myMatchStats.sessionNetChips.toLocaleString()}`
-                          : myMatchStats.sessionNetChips.toLocaleString()}
-                      </span>
-                    </>
-                  )}
-                  {bookmarkedHands.length > 0 && (
-                    <>
-                      <span aria-hidden="true" className="text-white/20">·</span>
-                      <span className="font-mono-num text-[#E4CB96]">
-                        已标记 {bookmarkedHands.length} 手
-                      </span>
-                    </>
-                  )}
-                </div>
-                <p className="mt-2.5 text-xs leading-relaxed text-[#8E877D]">
-                  系统已自动整理本场盈亏走势与关键转折手牌，复盘后再离桌即可直接返回大厅。
-                </p>
-              </div>
-
+            {/* Editorial Header */}
+            <div className="flex items-center justify-between gap-3 border-b border-white/[0.08] px-5 py-3.5">
+              <h2 className="font-display text-base font-bold tracking-tight text-[#F5F2EB]">
+                离开前，要复盘本场吗？
+              </h2>
               <button
                 type="button"
                 aria-label="留在牌桌"
                 onClick={() => setLeavePromptOpen(false)}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#898277] hover:bg-white/[0.06] hover:text-[#F4F0E8] transition-colors cursor-pointer"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-white/[0.08] text-[#9AA5A0] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 border-t border-white/[0.06] bg-[#0F0E0C] px-6 py-3.5">
+            {/* Unboxed Ledger Body */}
+            <div className="px-5 py-4 space-y-3.5">
+              <div className="grid grid-cols-3 divide-x divide-white/[0.08] border-y border-white/[0.08] py-2.5">
+                <div className="pr-2">
+                  <div className="text-[11px] text-[#7E8883]">本场手数</div>
+                  <div className="font-mono-num mt-0.5 text-sm font-semibold text-[#F3F1EC]">
+                    {completedHeroHands} 手
+                  </div>
+                </div>
+                <div className="px-3">
+                  <div className="text-[11px] text-[#7E8883]">本场净盈亏</div>
+                  <div
+                    className={`font-mono-num mt-0.5 text-sm font-semibold ${
+                      myMatchStats
+                        ? myMatchStats.sessionNetChips > 0
+                          ? 'text-[#8CC9AA]'
+                          : myMatchStats.sessionNetChips < 0
+                            ? 'text-[#E07A7A]'
+                            : 'text-[#E8CF96]'
+                        : 'text-[#9AA5A0]'
+                    }`}
+                  >
+                    {myMatchStats
+                      ? myMatchStats.sessionNetChips >= 0
+                        ? `+${myMatchStats.sessionNetChips.toLocaleString()}`
+                        : myMatchStats.sessionNetChips.toLocaleString()
+                      : '—'}
+                  </div>
+                </div>
+                <div className="pl-3">
+                  <div className="text-[11px] text-[#7E8883]">已标记手牌</div>
+                  <div className="font-mono-num mt-0.5 text-sm font-semibold text-[#E8CF96]">
+                    {bookmarkedHands.length} 手
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs leading-relaxed text-[#9AA5A0]">
+                本场盈亏走势与关键转折手牌已归档，复盘完成后可直接离桌返回大厅。
+              </p>
+            </div>
+
+            {/* Restraint Footer */}
+            <div className="flex items-center justify-end gap-2.5 border-t border-white/[0.08] bg-[#090B0C] px-5 py-3">
               <button
                 type="button"
                 data-testid="prompt-leave-direct-btn"
@@ -1319,7 +1325,7 @@ export function PokerTable({
                   setLeavePromptOpen(false);
                   onLeaveRoom();
                 }}
-                className="h-9 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 text-xs text-[#BDB7AC] hover:border-white/[0.16] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+                className="h-9 rounded border border-white/[0.12] bg-transparent px-4 text-xs text-[#C6D0CB] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
               >
                 直接离开
               </button>
@@ -1331,7 +1337,7 @@ export function PokerTable({
                   setHandReviewMode('leaving');
                   setHandReviewOpen(true);
                 }}
-                className="h-9 rounded-xl bg-[#C9A25B] px-4 text-xs font-semibold text-[#12110F] hover:bg-[#D8B46D] transition-colors cursor-pointer whitespace-nowrap"
+                className="h-9 rounded bg-[#D4A853] px-4 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors cursor-pointer whitespace-nowrap"
               >
                 复盘本场
               </button>

@@ -54,9 +54,9 @@ export function WinCompositionRing({
     count: number;
     color: string;
   }> = [
-    { key: 'showdown', label: '摊牌胜', count: cleanShowdown, color: '#C9A25B' },
-    { key: 'fold', label: '逼弃胜', count: cleanFold, color: '#7BB598' },
-    { key: 'other', label: '未胜局', count: nonWins, color: 'rgba(239, 236, 228, 0.14)' },
+    { key: 'showdown', label: '摊牌胜', count: cleanShowdown, color: '#D4A853' },
+    { key: 'fold', label: '逼弃胜', count: cleanFold, color: '#8CC9AA' },
+    { key: 'other', label: '未胜局', count: nonWins, color: 'rgba(255, 255, 255, 0.14)' },
   ];
 
   const activeNonZero = rawItems.filter((item) => item.count > 0);
@@ -82,18 +82,18 @@ export function WinCompositionRing({
   return (
     <div
       data-testid="pc-win-composition-ring"
-      className="mt-3 rounded-xl border border-white/[0.055] bg-white/[0.025] px-3.5 py-3.5"
+      className="mt-5 pt-4 border-t border-white/[0.08]"
     >
-      <div className="mb-2.5 flex items-baseline justify-between gap-2">
-        <span className="text-[11px] font-medium text-[#A69F93]">胜率构成</span>
-        <span className="font-mono-num text-[10px] text-[#7A736A]">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <span className="text-[11px] font-medium text-[#9AA5A0]">胜率构成</span>
+        <span className="font-mono-num text-[10px] text-[#7D8782]">
           {safePlayed > 0 ? `${safePlayed} 局` : '暂无样本'}
         </span>
       </div>
 
       <div className="flex items-center gap-3.5">
         {/* Lightweight Animated SVG Donut Ring */}
-        <div className="relative h-[86px] w-[86px] shrink-0">
+        <div className="relative h-[82px] w-[82px] shrink-0">
           <svg
             viewBox={`0 0 ${SIZE} ${SIZE}`}
             role="img"
@@ -110,7 +110,7 @@ export function WinCompositionRing({
               cy={SIZE / 2}
               r={RADIUS}
               fill="none"
-              stroke="rgba(239, 236, 228, 0.06)"
+              stroke="rgba(255, 255, 255, 0.07)"
               strokeWidth={STROKE}
             />
 
@@ -147,10 +147,10 @@ export function WinCompositionRing({
 
           {/* Center Dynamic Metric */}
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-            <span className="font-mono-num text-[15px] leading-none font-semibold text-[#F4F0E8]">
+            <span className="font-mono-num text-[14px] leading-none font-bold text-[#F3F1EC]">
               {safePlayed > 0 ? `${focused ? focused.pct : winRatePct}%` : '—'}
             </span>
-            <span className="mt-1 text-[9.5px] leading-none text-[#847D73]">
+            <span className="mt-1 text-[9.5px] leading-none text-[#7E8883]">
               {focused ? focused.label : '总胜率'}
             </span>
           </div>
@@ -165,7 +165,7 @@ export function WinCompositionRing({
                 key={seg.key}
                 onMouseEnter={() => safePlayed > 0 && setHoveredKey(seg.key)}
                 onMouseLeave={() => setHoveredKey(null)}
-                className={`flex items-center justify-between gap-2 rounded-md px-1.5 py-0.5 text-[11px] transition-colors ${
+                className={`flex items-center justify-between gap-2 rounded px-1.5 py-0.5 text-[11px] transition-colors ${
                   safePlayed > 0 ? 'cursor-pointer' : ''
                 } ${active ? 'bg-white/[0.05]' : ''}`}
               >
@@ -176,12 +176,12 @@ export function WinCompositionRing({
                     aria-hidden="true"
                   />
                   <span
-                    className={`truncate ${active ? 'text-[#F4F0E8]' : 'text-[#A69F93]'}`}
+                    className={`truncate ${active ? 'text-[#F3F1EC]' : 'text-[#9AA5A0]'}`}
                   >
                     {seg.label}
                   </span>
                 </span>
-                <span className="font-mono-num text-[10.5px] text-[#DED7CB] shrink-0">
+                <span className="font-mono-num text-[11px] font-medium text-[#E5DFD3] shrink-0">
                   {safePlayed > 0 ? `${seg.count}局` : '—'}
                 </span>
               </div>

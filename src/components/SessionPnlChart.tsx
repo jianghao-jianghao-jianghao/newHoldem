@@ -108,75 +108,68 @@ export function SessionPnlChart({
     points[points.length - 1] ??
     null;
 
-  const strokeColor = layout.isPositive ? '#7BB598' : '#D97C72';
+  const strokeColor = layout.isPositive ? '#8CC9AA' : '#E07A7A';
   const hasBookmarked = points.some((p) => p.isBookmarked);
   const hasMistakes = points.some((p) => p.mistakeCount > 0);
 
   if (points.length === 0) return null;
 
   return (
-    <div
-      data-testid="session-pnl-chart"
-      className="rounded-2xl border border-white/[0.06] bg-[#181613]/92 p-5"
-    >
+    <div data-testid="session-pnl-chart" className="space-y-2.5">
       {/* Header + Dynamic Point Readout */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-baseline gap-2.5">
-            <h3 className="text-xs font-medium tracking-wide text-[#DDD6C9]">
-              本场盈亏走势
-            </h3>
-            {activePoint && (
-              <div
-                data-testid="pnl-chart-readout"
-                className="flex flex-wrap items-baseline gap-2 text-[11px] text-[#8E877D]"
+        <div className="min-w-0 flex flex-wrap items-baseline gap-2.5">
+          <h3 className="text-xs font-semibold text-[#EAE6DC]">本场盈亏走势</h3>
+          {activePoint && (
+            <div
+              data-testid="pnl-chart-readout"
+              className="flex flex-wrap items-baseline gap-2 text-[11px] text-[#9AA5A0]"
+            >
+              <span className="font-mono-num text-[#D4A853]">
+                第 {activePoint.handNumber} 局
+              </span>
+              {activePoint.canonicalHand && (
+                <>
+                  <span aria-hidden="true" className="text-white/20">·</span>
+                  <span className="font-mono-num text-[#F3F1EC]">
+                    {activePoint.canonicalHand}
+                  </span>
+                </>
+              )}
+              <span aria-hidden="true" className="text-white/20">·</span>
+              <span
+                className={`font-mono-num font-semibold ${
+                  activePoint.netChips > 0
+                    ? 'text-[#8CC9AA]'
+                    : activePoint.netChips < 0
+                      ? 'text-[#E07A7A]'
+                      : 'text-[#C6D0CB]'
+                }`}
               >
-                <span className="font-mono-num text-[#E4CB96]">
-                  第 {activePoint.handNumber} 局
-                </span>
-                {activePoint.canonicalHand && (
-                  <>
-                    <span aria-hidden="true" className="text-white/20">·</span>
-                    <span className="font-mono-num text-[#DED8CD]">
-                      {activePoint.canonicalHand}
-                    </span>
-                  </>
+                单手 {formatSigned(unit === 'chips' ? activePoint.netChips : activePoint.netBB, unit)}
+              </span>
+              <span aria-hidden="true" className="text-white/20">·</span>
+              <span className="font-mono-num text-[#C6D0CB]">
+                累计{' '}
+                {formatSigned(
+                  unit === 'chips' ? activePoint.cumulativeChips : activePoint.cumulativeBB,
+                  unit
                 )}
-                <span aria-hidden="true" className="text-white/20">·</span>
-                <span
-                  className={`font-mono-num font-medium ${
-                    activePoint.netChips > 0
-                      ? 'text-[#7BB598]'
-                      : activePoint.netChips < 0
-                        ? 'text-[#D97C72]'
-                        : 'text-[#C8C1B6]'
-                  }`}
-                >
-                  单手 {formatSigned(unit === 'chips' ? activePoint.netChips : activePoint.netBB, unit)}
-                </span>
-                <span aria-hidden="true" className="text-white/20">·</span>
-                <span className="font-mono-num text-[#B6B0A6]">
-                  累计{' '}
-                  {formatSigned(
-                    unit === 'chips' ? activePoint.cumulativeChips : activePoint.cumulativeBB,
-                    unit
-                  )}
-                </span>
-              </div>
-            )}
-          </div>
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Unit Toggle */}
-        <div className="inline-flex items-center gap-0.5 rounded-xl border border-white/[0.06] bg-[#0F0E0C]/85 p-0.5 text-[11px] shrink-0">
+        {/* Restraint Unit Toggle */}
+        <div className="inline-flex items-center border-b border-white/[0.08] text-[11px] shrink-0">
           <button
             type="button"
             data-testid="pnl-unit-chips"
             onClick={() => setUnit('chips')}
-            className={`rounded-lg px-2.5 py-1 transition-colors cursor-pointer whitespace-nowrap ${
+            className={`px-2.5 pb-1 border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
               unit === 'chips'
-                ? 'bg-[#23201B] font-medium text-[#F4E7C8]'
-                : 'text-[#857E74] hover:text-[#DDD6C9]'
+                ? 'border-[#D4A853] font-semibold text-[#E8CF96]'
+                : 'border-transparent text-[#8B9590] hover:text-white'
             }`}
           >
             筹码
@@ -185,10 +178,10 @@ export function SessionPnlChart({
             type="button"
             data-testid="pnl-unit-bb"
             onClick={() => setUnit('bb')}
-            className={`rounded-lg px-2.5 py-1 transition-colors cursor-pointer whitespace-nowrap ${
+            className={`px-2.5 pb-1 border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
               unit === 'bb'
-                ? 'bg-[#23201B] font-medium text-[#F4E7C8]'
-                : 'text-[#857E74] hover:text-[#DDD6C9]'
+                ? 'border-[#D4A853] font-semibold text-[#E8CF96]'
+                : 'border-transparent text-[#8B9590] hover:text-white'
             }`}
           >
             BB
@@ -196,8 +189,8 @@ export function SessionPnlChart({
         </div>
       </div>
 
-      {/* SVG Curve */}
-      <div className="mt-3 w-full overflow-hidden">
+      {/* SVG Curve (Unboxed directly on #0B0D0F ledger ground) */}
+      <div className="w-full overflow-hidden">
         <svg
           viewBox={`0 0 ${CHART_W} ${CHART_H}`}
           className="h-[158px] w-full select-none"
@@ -206,27 +199,29 @@ export function SessionPnlChart({
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={strokeColor} stopOpacity="0.22" />
+              <stop offset="0%" stopColor={strokeColor} stopOpacity="0.24" />
               <stop offset="100%" stopColor={strokeColor} stopOpacity="0.01" />
             </linearGradient>
           </defs>
 
-          {/* Top & Bottom subtle guide lines */}
+          {/* Subtle dashed horizontal grid lines */}
           <line
             x1={PAD_LEFT}
             y1={PAD_TOP}
             x2={CHART_W - PAD_RIGHT}
             y2={PAD_TOP}
-            stroke="rgba(255,255,255,0.04)"
+            stroke="rgba(255,255,255,0.06)"
             strokeWidth="1"
+            strokeDasharray="2 3"
           />
           <line
             x1={PAD_LEFT}
             y1={CHART_H - PAD_BOTTOM}
             x2={CHART_W - PAD_RIGHT}
             y2={CHART_H - PAD_BOTTOM}
-            stroke="rgba(255,255,255,0.04)"
+            stroke="rgba(255,255,255,0.06)"
             strokeWidth="1"
+            strokeDasharray="2 3"
           />
 
           {/* Zero Baseline */}
@@ -235,18 +230,18 @@ export function SessionPnlChart({
             y1={layout.zeroY}
             x2={CHART_W - PAD_RIGHT}
             y2={layout.zeroY}
-            stroke="rgba(239,236,228,0.16)"
+            stroke="rgba(255,255,255,0.16)"
             strokeWidth="1"
             strokeDasharray="3 4"
           />
 
-          {/* Y-Axis Labels (hide max/min when too close to zero line to prevent crowding) */}
+          {/* Y-Axis Labels (collision guard against 0 line) */}
           {Math.abs(layout.zeroY - PAD_TOP) >= 20 && (
             <text
               x={PAD_LEFT - 8}
               y={PAD_TOP + 4}
               textAnchor="end"
-              fill="#7B746A"
+              fill="#7D8782"
               fontSize="10"
               className="font-mono-num"
             >
@@ -259,7 +254,7 @@ export function SessionPnlChart({
             x={PAD_LEFT - 8}
             y={layout.zeroY + 3.5}
             textAnchor="end"
-            fill="#9B9489"
+            fill="#9AA5A0"
             fontSize="10"
             className="font-mono-num"
           >
@@ -270,7 +265,7 @@ export function SessionPnlChart({
               x={PAD_LEFT - 8}
               y={CHART_H - PAD_BOTTOM + 3}
               textAnchor="end"
-              fill="#7B746A"
+              fill="#7D8782"
               fontSize="10"
               className="font-mono-num"
             >
@@ -288,7 +283,7 @@ export function SessionPnlChart({
             d={layout.linePath}
             fill="none"
             stroke={strokeColor}
-            strokeWidth="2"
+            strokeWidth="1.85"
             strokeLinejoin="round"
             strokeLinecap="round"
           />
@@ -298,7 +293,7 @@ export function SessionPnlChart({
             cx={layout.originX}
             cy={layout.zeroY}
             r="2.5"
-            fill="#6E685F"
+            fill="#7D8782"
           />
 
           {/* Interactive Hand Nodes */}
@@ -307,12 +302,12 @@ export function SessionPnlChart({
             const isHovered = pt.handNumber === hoveredHand;
             const nodeFill =
               pt.mistakeCount > 0
-                ? '#D97C72'
+                ? '#E07A7A'
                 : pt.isBookmarked
-                  ? '#E4CB96'
+                  ? '#D4A853'
                   : pt.netChips >= 0
-                    ? '#7BB598'
-                    : '#9F988D';
+                    ? '#8CC9AA'
+                    : '#9AA5A0';
 
             return (
               <g
@@ -332,61 +327,56 @@ export function SessionPnlChart({
                   }
                 }}
               >
-                {/* Vertical guide on selected / hovered */}
                 {(isSelected || isHovered) && (
                   <line
                     x1={x}
                     y1={PAD_TOP}
                     x2={x}
                     y2={CHART_H - PAD_BOTTOM}
-                    stroke="rgba(228,203,150,0.22)"
+                    stroke="rgba(212,168,83,0.24)"
                     strokeWidth="1"
                     strokeDasharray="2 3"
                   />
                 )}
 
-                {/* Invisible generous hit target */}
                 <circle cx={x} cy={y} r="13" fill="transparent" />
 
-                {/* Bookmarked brass outer ring */}
                 {pt.isBookmarked && (
                   <circle
                     cx={x}
                     cy={y}
                     r={isSelected || isHovered ? 8.5 : 7}
                     fill="none"
-                    stroke="#C9A25B"
+                    stroke="#D4A853"
                     strokeWidth="1.4"
                   />
                 )}
 
-                {/* Active selected ivory halo */}
                 {isSelected && (
                   <circle
                     cx={x}
                     cy={y}
-                    r="6.2"
+                    r="6"
                     fill="none"
-                    stroke="#EFECE4"
-                    strokeWidth="1.5"
-                    strokeOpacity="0.85"
+                    stroke="#F5E4B8"
+                    strokeWidth="1.4"
+                    strokeOpacity="0.9"
                   />
                 )}
 
-                {/* Core Node */}
                 <circle
                   cx={x}
                   cy={y}
-                  r={isSelected || isHovered ? 4.4 : 3.2}
+                  r={isSelected || isHovered ? 4.2 : 3}
                   fill={nodeFill}
-                  stroke="#141310"
+                  stroke="#0B0D0F"
                   strokeWidth="1.5"
                 />
               </g>
             );
           })}
 
-          {/* X-Axis Hand Labels (start, mid, end so it never crowds) */}
+          {/* X-Axis Hand Labels */}
           {(() => {
             const tickIndices = new Set<number>([0, layout.coords.length - 1]);
             if (layout.coords.length >= 5) {
@@ -409,7 +399,7 @@ export function SessionPnlChart({
                           ? 'end'
                           : 'middle'
                     }
-                    fill="#7B746A"
+                    fill="#7D8782"
                     fontSize="10"
                     className="font-mono-num"
                   >
@@ -422,18 +412,18 @@ export function SessionPnlChart({
       </div>
 
       {/* Quiet Footer Hint */}
-      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#7D766C]">
-        <span>点击折线上任意节点，可直接跳转至该局的逐街证据复盘</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#7D8782]">
+        <span>点击节点可跳转至对应手牌的逐街记录</span>
         <div className="flex items-center gap-3">
           {hasBookmarked && (
-            <span className="inline-flex items-center gap-1.5 text-[#E4CB96]">
-              <span className="h-2 w-2 rounded-full border border-[#C9A25B]" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1.5 text-[#E8CF96]">
+              <span className="h-2 w-2 rounded-full border border-[#D4A853]" aria-hidden="true" />
               已标记
             </span>
           )}
           {hasMistakes && (
-            <span className="inline-flex items-center gap-1.5 text-[#D97C72]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#D97C72]" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1.5 text-[#E07A7A]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#E07A7A]" aria-hidden="true" />
               含失误
             </span>
           )}

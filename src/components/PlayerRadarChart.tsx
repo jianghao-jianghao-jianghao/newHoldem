@@ -55,19 +55,19 @@ export function PlayerRadarChart({
   return (
     <div
       data-testid="player-radar-chart"
-      className="flex flex-col justify-between rounded-2xl border border-white/[0.06] bg-[#191714]/92 p-5 shadow-[0_8px_24px_rgba(0,0,0,0.22)]"
+      className="flex flex-col justify-between"
     >
       <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="font-medium tracking-wide text-[#DDD6C9] whitespace-nowrap">
+        <span className="font-semibold text-[#EAE6DC] whitespace-nowrap">
           六维雷达{aiCalibrated ? ' · 校准' : ''}
         </span>
-        <div className="flex items-center gap-3 text-[10px] text-[#8A8379] whitespace-nowrap">
+        <div className="flex items-center gap-3 text-[10px] text-[#838D88] whitespace-nowrap">
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-[2px] w-2.5 bg-[#C9A25B]" />
+            <span className="inline-block h-[2px] w-2.5 bg-[#D4A853]" />
             <span>实测</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-0 w-2.5 border-t border-dashed border-[#7BB598]" />
+            <span className="inline-block h-0 w-2.5 border-t border-dashed border-[#8CC9AA]" />
             <span>GTO 基准</span>
           </span>
         </div>
@@ -93,8 +93,8 @@ export function PlayerRadarChart({
                 fill="none"
                 stroke={
                   level === 100
-                    ? 'rgba(239, 236, 228, 0.14)'
-                    : 'rgba(239, 236, 228, 0.065)'
+                    ? 'rgba(255, 255, 255, 0.14)'
+                    : 'rgba(255, 255, 255, 0.06)'
                 }
                 strokeWidth="1"
               />
@@ -114,8 +114,8 @@ export function PlayerRadarChart({
                 y2={outer.y}
                 stroke={
                   isActive
-                    ? 'rgba(201, 162, 91, 0.55)'
-                    : 'rgba(239, 236, 228, 0.075)'
+                    ? 'rgba(212, 168, 83, 0.55)'
+                    : 'rgba(255, 255, 255, 0.07)'
                 }
                 strokeWidth={isActive ? '1.15' : '0.9'}
               />
@@ -125,8 +125,8 @@ export function PlayerRadarChart({
           {/* GTO Balanced Benchmark Polygon */}
           <polygon
             points={benchmarkPoints}
-            fill="rgba(123, 181, 152, 0.045)"
-            stroke="rgba(123, 181, 152, 0.58)"
+            fill="rgba(140, 201, 170, 0.05)"
+            stroke="rgba(140, 201, 170, 0.62)"
             strokeWidth="1.1"
             strokeDasharray="3 3"
           />
@@ -136,8 +136,8 @@ export function PlayerRadarChart({
             <polygon
               data-testid="player-radar-polygon"
               points={playerPoints}
-              fill="rgba(201, 162, 91, 0.18)"
-              stroke="#C9A25B"
+              fill="rgba(212, 168, 83, 0.18)"
+              stroke="#D4A853"
               strokeWidth="1.6"
               strokeLinejoin="round"
             />
@@ -180,9 +180,9 @@ export function PlayerRadarChart({
                       cx={dot.x}
                       cy={dot.y}
                       r={isActive ? 3.8 : 2.6}
-                      fill={isActive ? '#F0DFB3' : '#C9A25B'}
-                      stroke="#191714"
-                      strokeWidth="1.2"
+                      fill={isActive ? '#F5E4B8' : '#D4A853'}
+                      stroke="#0B0D0F"
+                      strokeWidth="1.4"
                       pointerEvents="none"
                     />
                   </>
@@ -194,7 +194,7 @@ export function PlayerRadarChart({
                   y={labelPt.y + dyLabel}
                   textAnchor={textAnchor}
                   className="transition-colors"
-                  fill={isActive ? '#EFE6D2' : '#CFC9BE'}
+                  fill={isActive ? '#F5E4B8' : '#D2DCD7'}
                   fontSize="10.5"
                   fontWeight={isActive ? 600 : 500}
                 >
@@ -204,7 +204,7 @@ export function PlayerRadarChart({
                   x={labelPt.x + dx}
                   y={labelPt.y + dyLabel + 12}
                   textAnchor={textAnchor}
-                  fill={isActive ? '#D9B675' : '#857E73'}
+                  fill={isActive ? '#E8CF96' : '#7D8782'}
                   fontSize="9.5"
                   style={{ fontVariantNumeric: 'tabular-nums' }}
                 >
@@ -217,18 +217,18 @@ export function PlayerRadarChart({
       </div>
 
       {/* Quiet Hairline Axis Readout */}
-      <div className="flex min-h-[22px] items-center justify-between gap-2 border-t border-white/[0.06] pt-2.5 text-[10px] whitespace-nowrap">
+      <div className="flex min-h-[22px] items-center justify-between gap-2 border-t border-white/[0.08] pt-2.5 text-[10px] whitespace-nowrap">
         {focusedAxis ? (
           <>
-            <span className="font-medium text-[#E4CB96] truncate">
+            <span className="font-medium text-[#E8CF96] truncate">
               {focusedAxis.label} · {focusedAxis.rawLabel}
             </span>
-            <span className="font-mono-num text-[#ABA397] shrink-0">
+            <span className="font-mono-num text-[#9AA5A0] shrink-0">
               {hasData ? focusedAxis.score : 0} / 基准 {focusedAxis.benchmark}
             </span>
           </>
         ) : (
-          <span className="text-[#787268] truncate">
+          <span className="text-[#7D8782] truncate">
             {hasData ? '悬停任意维度查看实测与基准对比' : '完成首局实战后自动绘制'}
           </span>
         )}
