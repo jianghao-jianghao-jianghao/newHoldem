@@ -13,7 +13,7 @@
     "build": "npm run build:client && npm run build:server",
     "start": "node dist/server.mjs",
     "preview": "vite preview",
-    "test": "node --test --import tsx server/authStore.test.ts server/botAi.test.ts server/botChat.test.ts server/roomAuth.test.ts server/backend.test.ts server/handReview.test.ts server/opponentProfiler.test.ts server/personaAi.test.ts server/gtoSolver.test.ts src/shared/pokerEngine.test.ts src/shared/handEvaluator.test.ts src/shared/achievements.test.ts src/shared/avatarUtils.test.ts src/shared/chatUtils.test.ts src/shared/playerProfile.test.ts src/shared/playerInsights.test.ts src/shared/sessionReview.test.ts src/shared/gtoWorkbench.test.ts src/shared/potTrendUtils.test.ts src/shared/tableOverview.test.ts src/utils/soundFx.test.ts src/utils/avatarImpactFx.test.ts",
+    "test": "node --test --import tsx server/authStore.test.ts server/botAi.test.ts server/botChat.test.ts server/roomAuth.test.ts server/backend.test.ts server/handReview.test.ts server/opponentProfiler.test.ts server/personaAi.test.ts server/gtoSolver.test.ts src/shared/pokerEngine.test.ts src/shared/handEvaluator.test.ts src/shared/achievements.test.ts src/shared/avatarUtils.test.ts src/shared/chatUtils.test.ts src/shared/playerProfile.test.ts src/shared/playerInsights.test.ts src/shared/sessionReview.test.ts src/shared/gtoWorkbench.test.ts src/shared/potTrendUtils.test.ts src/shared/tableOverview.test.ts src/shared/tableHotkeys.test.ts src/utils/soundFx.test.ts src/utils/avatarImpactFx.test.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
   },

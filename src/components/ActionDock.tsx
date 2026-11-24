@@ -133,7 +133,7 @@ export function ActionDock({
           )}
         </div>
         <div className="text-[11px] text-[#6E7772] hidden sm:block">
-          F 弃牌 · C/空格 让牌/跟注 · R 下注/加注
+          F 弃牌 · C/空格 让牌/跟注 · R 下注/加注 · N/Enter 下一局
         </div>
       </div>
     );

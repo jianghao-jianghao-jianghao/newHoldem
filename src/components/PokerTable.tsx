@@ -28,6 +28,7 @@ import {
   resolvePlayerAvatarProfile,
   type ResolvedPlayerAvatarProfile,
 } from '../shared/playerProfile';
+import { resolveTableHotkeyAction } from '../shared/tableHotkeys';
 import { getHandOverviewStats, PHASE_STAGE_LABELS } from '../shared/tableOverview';
 import type {
   BotChatStatus,
@@ -451,29 +452,6 @@ export function PokerTable({
     return () => window.clearTimeout(id);
   }, [chatMessages, chatNow]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (externalModalOpen || blindModalOpen || handReviewOpen || inspectedPlayerId !== null) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-      if (e.key.toLowerCase() === 't') {
-        e.preventDefault();
-        setChatOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [externalModalOpen, blindModalOpen, handReviewOpen, inspectedPlayerId]);
-
   const activeBubbles = useMemo(
     () => getActiveBubbleMap(chatMessages, chatNow, CHAT_BUBBLE_TTL_MS),
     [chatMessages, chatNow]
@@ -511,6 +489,67 @@ export function PokerTable({
   const canStart =
     (table.phase === 'waiting' || table.phase === 'showdown') &&
     table.players.filter((p) => p.chips > 0 || p.isBot).length >= 2;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isTextInputTarget = Boolean(
+        target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT' ||
+            target.isContentEditable)
+      );
+      const isInteractiveTarget = Boolean(
+        target &&
+          target.closest('button, a, [role="button"], [role="menuitem"], summary')
+      );
+      const resolved = resolveTableHotkeyAction(
+        {
+          key: e.key,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          altKey: e.altKey,
+          repeat: e.repeat,
+          isTextInputTarget,
+          isInteractiveTarget,
+        },
+        {
+          modalBlocked:
+            externalModalOpen ||
+            blindModalOpen ||
+            handReviewOpen ||
+            leavePromptOpen ||
+            inspectedPlayerId !== null,
+          chatOpen,
+          canStartHand: canStart,
+          isReconnecting,
+          hasActiveTurnActions: Boolean(table.myAvailableActions),
+        }
+      );
+
+      if (resolved === 'toggle_chat') {
+        e.preventDefault();
+        setChatOpen((prev) => !prev);
+      } else if (resolved === 'start_next_hand') {
+        e.preventDefault();
+        onStartHand();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [
+    externalModalOpen,
+    blindModalOpen,
+    handReviewOpen,
+    leavePromptOpen,
+    inspectedPlayerId,
+    chatOpen,
+    canStart,
+    isReconnecting,
+    table.myAvailableActions,
+    onStartHand,
+  ]);
 
   const canAddBot =
     isHost &&
@@ -1041,9 +1080,10 @@ export function PokerTable({
                 <button
                   type="button"
                   data-testid="start-hand-btn"
+                  title="快捷键：N / Enter / 空格"
                   disabled={isReconnecting}
                   onClick={onStartHand}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs sm:text-sm font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs sm:text-sm font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
                   <span>
@@ -1053,6 +1093,7 @@ export function PokerTable({
                         : '下一局'
                       : '开始发牌'}
                   </span>
+                  <span className="hidden sm:inline text-xs font-semibold opacity-70">[N]</span>
                 </button>
               )}
 

@@ -271,6 +271,7 @@ npm run dev</pre>
   <kbd>F</kbd> 弃牌 &nbsp;·&nbsp;
   <kbd>C</kbd> / <kbd>Space</kbd> 让牌或跟注 &nbsp;·&nbsp;
   <kbd>R</kbd> 下注 / 加注 &nbsp;·&nbsp;
+  <kbd>N</kbd> / <kbd>Enter</kbd> 下一局 &nbsp;·&nbsp;
   <kbd>T</kbd> 闲聊 &nbsp;·&nbsp;
   <kbd>M</kbd> 静音音效与配乐 &nbsp;·&nbsp;
   <kbd>Esc</kbd> 关闭面板 &nbsp;·&nbsp;

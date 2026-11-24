@@ -251,6 +251,7 @@ Open `http://localhost:3000` in your browser to seat immediately or host a priva
   <kbd>F</kbd> Fold &nbsp;·&nbsp;
   <kbd>C</kbd> / <kbd>Space</kbd> Check or Call &nbsp;·&nbsp;
   <kbd>R</kbd> Bet / Raise &nbsp;·&nbsp;
+  <kbd>N</kbd> / <kbd>Enter</kbd> Next Hand &nbsp;·&nbsp;
   <kbd>T</kbd> Toggle Chat &nbsp;·&nbsp;
   <kbd>M</kbd> Mute Audio & BGM &nbsp;·&nbsp;
   <kbd>Esc</kbd> Close Modal &nbsp;·&nbsp;

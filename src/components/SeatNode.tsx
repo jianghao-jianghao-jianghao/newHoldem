@@ -110,6 +110,7 @@ export function SeatNode({
     onNudgePlayer?.(player.id);
   };
 
+  const isFolded = player.inHand && player.folded && !isWinner;
   const dimmed = player.folded || !player.inHand;
   const hasTimedTurn = turnTimeoutSec > 0 && secondsRemaining !== null;
   const turnPct =
@@ -163,6 +164,7 @@ export function SeatNode({
         {/* Sleek Self Nameplate */}
         <div
           data-seat-anchor={player.id}
+          data-folded={isFolded ? 'true' : undefined}
           className={`relative overflow-visible min-w-[196px] sm:min-w-[238px] rounded-md px-3 py-2.5 backdrop-blur-md transition-all ${
             impactFx ? 'z-50' : ''
           } ${
@@ -170,8 +172,10 @@ export function SeatNode({
               ? 'border border-[#D4A853]/85 bg-[#121613]/92 animate-chip-impact'
               : isTurn
               ? 'border border-[#E8CF96]/80 bg-[#121614]/94 animate-turn-glow'
+              : isFolded
+              ? 'border border-dashed border-[#EF4444]/35 bg-[#090A0C]/72'
               : 'border border-white/[0.08] bg-[#0B0E10]/86'
-          } ${dimmed && !isWinner ? 'opacity-70' : ''}`}
+          } ${dimmed && !isWinner && !isFolded ? 'opacity-70' : ''}`}
         >
           {nudgeFx && (
             <div
@@ -284,11 +288,21 @@ export function SeatNode({
                   levelTier={resolved.levelInfo.tier}
                   levelTitle={resolved.levelInfo.title}
                   rankTier={resolved.rankTier}
-                  showLevelBadge
-                  showRankAura
-                  className="group-hover:border-[#E8CF96] transition-colors"
+                  showLevelBadge={!isFolded}
+                  showRankAura={!isFolded}
+                  className={`group-hover:border-[#E8CF96] transition-all ${
+                    isFolded ? 'grayscale brightness-60 opacity-65' : ''
+                  }`}
                 />
               </button>
+              {isFolded && (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -bottom-1.5 left-1/2 z-30 -translate-x-1/2 rounded border border-[#EF4444]/60 bg-[#2C1013]/95 px-1.5 py-[1px] font-mono-num text-[9px] font-black tracking-wider text-[#FCA5A5] shadow-[0_2px_8px_rgba(0,0,0,0.85)]"
+                >
+                  FOLD
+                </span>
+              )}
               {(isSmallBlind || isBigBlind) && (
                 <span
                   aria-label={isSmallBlind ? '小盲位 SB' : '大盲位 BB'}
@@ -317,7 +331,11 @@ export function SeatNode({
 
             <div className="min-w-0 flex-1 pl-1">
               <div className="flex items-center justify-between gap-1.5">
-                <span className="truncate text-xs sm:text-sm font-semibold text-[#F3F1EC] max-w-[132px] sm:max-w-[168px]">
+                <span
+                  className={`truncate text-xs sm:text-sm font-semibold max-w-[132px] sm:max-w-[168px] ${
+                    isFolded ? 'line-through text-[#6E7772]' : 'text-[#F3F1EC]'
+                  }`}
+                >
                   {player.name}
                 </span>
                 {nextBlindRole && (
@@ -337,10 +355,21 @@ export function SeatNode({
               </div>
 
               <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="font-mono-num text-sm sm:text-base font-bold text-[#E8CF96]">
+                <span
+                  className={`font-mono-num text-sm sm:text-base font-bold ${
+                    isFolded ? 'text-[#7C847F]' : 'text-[#E8CF96]'
+                  }`}
+                >
                   {player.chips.toLocaleString()}
                 </span>
-                {isTurn && hasTimedTurn ? (
+                {isFolded ? (
+                  <span
+                    data-testid={`folded-badge-${player.id}`}
+                    className="inline-flex items-center rounded border border-[#EF4444]/45 bg-[#2A1114]/92 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[#FCA5A5] whitespace-nowrap"
+                  >
+                    已弃牌
+                  </span>
+                ) : isTurn && hasTimedTurn ? (
                   <span className="inline-flex items-center gap-1.5 font-mono-num text-xs font-semibold">
                     {player.currentBet > 0 && (
                       <span className="text-[11px] font-normal text-[#9AA5A0]">
@@ -409,6 +438,7 @@ export function SeatNode({
     >
       <div
         data-seat-anchor={player.id}
+        data-folded={isFolded ? 'true' : undefined}
         className={`relative overflow-visible ${impactFx ? 'z-50' : ''} ${
           compact ? 'min-w-[152px] sm:min-w-[172px]' : 'min-w-[168px] sm:min-w-[206px]'
         } rounded-md px-2.5 py-2 backdrop-blur-md transition-all ${
@@ -416,8 +446,10 @@ export function SeatNode({
             ? 'border border-[#D4A853]/85 bg-[#121613]/92 animate-chip-impact'
             : isTurn
             ? 'border border-[#E8CF96]/80 bg-[#121614]/94 animate-turn-glow'
+            : isFolded
+            ? 'border border-dashed border-[#EF4444]/35 bg-[#090A0C]/68'
             : 'border border-white/[0.08] bg-[#0B0E10]/84'
-        } ${dimmed && !isWinner ? 'opacity-65' : ''}`}
+        } ${dimmed && !isWinner && !isFolded ? 'opacity-65' : ''}`}
       >
         {nudgeFx && (
           <div
@@ -512,11 +544,22 @@ export function SeatNode({
                 levelTier={resolved.levelInfo.tier}
                 levelTitle={resolved.levelInfo.title}
                 rankTier={resolved.rankTier}
-                showLevelBadge
-                showRankAura
-                className="group-hover:border-[#E8CF96] group-hover:ring-2 group-hover:ring-[#D4A853]/30 transition-all"
+                showLevelBadge={!isFolded}
+                showRankAura={!isFolded}
+                className={`group-hover:border-[#E8CF96] group-hover:ring-2 group-hover:ring-[#D4A853]/30 transition-all ${
+                  isFolded ? 'grayscale brightness-60 opacity-60' : ''
+                }`}
               />
             </button>
+
+            {isFolded && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute -bottom-1.5 left-1/2 z-30 -translate-x-1/2 rounded border border-[#EF4444]/60 bg-[#2C1013]/95 px-1 py-[0.5px] font-mono-num text-[8px] font-black tracking-wider text-[#FCA5A5] shadow-[0_2px_6px_rgba(0,0,0,0.85)]"
+              >
+                FOLD
+              </span>
+            )}
 
             {(isSmallBlind || isBigBlind) && (
               <span
@@ -546,7 +589,11 @@ export function SeatNode({
           <div className="min-w-0 flex-1 pl-0.5">
             <div className="flex items-center justify-between gap-1">
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="truncate text-xs font-semibold text-[#F3F1EC] max-w-[82px] sm:max-w-[106px]">
+                <span
+                  className={`truncate text-xs font-semibold max-w-[82px] sm:max-w-[106px] ${
+                    isFolded ? 'line-through text-[#6E7772]' : 'text-[#F3F1EC]'
+                  }`}
+                >
                   {player.name}
                 </span>
                 {player.isBot && (
@@ -572,11 +619,22 @@ export function SeatNode({
             </div>
 
             <div className="mt-0.5 flex items-center justify-between gap-1.5">
-              <span className="font-mono-num text-xs font-bold text-[#E8CF96]">
+              <span
+                className={`font-mono-num text-xs font-bold ${
+                  isFolded ? 'text-[#7C847F]' : 'text-[#E8CF96]'
+                }`}
+              >
                 {player.chips.toLocaleString()}
               </span>
 
-              {isTurn && secondsRemaining !== null ? (
+              {isFolded ? (
+                <span
+                  data-testid={`folded-badge-${player.id}`}
+                  className="inline-flex items-center rounded border border-[#EF4444]/45 bg-[#2A1114]/92 px-1.5 py-[1px] text-[10px] font-semibold tracking-wide text-[#FCA5A5] whitespace-nowrap"
+                >
+                  已弃牌
+                </span>
+              ) : isTurn && secondsRemaining !== null ? (
                 <span className="inline-flex items-center gap-1 font-mono-num text-[11px] font-semibold">
                   {player.currentBet > 0 && (
                     <span className="font-normal text-[#9AA5A0]">注 {player.currentBet}</span>
