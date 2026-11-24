@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   Plus,
@@ -12,7 +12,7 @@ import type {
   EquippedAchievementPref,
 } from '../shared/achievements';
 import { sanitizeAvatar } from '../shared/avatarUtils';
-import { resolvePlayerAvatarProfile } from '../shared/playerProfile';
+import { resolvePlayerAvatarProfile, type RankTier } from '../shared/playerProfile';
 import type { LeaderboardEntry, RoomSummary } from '../shared/types';
 import { useAuth } from '../context/AuthContext';
 import type { PersonalCenterTab } from './PersonalCenterModal';
@@ -22,6 +22,7 @@ import { SeatEntryModal } from './SeatEntryModal';
 interface TitleScreenProps {
   initialName: string;
   initialRoom: string;
+  invitedRoomId?: string | null;
   initialAvatar: string;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
@@ -31,6 +32,7 @@ interface TitleScreenProps {
   leaderboard?: LeaderboardEntry[];
   errorMessage: string | null;
   onEnterTable: (playerName: string, roomId: string, avatar: string) => void;
+  onDismissInvite?: () => void;
   onCreateRoom: (params: {
     tableName: string;
     roomId?: string;
@@ -64,9 +66,19 @@ const TURN_TIMER_PRESETS = [
   { label: '不限时', sec: 0 },
 ] as const;
 
+const RANK_TIER_TEXT_CLASS: Record<RankTier, string> = {
+  bronze: 'text-[#C8946D]',
+  silver: 'text-[#BFCBD7]',
+  gold: 'text-[#E3C682]',
+  platinum: 'text-[#96C7C1]',
+  diamond: 'text-[#94CBE8]',
+  master: 'text-[#F0D994]',
+};
+
 export function TitleScreen({
   initialName,
   initialRoom,
+  invitedRoomId = null,
   initialAvatar,
   achievements = [],
   achievementDates = {},
@@ -76,6 +88,7 @@ export function TitleScreen({
   leaderboard = [],
   errorMessage,
   onEnterTable,
+  onDismissInvite,
   onCreateRoom,
   onDeleteRoom,
   onOpenPersonalCenter,
@@ -85,11 +98,12 @@ export function TitleScreen({
 }: TitleScreenProps) {
   const { profile, authError, clearAuthError } = useAuth();
   const [customCodeOpen, setCustomCodeOpen] = useState(false);
-  const [customRoomCode, setCustomRoomCode] = useState(initialRoom || '');
+  const [customRoomCode, setCustomRoomCode] = useState(invitedRoomId || initialRoom || '');
   const [pendingSeatRoom, setPendingSeatRoom] = useState<{
     roomId: string;
     tableName: string;
   } | null>(null);
+  const handledInviteRef = useRef<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newTableName, setNewTableName] = useState('');
@@ -126,6 +140,31 @@ export function TitleScreen({
       tableName: tableName || matched?.tableName || '私人牌桌',
     });
   };
+
+  // Auto-open SeatEntryModal once when arriving via an explicit invite URL (?room=XXXX)
+  useEffect(() => {
+    if (!invitedRoomId || fadingOut) return;
+    const cleanInvite = invitedRoomId.trim().toUpperCase();
+    if (!cleanInvite || handledInviteRef.current === cleanInvite) return;
+    handledInviteRef.current = cleanInvite;
+    const matched = rooms.find((r) => r.roomId === cleanInvite);
+    setCustomRoomCode(cleanInvite);
+    setPendingSeatRoom({
+      roomId: cleanInvite,
+      tableName: matched?.tableName || `受邀牌桌 ${cleanInvite}`,
+    });
+  }, [invitedRoomId, rooms, fadingOut]);
+
+  // Keep pending invite table name synced once rooms list arrives from server
+  useEffect(() => {
+    if (!pendingSeatRoom) return;
+    const matched = rooms.find((r) => r.roomId === pendingSeatRoom.roomId);
+    if (matched && matched.tableName !== pendingSeatRoom.tableName) {
+      setPendingSeatRoom((curr) =>
+        curr && curr.roomId === matched.roomId ? { ...curr, tableName: matched.tableName } : curr
+      );
+    }
+  }, [rooms, pendingSeatRoom]);
 
   const handleCustomCodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,14 +269,24 @@ export function TitleScreen({
               type="button"
               data-testid="open-personal-center-btn"
               onClick={() => onOpenPersonalCenter('achievements')}
-              className="touch-manipulation inline-flex items-center gap-2 py-1 text-[#E6CF96] hover:text-[#F8E6B3] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="touch-manipulation inline-flex items-center gap-2 py-1 text-[#F3F1EC] hover:text-[#E8CF96] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <PlayerAvatar
                 avatar={previewProfile.avatar}
                 name={initialName.trim() || profile.displayName || 'V'}
                 size="xs"
+                rankTier={previewProfile.rankTier}
+                showRankAura
               />
-              <span>个人中心</span>
+              <span className="max-w-[96px] truncate font-medium">
+                {initialName.trim() || profile.displayName || '个人中心'}
+              </span>
+              <span
+                data-testid="lobby-rank-tier"
+                className={`text-[11px] font-semibold ${RANK_TIER_TEXT_CLASS[previewProfile.rankTier]}`}
+              >
+                {previewProfile.rankTierLabel}
+              </span>
             </button>
           ) : (
             <button
@@ -267,6 +316,39 @@ export function TitleScreen({
           <p className="mt-2.5 max-w-md text-sm tracking-wide text-[#9DA7A2]">
             无上限德州扑克 · 两人即开，自定义盲注与筹码深度
           </p>
+
+          {invitedRoomId && (
+            <div
+              data-testid="invite-room-banner"
+              className="mt-5 flex items-center justify-between gap-3 rounded-md border border-white/[0.12] border-l-2 border-l-[#D4A853] bg-[#0C0F11]/92 px-3.5 py-2.5 text-xs"
+            >
+              <div className="min-w-0">
+                <span className="text-[#9AA5A0]">收到牌桌邀请 · 房号 </span>
+                <span className="font-mono-num font-bold text-[#E8CF96]">{invitedRoomId}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  data-testid="join-invited-room-btn"
+                  onClick={() => openSeatModalForRoom(invitedRoomId)}
+                  className="touch-manipulation inline-flex h-7 items-center gap-1 rounded bg-[#D4A853] px-3 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors cursor-pointer"
+                >
+                  <span>进入该桌</span>
+                  <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                </button>
+                {onDismissInvite && (
+                  <button
+                    type="button"
+                    onClick={onDismissInvite}
+                    aria-label="关闭邀请提示"
+                    className="flex h-7 w-7 items-center justify-center rounded text-[#848F8A] hover:text-white cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Directory Toolbar */}
           <div className="mt-8 flex items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
@@ -651,12 +733,14 @@ export function TitleScreen({
         roomId={pendingSeatRoom?.roomId ?? 'CLUB01'}
         tableName={pendingSeatRoom?.tableName ?? '私人牌桌'}
         initialName={initialName || profile?.displayName || ''}
-        initialAvatar={avatar}
+        initialAvatar={profile ? sanitizeAvatar(profile.avatar || avatar) : avatar}
+        isAuthenticated={Boolean(profile)}
         onClose={() => setPendingSeatRoom(null)}
         onConfirm={(chosenName, chosenAvatar) => {
           if (!pendingSeatRoom) return;
           const targetId = pendingSeatRoom.roomId;
           setPendingSeatRoom(null);
+          onDismissInvite?.();
           onEnterTable(chosenName, targetId, chosenAvatar);
         }}
       />

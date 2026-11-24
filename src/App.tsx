@@ -61,17 +61,21 @@ function getWsUrl(): string {
 
 function getOrCreatePlayerId(): string {
   const key = 'velvet_holdem_player_id';
-  let id = sessionStorage.getItem(key);
+  let id = localStorage.getItem(key) || sessionStorage.getItem(key);
   if (!id) {
     id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-    sessionStorage.setItem(key, id);
+  }
+  try {
+    localStorage.setItem(key, id);
+  } catch {
+    // Ignore storage quota errors
   }
   return id;
 }
 
 function getOrCreateSeatSecret(): string {
   const key = 'velvet_holdem_seat_secret';
-  let secret = sessionStorage.getItem(key);
+  let secret = localStorage.getItem(key) || sessionStorage.getItem(key);
   if (!secret) {
     const bytes = new Uint8Array(16);
     if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
@@ -80,7 +84,11 @@ function getOrCreateSeatSecret(): string {
     } else {
       secret = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
     }
-    sessionStorage.setItem(key, secret);
+  }
+  try {
+    localStorage.setItem(key, secret);
+  } catch {
+    // Ignore storage quota errors
   }
   return secret;
 }
@@ -97,6 +105,10 @@ export default function App() {
   const [equippedPref, setEquippedPref] = useState<EquippedAchievementPref | undefined>(() => {
     return sanitizeEquippedAchievement(localStorage.getItem('velvet_holdem_equipped_medal'));
   });
+  const [invitedRoomId, setInvitedRoomId] = useState<string | null>(() => {
+    const raw = new URLSearchParams(window.location.search).get('room')?.trim().toUpperCase();
+    return raw ? raw.slice(0, 12) : null;
+  });
   const [activeRoomId, setActiveRoomId] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
     return (params.get('room') || 'CLUB01').toUpperCase();
@@ -108,20 +120,7 @@ export default function App() {
 
   const [screen, setScreen] = useState<'title' | 'playing'>('title');
   const [table, setTable] = useState<ClientTableView | null>(null);
-  const [rooms, setRooms] = useState<RoomSummary[]>([
-    {
-      roomId: 'CLUB01',
-      tableName: '俱乐部大厅桌',
-      playerCount: 0,
-      phase: 'waiting',
-      smallBlind: 10,
-      bigBlind: 20,
-      startingChips: 2000,
-      turnTimeoutSec: 30,
-      allowRebuy: true,
-      createdAt: Date.now(),
-    },
-  ]);
+  const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [lobbyFadingOut, setLobbyFadingOut] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -187,7 +186,7 @@ export default function App() {
       setPlayerName(profile.displayName);
       localStorage.setItem('velvet_holdem_name', profile.displayName);
     }
-    if (profile.avatar && profile.avatar !== 'default') {
+    if (profile.avatar) {
       const safe = sanitizeAvatar(profile.avatar);
       setPlayerAvatar(safe);
       localStorage.setItem('velvet_holdem_avatar', safe);
@@ -752,7 +751,7 @@ export default function App() {
       setPlayerName(loaded.displayName);
       localStorage.setItem('velvet_holdem_name', loaded.displayName);
     }
-    if (loaded.avatar && loaded.avatar !== 'default') {
+    if (loaded.avatar) {
       const safe = sanitizeAvatar(loaded.avatar);
       setPlayerAvatar(safe);
       localStorage.setItem('velvet_holdem_avatar', safe);
@@ -1065,10 +1064,20 @@ export default function App() {
 
   const use3D = isDesktop && !webglFailed;
 
+  const handleDismissInvite = useCallback(() => {
+    setInvitedRoomId(null);
+    if (window.location.search.includes('room=')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('room');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
   const titleScreenElement = (fadingOut: boolean) => (
     <TitleScreen
       initialName={playerName}
       initialRoom={activeRoomId}
+      invitedRoomId={invitedRoomId}
       initialAvatar={playerAvatar}
       achievements={currentAchievements}
       achievementDates={currentAchievementDates}
@@ -1079,6 +1088,7 @@ export default function App() {
       errorMessage={errorMsg}
       fadingOut={fadingOut}
       onEnterTable={handleEnterTable}
+      onDismissInvite={handleDismissInvite}
       onCreateRoom={handleCreateRoom}
       onDeleteRoom={handleDeleteRoom}
       onOpenPersonalCenter={handleOpenPersonalCenter}

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Flame } from 'lucide-react';
 import {
   ACHIEVEMENT_MAP,
@@ -369,27 +370,21 @@ interface AchievementHoverCardProps {
   id: AchievementId;
   unlockedAt?: number;
   placement?: 'top' | 'bottom';
+  anchorRect?: DOMRect | null;
 }
 
 function AchievementHoverCard({
   id,
   unlockedAt,
   placement = 'top',
+  anchorRect = null,
 }: AchievementHoverCardProps) {
   const def = ACHIEVEMENT_MAP.get(id);
   if (!def) return null;
   const tierStyle = TIER_STYLES[def.tier];
-  const placementClass =
-    placement === 'bottom'
-      ? 'top-full mt-2'
-      : 'bottom-full mb-2';
 
-  return (
-    <div
-      role="tooltip"
-      data-testid={`achievement-tooltip-${id}`}
-      className={`pointer-events-none absolute left-1/2 z-50 w-56 -translate-x-1/2 rounded border border-[#D4A853]/40 bg-[#0D1012]/98 p-3 text-left shadow-[0_12px_32px_rgba(0,0,0,0.75)] ${placementClass}`}
-    >
+  const cardContent = (
+    <>
       <div className="flex items-center gap-2.5 border-b border-white/[0.08] pb-2">
         <AchievementMedalIcon id={id} size="md" />
         <div className="min-w-0 flex-1">
@@ -412,6 +407,54 @@ function AchievementHoverCard({
           <span className="text-[#E8CF96]">{formatAchievementDateTime(unlockedAt)}</span>
         </div>
       </div>
+    </>
+  );
+
+  // Render via viewport-clamped portal when an anchor rect is available so overflow-hidden modals never clip the card
+  if (anchorRect && typeof document !== 'undefined' && typeof window !== 'undefined') {
+    const cardWidth = 224;
+    const margin = 12;
+    const idealLeft = anchorRect.left + anchorRect.width / 2 - cardWidth / 2;
+    const clampedLeft = Math.max(
+      margin,
+      Math.min(window.innerWidth - cardWidth - margin, idealLeft)
+    );
+    const preferTop = placement === 'top';
+    const openAbove = preferTop ? anchorRect.top > 150 : anchorRect.bottom + 150 > window.innerHeight;
+    const topPos = openAbove ? anchorRect.top - 8 : anchorRect.bottom + 8;
+
+    return createPortal(
+      <div
+        role="tooltip"
+        data-testid={`achievement-tooltip-${id}`}
+        style={{
+          position: 'fixed',
+          left: `${clampedLeft}px`,
+          top: `${topPos}px`,
+          transform: openAbove ? 'translateY(-100%)' : undefined,
+          width: `${cardWidth}px`,
+          zIndex: 90,
+        }}
+        className="pointer-events-none rounded-md border border-white/[0.14] bg-[#0C0F11]/98 p-3 text-left shadow-[0_14px_36px_rgba(0,0,0,0.82)]"
+      >
+        {cardContent}
+      </div>,
+      document.body
+    );
+  }
+
+  const placementClass =
+    placement === 'bottom'
+      ? 'top-full mt-2'
+      : 'bottom-full mb-2';
+
+  return (
+    <div
+      role="tooltip"
+      data-testid={`achievement-tooltip-${id}`}
+      className={`pointer-events-none absolute left-1/2 z-50 w-56 -translate-x-1/2 rounded-md border border-white/[0.14] bg-[#0C0F11]/98 p-3 text-left shadow-[0_14px_36px_rgba(0,0,0,0.82)] ${placementClass}`}
+    >
+      {cardContent}
     </div>
   );
 }
@@ -428,20 +471,20 @@ interface AvatarAchievementShowcaseProps {
 }
 
 /**
- * Anchored cleanly at the top-right of a player's avatar frame.
- * Enforces strictly ONE equipped signature medal (zero multi-badge row or +N clutter).
- * Hovering or focusing reveals the club tooltip with unlock condition and date.
+ * Displays strictly ONE equipped signature medal cleanly inline or in a dedicated slot.
+ * Hovering or focusing reveals a viewport-clamped tooltip that never clips inside modals.
  */
 export function AvatarAchievementShowcase({
   equippedAchievement,
   achievements = [],
   achievementDates = {},
-  size = 'sm',
+  size = 'xs',
   tooltipPlacement = 'top',
   onOpenAchievements,
-  className = 'absolute -top-1.5 -right-1.5 z-20',
+  className = 'inline-flex',
 }: AvatarAchievementShowcaseProps) {
-  const [hovered, setHovered] = useState(false);
+  const [hoveredRect, setHoveredRect] = useState<DOMRect | null>(null);
+  const triggerRef = useRef<HTMLDivElement | null>(null);
 
   const activeId: AchievementId | null =
     equippedAchievement !== undefined
@@ -452,38 +495,45 @@ export function AvatarAchievementShowcase({
   const def = ACHIEVEMENT_MAP.get(activeId);
   if (!def) return null;
 
+  const openTooltip = () => {
+    const rect = triggerRef.current?.getBoundingClientRect() ?? null;
+    setHoveredRect(rect);
+  };
+
   return (
     <div
+      ref={triggerRef}
       data-testid="avatar-badge-showcase"
       aria-label={`佩戴勋章：${def.name}`}
-      className={`pointer-events-auto flex items-center justify-center ${className}`}
+      className={`pointer-events-auto inline-flex items-center justify-center ${className}`}
       onClick={(e) => e.stopPropagation()}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={openTooltip}
+      onMouseLeave={() => setHoveredRect(null)}
     >
       <button
         type="button"
         data-testid={`showcase-medal-${activeId}`}
         aria-label={`佩戴勋章 ${def.name}：${def.description}`}
-        onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
+        onFocus={openTooltip}
+        onBlur={() => setHoveredRect(null)}
         onClick={() => {
           if (onOpenAchievements) {
             onOpenAchievements();
           } else {
-            setHovered((curr) => !curr);
+            setHoveredRect((curr) => (curr ? null : triggerRef.current?.getBoundingClientRect() ?? null));
           }
         }}
-        className="flex items-center justify-center rounded-full ring-2 ring-[#0B0E10] shadow-[0_3px_10px_rgba(0,0,0,0.75)] hover:scale-110 focus-visible:outline-1 focus-visible:outline-[#D4A853] transition-transform cursor-pointer"
+        className="flex items-center justify-center rounded-full focus-visible:outline-1 focus-visible:outline-[#D4A853] hover:scale-110 transition-transform cursor-pointer"
       >
         <AchievementMedalIcon id={activeId} size={size} />
       </button>
 
-      {hovered && (
+      {hoveredRect && (
         <AchievementHoverCard
           id={activeId}
           unlockedAt={achievementDates[activeId]}
           placement={tooltipPlacement}
+          anchorRect={hoveredRect}
         />
       )}
     </div>

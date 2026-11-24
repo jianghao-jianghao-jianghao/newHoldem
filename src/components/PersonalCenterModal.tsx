@@ -26,7 +26,6 @@ import {
 } from '../shared/achievements';
 import {
   AVATAR_PRESETS,
-  isCustomAvatarDataUrl,
   MAX_CUSTOM_AVATAR_BYTES,
   sanitizeAvatar,
 } from '../shared/avatarUtils';
@@ -40,7 +39,7 @@ import {
 import { resolvePlayerAvatarProfile, type RankTier } from '../shared/playerProfile';
 import type { LeaderboardEntry } from '../shared/types';
 import { useAuth } from '../context/AuthContext';
-import { AchievementMedalIcon, AvatarAchievementShowcase } from './AchievementBadge';
+import { AchievementMedalIcon } from './AchievementBadge';
 import { PlayerAvatar } from './PlayerAvatar';
 import { PlayerRadarChart } from './PlayerRadarChart';
 import { WinCompositionRing } from './WinCompositionRing';
@@ -84,10 +83,12 @@ const TIER_TEXT_CLASS: Record<AchievementTier, string> = {
 };
 
 const RANK_TIER_TEXT_CLASS: Record<RankTier, string> = {
-  bronze: 'text-[#D8A176]',
-  silver: 'text-[#C6D4E0]',
-  gold: 'text-[#E9CE84]',
-  diamond: 'text-[#8CD9FA]',
+  bronze: 'text-[#C8946D]',
+  silver: 'text-[#BFCBD7]',
+  gold: 'text-[#E3C682]',
+  platinum: 'text-[#96C7C1]',
+  diamond: 'text-[#94CBE8]',
+  master: 'text-[#F0D994]',
 };
 
 async function resizeAvatarImage(file: File): Promise<string | null> {
@@ -417,28 +418,15 @@ export function PersonalCenterModal({
               </button>
             </div>
 
-            {/* Portrait Pedestal */}
+            {/* Portrait Pedestal (clean portrait, zero overlapping corner clutter) */}
             <div className="flex flex-col items-center text-center">
-              <div className="relative overflow-visible">
-                <PlayerAvatar
-                  avatar={previewProfile.avatar}
-                  name={draftName.trim() || playerName || 'V'}
-                  size="xl"
-                  level={previewProfile.levelInfo.level}
-                  levelTier={previewProfile.levelInfo.tier}
-                  levelTitle={previewProfile.levelInfo.title}
-                  rankTier={previewProfile.rankTier}
-                  showLevelBadge
-                  showRankAura
-                />
-                <AvatarAchievementShowcase
-                  equippedAchievement={activeEquippedId}
-                  achievementDates={achievementDates}
-                  size="sm"
-                  tooltipPlacement="bottom"
-                  className="absolute -top-1.5 -right-1.5 z-20"
-                />
-              </div>
+              <PlayerAvatar
+                avatar={previewProfile.avatar}
+                name={draftName.trim() || playerName || 'V'}
+                size="xl"
+                rankTier={previewProfile.rankTier}
+                showRankAura
+              />
 
               {/* Quiet Inline Editable Name */}
               <div className="mt-4 w-full">
@@ -465,16 +453,27 @@ export function PersonalCenterModal({
 
               <div className="mt-1.5 flex items-center justify-center gap-2 text-xs">
                 <span
-                  className={`font-medium ${RANK_TIER_TEXT_CLASS[previewProfile.rankTier]}`}
+                  data-testid="pc-rank-tier-label"
+                  className={`font-semibold ${RANK_TIER_TEXT_CLASS[previewProfile.rankTier]}`}
                 >
-                  {previewProfile.rankTierLabel}
+                  {previewProfile.rankTierLabel}段位
                 </span>
-                <span aria-hidden="true" className="text-white/20">
-                  ·
-                </span>
-                <span className="font-mono-num text-[#9AA5A0]">
-                  Lv.{previewProfile.levelInfo.level}
-                </span>
+                {activeEquippedId && activeEquippedDef && (
+                  <>
+                    <span aria-hidden="true" className="text-white/20">
+                      ·
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('achievements')}
+                      title={`${activeEquippedDef.name}：${activeEquippedDef.description}`}
+                      className="inline-flex items-center gap-1 text-[#C8D0CC] hover:text-[#E8CF96] transition-colors cursor-pointer"
+                    >
+                      <AchievementMedalIcon id={activeEquippedId} size="xs" />
+                      <span className="truncate max-w-[104px]">{activeEquippedDef.name}</span>
+                    </button>
+                  </>
+                )}
               </div>
 
               {showRealEmail && (
@@ -1302,20 +1301,29 @@ export function PersonalCenterModal({
             );
           })() : (
             <div className="chat-scroll flex-1 overflow-y-auto px-5 py-5 sm:px-6 space-y-6">
-              {/* Emblem Gallery Section (Unboxed) */}
+              {/* Emblem Gallery Section (Unboxed, includes default name monogram + system emblems) */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-2.5">
-                  <span className="text-xs font-semibold text-[#EAE6DC]">俱乐部徽章</span>
+                  <div>
+                    <span className="text-xs font-semibold text-[#EAE6DC]">系统头像与自定义形象</span>
+                    <p className="mt-0.5 text-[11px] text-[#7E8883]">
+                      可选默认姓名头像、内置俱乐部徽章或上传本地图片
+                    </p>
+                  </div>
 
-                  <div className="flex items-center gap-2">
-                    {isCustomAvatarDataUrl(playerAvatar) && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {playerAvatar !== 'default' && (
                       <button
                         type="button"
-                        onClick={() => onUpdateAvatar('default')}
+                        data-testid="reset-default-avatar-btn"
+                        onClick={() => {
+                          setUploadError(null);
+                          onUpdateAvatar('default');
+                        }}
                         className="touch-manipulation inline-flex h-8 items-center gap-1 rounded border border-white/[0.12] px-2.5 text-xs text-[#9AA5A0] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer"
                       >
                         <RotateCcw className="h-3 w-3" aria-hidden="true" />
-                        <span>恢复默认</span>
+                        <span>恢复默认姓名</span>
                       </button>
                     )}
                     <button

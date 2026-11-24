@@ -977,12 +977,12 @@ export function HandReviewModal({
           ) : null}
         </div>
 
-        {/* Editorial Footer */}
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] bg-[#090B0C] px-5 py-3 sm:px-6">
-          <span className="text-[11px] text-[#7E8883]">
-            本场记录已同步至个人中心长期打法画像
+        {/* Editorial Footer (aligned to DESIGN.md: quiet note left, tertiary link -> secondary hairline -> primary brass right) */}
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] bg-[#090B0C] px-5 py-3.5 sm:px-6">
+          <span className="text-[11px] text-[#76807B]">
+            本场记录已同步至个人中心打法画像
           </span>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             {onOpenPersonalInsights && (
               <button
                 type="button"
@@ -991,7 +991,7 @@ export function HandReviewModal({
                   onClose();
                   onOpenPersonalInsights();
                 }}
-                className="inline-flex h-8 items-center gap-1.5 rounded border border-white/[0.12] bg-transparent px-3.5 text-xs font-medium text-[#E8CF96] hover:border-[#D4A853]/60 hover:bg-white/[0.05] transition-colors cursor-pointer whitespace-nowrap"
+                className="inline-flex h-8 items-center gap-1 px-1.5 text-xs font-medium text-[#D4A853] hover:text-[#F0DC9E] transition-colors cursor-pointer whitespace-nowrap"
               >
                 <span>查看打法画像</span>
                 <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1003,7 +1003,7 @@ export function HandReviewModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="h-8 rounded border border-white/[0.12] bg-transparent px-3.5 text-xs text-[#C6D0CB] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+                  className="inline-flex h-8 items-center rounded border border-white/[0.12] bg-transparent px-3.5 text-xs font-medium text-[#C8D0CC] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
                 >
                   留在牌桌
                 </button>
@@ -1024,7 +1024,7 @@ export function HandReviewModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="h-8 rounded border border-white/[0.12] bg-transparent px-4 text-xs text-[#C6D0CB] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+                className="inline-flex h-8 items-center rounded border border-white/[0.12] bg-transparent px-4 text-xs font-medium text-[#D6DDD9] hover:bg-white/[0.05] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
               >
                 返回牌桌
               </button>

@@ -201,6 +201,48 @@ test('resolvePlayerAvatarProfile updates dynamic rankTier (bronze/silver/gold/di
   assert.equal(diamond.rankTier, 'diamond');
   assert.equal(diamond.rankTierLabel, '钻石');
   assert.equal(diamond.leaderboardRank, 1);
+
+  const platinum = resolvePlayerAvatarProfile(
+    {
+      ...basePlayer,
+      achievements: ['streak_3', 'first_blood'],
+    },
+    [
+      {
+        playerName: '新牌手',
+        points: 1520,
+        netChips: 520,
+        handsPlayed: 14,
+        handsWon: 7,
+        bestHandName: '葫芦',
+        bestHandScore: 6000,
+        updatedAt: 1000,
+      },
+    ]
+  );
+  assert.equal(platinum.rankTier, 'platinum');
+  assert.equal(platinum.rankTierLabel, '铂金');
+
+  const master = resolvePlayerAvatarProfile(
+    {
+      ...basePlayer,
+      achievements: ['royal_legend', 'mega_pot', 'streak_5', 'first_blood'],
+    },
+    [
+      {
+        playerName: '新牌手',
+        points: 2200,
+        netChips: 1200,
+        handsPlayed: 32,
+        handsWon: 20,
+        bestHandName: '皇家同花顺',
+        bestHandScore: 99999,
+        updatedAt: 1000,
+      },
+    ]
+  );
+  assert.equal(master.rankTier, 'master');
+  assert.equal(master.rankTierLabel, '大师');
 });
 
 test('resolvePlayerAvatarProfile resolves strictly one equippedAchievement with explicit override and none option', () => {

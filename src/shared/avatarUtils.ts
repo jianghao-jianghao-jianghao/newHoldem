@@ -13,7 +13,7 @@ export interface AvatarPresetOption {
 }
 
 export const AVATAR_PRESETS: AvatarPresetOption[] = [
-  { id: 'default', label: '默认' },
+  { id: 'default', label: '默认姓名' },
   { id: 'spade', label: '黑桃' },
   { id: 'fox', label: '赤狐' },
   { id: 'owl', label: '夜枭' },

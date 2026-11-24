@@ -426,6 +426,71 @@ export function addPlayerToTable(
   return { ok: true };
 }
 
+/**
+ * Seamlessly migrates an existing human seat from an older session playerId to a new playerId
+ * (e.g., same logged-in account re-entering from a new tab or device), preventing duplicate seats.
+ */
+export function rebindPlayerIdInTable(
+  state: TableState,
+  oldPlayerId: string,
+  newPlayerId: string
+): boolean {
+  if (!oldPlayerId || !newPlayerId) return false;
+  if (oldPlayerId === newPlayerId) return true;
+  const player = state.players.find((p) => p.id === oldPlayerId && !p.isBot);
+  if (!player) return false;
+  if (state.players.some((p) => p.id === newPlayerId)) return false;
+
+  player.id = newPlayerId;
+  if (state.hostId === oldPlayerId) {
+    state.hostId = newPlayerId;
+  }
+  if (state.currentTurnPlayerId === oldPlayerId) {
+    state.currentTurnPlayerId = newPlayerId;
+  }
+  state.raiseLockedPlayerIds = state.raiseLockedPlayerIds.map((id) =>
+    id === oldPlayerId ? newPlayerId : id
+  );
+  state.currentHandVpipIds = state.currentHandVpipIds.map((id) =>
+    id === oldPlayerId ? newPlayerId : id
+  );
+  if (state.playerStats[oldPlayerId]) {
+    const existingNew = state.playerStats[newPlayerId];
+    const oldStats = state.playerStats[oldPlayerId];
+    state.playerStats[newPlayerId] = existingNew
+      ? {
+          ...oldStats,
+          playerId: newPlayerId,
+          handsPlayed: oldStats.handsPlayed + existingNew.handsPlayed,
+          vpipHands: oldStats.vpipHands + existingNew.vpipHands,
+          handsWon: oldStats.handsWon + existingNew.handsWon,
+          showdownReached: oldStats.showdownReached + existingNew.showdownReached,
+          showdownWon: oldStats.showdownWon + existingNew.showdownWon,
+          sessionNetChips: oldStats.sessionNetChips + existingNew.sessionNetChips,
+        }
+      : { ...oldStats, playerId: newPlayerId };
+    delete state.playerStats[oldPlayerId];
+  }
+  for (const act of state.currentHandActions) {
+    if (act.playerId === oldPlayerId) act.playerId = newPlayerId;
+  }
+  for (const w of state.winners) {
+    if (w.playerId === oldPlayerId) w.playerId = newPlayerId;
+  }
+  for (const h of state.handHistory) {
+    for (const hp of h.players) {
+      if (hp.id === oldPlayerId) hp.id = newPlayerId;
+    }
+    for (const ha of h.actions) {
+      if (ha.playerId === oldPlayerId) ha.playerId = newPlayerId;
+    }
+    for (const hw of h.winners) {
+      if (hw.playerId === oldPlayerId) hw.playerId = newPlayerId;
+    }
+  }
+  return true;
+}
+
 export function removePlayerFromTable(state: TableState, playerId: string): void {
   const idx = state.players.findIndex((p) => p.id === playerId);
   if (idx === -1) return;

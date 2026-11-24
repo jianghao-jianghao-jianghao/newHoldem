@@ -23,15 +23,21 @@ test('secretsMatch performs exact constant-time equality and rejects empty value
   assert.equal(secretsMatch('abc', null), false);
 });
 
-test('authorizeRoomDeletion blocks deleting default CLUB01 room even with valid host secret', () => {
-  const res = authorizeRoomDeletion(
-    makeSubject({ isDefault: true, roomId: 'CLUB01' }),
-    'host-1',
-    'secret-host-1',
-    true
-  );
-  assert.equal(res.ok, false);
-  assert.equal(res.status, 403);
+test('authorizeRoomDeletion allows deleting CLUB01 when empty or by its authenticated host', () => {
+  const emptyClub = makeSubject({
+    isDefault: true,
+    roomId: 'CLUB01',
+    hostId: null,
+    hasAnyHumanPlayer: false,
+    creatorId: null,
+    creatorSecret: null,
+    seatSecrets: new Map(),
+  });
+  assert.equal(authorizeRoomDeletion(emptyClub, 'any-user', null, true).ok, true);
+
+  const hostedClub = makeSubject({ isDefault: true, roomId: 'CLUB01' });
+  assert.equal(authorizeRoomDeletion(hostedClub, 'host-1', 'secret-host-1', true).ok, true);
+  assert.equal(authorizeRoomDeletion(hostedClub, 'guest-2', 'secret-host-1', true).ok, false);
 });
 
 test('authorizeRoomDeletion rejects spoofed X-Player-Id without valid X-Seat-Secret', () => {

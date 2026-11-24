@@ -8,6 +8,7 @@ import {
   DEFAULT_TURN_TIMEOUT_SEC,
   getAvailableActions,
   rebuyPlayerChips,
+  rebindPlayerIdInTable,
   removePlayerFromTable,
   resolveNextHandSeats,
   revealPlayerCards,
@@ -575,6 +576,24 @@ test('allowRebuy=false blocks mid-stack top-up and busted rebuy and exposes flag
 
   const view = sanitizeTableForPlayer(freezeoutTable, 'p1');
   assert.equal(view.allowRebuy, false);
+});
+
+test('rebindPlayerIdInTable seamlessly transfers an existing seat without duplicating the player', () => {
+  const table = createTableState('ROOM_REBIND', 10, 20, 2000);
+  addPlayerToTable(table, { id: 'old_tab', name: 'Alice', chips: 1850 });
+  addPlayerToTable(table, { id: 'p2', name: 'Bob', chips: 2150 });
+  startNewHand(table, () => 0.4, 1000);
+
+  assert.equal(table.hostId, 'old_tab');
+  assert.equal(table.currentTurnPlayerId, 'old_tab');
+  assert.equal(rebindPlayerIdInTable(table, 'old_tab', 'new_tab'), true);
+
+  assert.equal(table.players.length, 2);
+  assert.equal(table.players.filter((p) => p.name === 'Alice').length, 1);
+  assert.equal(table.hostId, 'new_tab');
+  assert.equal(table.currentTurnPlayerId, 'new_tab');
+  assert.ok(table.playerStats['new_tab']);
+  assert.equal(table.playerStats['old_tab'], undefined);
 });
 
 test('sanitizeTurnTimeoutSec clamps finite values and treats <=0 as unlimited (0)', () => {

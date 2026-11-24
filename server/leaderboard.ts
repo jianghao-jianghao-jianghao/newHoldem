@@ -508,9 +508,8 @@ export class LeaderboardStore {
     uid?: string | null
   ): boolean {
     const cleanName = playerName.trim();
-    if (!cleanName || !avatar) return false;
+    if (!cleanName || avatar === undefined) return false;
     const cleanAvatar = sanitizeAvatar(avatar);
-    if (cleanAvatar === 'default') return false;
     const existing = this.findExistingByNameOrUid(cleanName, uid);
     if (!existing) return false;
     if (existing.avatar === cleanAvatar) return false;

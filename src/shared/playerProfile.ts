@@ -22,13 +22,15 @@ function sortAchievementsByPrestige(ids: AchievementId[]): AchievementId[] {
   );
 }
 
-export type RankTier = 'bronze' | 'silver' | 'gold' | 'diamond';
+export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master';
 
 export const RANK_TIER_LABELS: Record<RankTier, string> = {
   bronze: '青铜',
   silver: '白银',
   gold: '黄金',
+  platinum: '铂金',
   diamond: '钻石',
+  master: '大师',
 };
 
 export interface PlayerLevelInfo {
@@ -47,6 +49,8 @@ export interface ResolvedPlayerAvatarProfile {
   levelInfo: PlayerLevelInfo;
   rankTier: RankTier;
   rankTierLabel: string;
+  rankScore: number;
+  winRatePct: number | null;
   leaderboardRank: number | null;
   points: number;
   handsPlayed: number;
@@ -290,34 +294,84 @@ export function computePlayerLevel(input: {
   return { level, title, tier, xp };
 }
 
+const RANK_HONOR_WEIGHT: Record<AchievementTier, number> = {
+  bronze: 28,
+  silver: 58,
+  gold: 110,
+  obsidian: 210,
+};
+
+/**
+ * Computes the player's competitive club Rank Tier purely from win rate (with Bayesian
+ * sample-size stabilization), unlocked honors/medals, match experience, and leaderboard standing.
+ */
 export function computeLeaderboardRankTier(params: {
   leaderboardRank: number | null;
   points: number;
-  level: number;
+  handsPlayed?: number;
+  handsWon?: number;
+  level?: number;
   achievements?: AchievementId[];
-}): { rankTier: RankTier; rankTierLabel: string } {
-  const hasObsidian = (params.achievements ?? []).some(
-    (id) => ACHIEVEMENT_MAP.get(id)?.tier === 'obsidian'
-  );
+}): { rankTier: RankTier; rankTierLabel: string; rankScore: number } {
+  const achievements = sanitizeAchievementIds(params.achievements);
+  let honorScore = 0;
+  let obsidianCount = 0;
+  let goldCount = 0;
+  for (const id of achievements) {
+    const def = ACHIEVEMENT_MAP.get(id);
+    if (!def) continue;
+    honorScore += RANK_HONOR_WEIGHT[def.tier];
+    if (def.tier === 'obsidian') obsidianCount += 1;
+    if (def.tier === 'gold') goldCount += 1;
+  }
+
+  const handsPlayed = Math.max(0, Math.floor(params.handsPlayed ?? 0));
+  const handsWon = Math.max(0, Math.min(handsPlayed, Math.floor(params.handsWon ?? 0)));
+  const rawWinRate = handsPlayed > 0 ? handsWon / handsPlayed : 0;
+  // Bayesian confidence weight so a single lucky hand doesn't inflate tier
+  const sampleConfidence = handsPlayed / (handsPlayed + 6);
+  const winRateScore =
+    handsPlayed > 0 ? Math.max(0, Math.round((rawWinRate - 0.18) * 480 * sampleConfidence)) : 0;
+
+  const pointsDelta = Math.max(0, Math.round((params.points - 1000) * 0.42));
+  const experienceScore = Math.min(110, handsPlayed * 3);
+  const rankBonus =
+    params.leaderboardRank === 1 && handsPlayed >= 8
+      ? 40
+      : params.leaderboardRank !== null && params.leaderboardRank <= 3 && handsPlayed >= 6
+        ? 20
+        : 0;
+
+  const rankScore = honorScore + winRateScore + pointsDelta + experienceScore + rankBonus;
+
   if (
-    hasObsidian ||
-    (params.leaderboardRank === 1 && params.points >= 1600) ||
+    rankScore >= 860 ||
+    (obsidianCount >= 1 && handsPlayed >= 15 && rawWinRate >= 0.48 && params.points >= 1800)
+  ) {
+    return { rankTier: 'master', rankTierLabel: RANK_TIER_LABELS.master, rankScore };
+  }
+  if (
+    rankScore >= 600 ||
+    (obsidianCount >= 1 && handsPlayed >= 8) ||
     params.points >= 1800 ||
-    params.level >= 10
+    (handsPlayed >= 14 && rawWinRate >= 0.55 && goldCount >= 2)
   ) {
-    return { rankTier: 'diamond', rankTierLabel: RANK_TIER_LABELS.diamond };
+    return { rankTier: 'diamond', rankTierLabel: RANK_TIER_LABELS.diamond, rankScore };
+  }
+  if (rankScore >= 420 || (handsPlayed >= 12 && rawWinRate >= 0.48 && achievements.length >= 3)) {
+    return { rankTier: 'platinum', rankTierLabel: RANK_TIER_LABELS.platinum, rankScore };
   }
   if (
-    (params.leaderboardRank !== null && params.leaderboardRank <= 3 && params.points >= 1300) ||
+    rankScore >= 260 ||
     params.points >= 1400 ||
-    params.level >= 6
+    (handsPlayed >= 8 && rawWinRate >= 0.42 && achievements.length >= 2)
   ) {
-    return { rankTier: 'gold', rankTierLabel: RANK_TIER_LABELS.gold };
+    return { rankTier: 'gold', rankTierLabel: RANK_TIER_LABELS.gold, rankScore };
   }
-  if (params.points >= 1150 || params.level >= 3) {
-    return { rankTier: 'silver', rankTierLabel: RANK_TIER_LABELS.silver };
+  if (rankScore >= 110 || params.points >= 1150 || achievements.length >= 2) {
+    return { rankTier: 'silver', rankTierLabel: RANK_TIER_LABELS.silver, rankScore };
   }
-  return { rankTier: 'bronze', rankTierLabel: RANK_TIER_LABELS.bronze };
+  return { rankTier: 'bronze', rankTierLabel: RANK_TIER_LABELS.bronze, rankScore };
 }
 
 export function resolvePlayerAvatarProfile(
@@ -399,12 +453,15 @@ export function resolvePlayerAvatarProfile(
     explicitLevel: Math.max(player.level ?? 0, lbEntry?.level ?? 0) || undefined,
   });
 
-  const { rankTier, rankTierLabel } = computeLeaderboardRankTier({
+  const { rankTier, rankTierLabel, rankScore } = computeLeaderboardRankTier({
     leaderboardRank,
     points,
-    level: levelInfo.level,
+    handsPlayed,
+    handsWon,
     achievements: mergedAchievements,
   });
+
+  const winRatePct = handsPlayed > 0 ? Math.round((handsWon / handsPlayed) * 100) : null;
 
   const preferredEquipped =
     sanitizeEquippedAchievement(player.equippedAchievement) ??
@@ -421,6 +478,8 @@ export function resolvePlayerAvatarProfile(
     levelInfo,
     rankTier,
     rankTierLabel,
+    rankScore,
+    winRatePct,
     leaderboardRank,
     points,
     handsPlayed,

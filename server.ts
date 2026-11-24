@@ -37,6 +37,7 @@ import {
   DEFAULT_SMALL_BLIND,
   STARTING_CHIPS,
   rebuyPlayerChips,
+  rebindPlayerIdInTable,
   removePlayerFromTable,
   revealPlayerCards,
   sanitizeTableForPlayer,
@@ -423,9 +424,6 @@ function deleteRoomById(roomId: string): { ok: boolean; error?: string } {
   if (!ctx) {
     return { ok: false, error: '牌桌不存在或已被删除' };
   }
-  if (ctx.isDefault || id === 'CLUB01') {
-    return { ok: false, error: '默认俱乐部大厅桌不可删除' };
-  }
 
   clearRoomTimers(ctx);
   ctx.deepseekApiKey = null;
@@ -450,9 +448,6 @@ function deleteRoomById(roomId: string): { ok: boolean; error?: string } {
   }
 
   rooms.delete(id);
-  if (rooms.size === 0) {
-    ensureDefaultClubRoom();
-  }
   broadcastRoomsList();
   return { ok: true };
 }
@@ -1817,22 +1812,78 @@ async function startServer() {
             return;
           }
 
-          const existingPlayer = ctx.state.players.find((p) => p.id === cleanId);
+          const verifiedAccount =
+            typeof msg.authToken === 'string'
+              ? authStore.verifySessionToken(msg.authToken)
+              : null;
+          const verifiedUid = verifiedAccount?.uid ?? null;
+          session.verifiedUid = verifiedUid;
+
+          const incomingSecret =
+            typeof msg.seatSecret === 'string' ? msg.seatSecret.trim().slice(0, 64) : '';
+
+          // Deduplicate same authenticated user re-entering from another tab/device with a different playerId
+          let existingPlayer = ctx.state.players.find((p) => p.id === cleanId);
+          if (!existingPlayer && verifiedUid) {
+            const sameAccountSeat = ctx.state.players.find(
+              (p) => !p.isBot && ctx.playerUids.get(p.id) === verifiedUid
+            );
+            if (sameAccountSeat) {
+              const oldId = sameAccountSeat.id;
+              const oldKey = `${targetRoomId}:${oldId}`;
+              const oldTimer = disconnectTimers.get(oldKey);
+              if (oldTimer) {
+                clearTimeout(oldTimer);
+                disconnectTimers.delete(oldKey);
+              }
+              for (const other of sessions.values()) {
+                if (other !== session && other.roomId === targetRoomId && other.playerId === oldId) {
+                  other.roomId = null;
+                  other.playerId = null;
+                  try {
+                    other.ws.terminate();
+                  } catch {
+                    // Ignore already-closed zombie socket
+                  }
+                }
+              }
+              if (rebindPlayerIdInTable(ctx.state, oldId, cleanId)) {
+                ctx.seatSecrets.delete(oldId);
+                if (incomingSecret) {
+                  ctx.seatSecrets.set(cleanId, incomingSecret);
+                }
+                ctx.playerUids.delete(oldId);
+                ctx.playerUids.set(cleanId, verifiedUid);
+                const prevTimeouts = ctx.consecutiveTimeouts.get(oldId);
+                ctx.consecutiveTimeouts.delete(oldId);
+                if (prevTimeouts !== undefined) {
+                  ctx.consecutiveTimeouts.set(cleanId, prevTimeouts);
+                }
+                const prevDeparted = ctx.departedChips.get(oldId);
+                if (prevDeparted !== undefined) {
+                  ctx.departedChips.delete(oldId);
+                  ctx.departedChips.set(cleanId, prevDeparted);
+                }
+                existingPlayer = sameAccountSeat;
+              }
+            }
+          }
+
           if (existingPlayer?.isBot) {
             sendJson(ws, { type: 'error', message: '不可接管陪练 AI 座位' });
             return;
           }
 
-          const incomingSecret =
-            typeof msg.seatSecret === 'string' ? msg.seatSecret.trim().slice(0, 64) : '';
           const storedSecret = ctx.seatSecrets.get(cleanId);
 
           if (existingPlayer) {
-            if (storedSecret && !secretsMatch(storedSecret, incomingSecret)) {
+            const sameVerifiedOwner =
+              Boolean(verifiedUid) && ctx.playerUids.get(cleanId) === verifiedUid;
+            if (storedSecret && !sameVerifiedOwner && !secretsMatch(storedSecret, incomingSecret)) {
               sendJson(ws, { type: 'error', message: '该座位已被其他会话占用' });
               return;
             }
-            if (!storedSecret) {
+            if (!storedSecret && !sameVerifiedOwner) {
               for (const other of sessions.values()) {
                 if (
                   other !== session &&
@@ -1860,6 +1911,9 @@ async function startServer() {
                   }
                 }
               }
+              if (sameVerifiedOwner && incomingSecret) {
+                ctx.seatSecrets.set(cleanId, incomingSecret);
+              }
             }
           }
 
@@ -1873,13 +1927,6 @@ async function startServer() {
             clearTimeout(pendingDisconnect);
             disconnectTimers.delete(key);
           }
-
-          const verifiedAccount =
-            typeof msg.authToken === 'string'
-              ? authStore.verifySessionToken(msg.authToken)
-              : null;
-          const verifiedUid = verifiedAccount?.uid ?? null;
-          session.verifiedUid = verifiedUid;
 
           const lbProfile = leaderboard.getPlayerProfile(cleanName, verifiedUid);
           let authoritativeAch: AchievementId[];
@@ -1905,13 +1952,10 @@ async function startServer() {
             authoritativeStreak = lbProfile.currentWinStreak;
           }
 
-          const incomingAvatar = sanitizeAvatar(
-            typeof msg.avatar === 'string' ? msg.avatar : undefined
-          );
           const resolvedAvatar =
-            incomingAvatar !== 'default'
-              ? incomingAvatar
-              : verifiedAccount?.avatar && verifiedAccount.avatar !== 'default'
+            typeof msg.avatar === 'string'
+              ? sanitizeAvatar(msg.avatar)
+              : verifiedAccount?.avatar
                 ? sanitizeAvatar(verifiedAccount.avatar)
                 : lbProfile.avatar
                   ? sanitizeAvatar(lbProfile.avatar)

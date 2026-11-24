@@ -628,13 +628,39 @@ export function PokerTable({
       : null;
 
   const handleCopyInvite = async () => {
-    const url = `${window.location.origin}/?room=${encodeURIComponent(table.roomId)}`;
-    try {
-      await navigator.clipboard.writeText(url);
+    const basePath = window.location.pathname || '/';
+    const url = `${window.location.origin}${basePath}?room=${encodeURIComponent(table.roomId)}`;
+    let ok = false;
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(url);
+        ok = true;
+      } catch {
+        ok = false;
+      }
+    }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.setAttribute('readonly', 'true');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        ta.style.pointerEvents = 'none';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, url.length);
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {
+        ok = false;
+      }
+    }
+    if (ok) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setCopied(false);
+      window.setTimeout(() => setCopied(false), 2000);
+    } else {
+      window.prompt(`复制邀请链接发送给好友（房号 ${table.roomId}）：`, url);
     }
   };
 
@@ -1162,56 +1188,54 @@ export function PokerTable({
                   data-testid="topup-chips-btn"
                   disabled={isReconnecting}
                   onClick={onRebuy}
-                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#34D399]/35 bg-[#0F2119]/90 px-3.5 text-xs sm:text-sm font-semibold text-[#6EE7B7] hover:bg-[#152E23] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                  className="touch-manipulation flex h-11 sm:h-9 items-center gap-1.5 rounded border border-[#D4A853]/35 bg-[#0B0E10]/90 px-3.5 text-xs sm:text-sm font-medium text-[#E8CF96] hover:border-[#D4A853]/70 hover:bg-[#171510] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                  <RefreshCw className="h-3.5 w-3.5 text-[#D4A853]" aria-hidden="true" />
                   <span>补满筹码 ({table.startingChips.toLocaleString()})</span>
                 </button>
               )}
             </div>
           )}
 
-          {/* Always-Accessible Busted Rebuy / Freezeout Banner */}
+          {/* Restrained Busted Rebuy / Freezeout Banner (matches DESIGN.md) */}
           {isSelfBusted && (
             <div
               data-testid="busted-rebuy-banner"
-              className={`pointer-events-auto flex flex-wrap items-center justify-center gap-2.5 rounded-lg border px-4 py-2 text-xs sm:text-sm shadow-lg ${
-                allowRebuy
-                  ? 'border-[#34D399]/40 bg-[#0C1D16]/94 text-[#D8F3E5]'
-                  : 'border-[#F59E0B]/35 bg-[#1B150B]/94 text-[#FDE68A]'
-              }`}
+              className="pointer-events-auto flex flex-wrap items-center justify-center gap-3 rounded-md border border-white/[0.12] border-l-2 border-l-[#D4A853] bg-[#0B0E10]/95 backdrop-blur-md px-4 py-2.5 text-xs text-[#D6DDD9] shadow-[0_12px_32px_rgba(0,0,0,0.65)]"
             >
               <span>
                 {allowRebuy
-                  ? '筹码不足无法参与本局，可立即补充筹码并在下局继续上桌'
+                  ? '筹码不足无法参与本局，可补充筹码后在下局继续上桌'
                   : '筹码已归零出局，本牌桌未开启补充筹码，可继续观战或复盘本场牌局'}
               </span>
-              {allowRebuy && (
-                <button
-                  type="button"
-                  data-testid="rebuy-chips-btn"
-                  disabled={isReconnecting}
-                  onClick={onRebuy}
-                  className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>立即补充筹码 ({table.startingChips.toLocaleString()})</span>
-                </button>
-              )}
-              {hasCompletedHands && (
-                <button
-                  type="button"
-                  data-testid="busted-review-session-btn"
-                  disabled={isReconnecting}
-                  onClick={() => {
-                    setHandReviewMode('leaving');
-                    setHandReviewOpen(true);
-                  }}
-                  className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded border border-[#C9A25B]/55 bg-[#16130E]/92 px-3.5 text-xs font-medium text-[#EFE3C4] hover:bg-[#221D15] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <span>结束并复盘</span>
-                </button>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {allowRebuy && (
+                  <button
+                    type="button"
+                    data-testid="rebuy-chips-btn"
+                    disabled={isReconnecting}
+                    onClick={onRebuy}
+                    className="touch-manipulation inline-flex h-8 items-center gap-1.5 rounded bg-[#D4A853] px-3.5 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>补充筹码 ({table.startingChips.toLocaleString()})</span>
+                  </button>
+                )}
+                {hasCompletedHands && (
+                  <button
+                    type="button"
+                    data-testid="busted-review-session-btn"
+                    disabled={isReconnecting}
+                    onClick={() => {
+                      setHandReviewMode('leaving');
+                      setHandReviewOpen(true);
+                    }}
+                    className="touch-manipulation inline-flex h-8 items-center rounded border border-white/[0.12] bg-transparent px-3.5 text-xs font-medium text-[#C8D0CC] hover:bg-white/[0.06] hover:text-white transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <span>结束并复盘</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

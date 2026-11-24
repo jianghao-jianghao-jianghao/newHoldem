@@ -219,12 +219,12 @@ export function SeatNode({
             ))}
 
           {(isDealer || isSmallBlind || isBigBlind) && (
-            <div className="absolute -top-3 -right-2 z-20 flex items-center gap-1">
+            <div className="absolute -top-2.5 right-2 z-20 flex items-center gap-1">
               {isDealer && (
                 <span
                   title="庄家 (Dealer)"
                   data-testid={`badge-dealer-${player.id}`}
-                  className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#D4A853] bg-[#F7F1E3] text-[11px] font-black text-[#0F1210] shadow-[0_3px_10px_rgba(0,0,0,0.65)] ring-1 ring-black/40"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#D4A853]/85 bg-[#EAE2CF] text-[10px] font-black text-[#0F1210] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
                 >
                   D
                 </span>
@@ -233,9 +233,9 @@ export function SeatNode({
                 <span
                   title="小盲位 (Small Blind)"
                   data-testid={`badge-sb-${player.id}`}
-                  className="inline-flex h-6 items-center gap-1 rounded-full border-[1.5px] border-[#9CE2F4] bg-[#0D5970] px-2 text-[10px] font-bold tracking-tight text-white shadow-[0_3px_10px_rgba(0,0,0,0.65)] ring-1 ring-black/40"
+                  className="inline-flex h-5 items-center gap-1 rounded border border-[#7BA6B8]/55 bg-[#0D1A21]/95 px-1.5 text-[10px] font-semibold tracking-tight text-[#C7E0EB] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
                 >
-                  <span className="font-mono-num font-black text-[#BDF0FC]">SB</span>
+                  <span className="font-mono-num font-bold text-[#95C7DC]">SB</span>
                   <span>小盲</span>
                 </span>
               )}
@@ -243,9 +243,9 @@ export function SeatNode({
                 <span
                   title="大盲位 (Big Blind)"
                   data-testid={`badge-bb-${player.id}`}
-                  className="inline-flex h-6 items-center gap-1 rounded-full border-[1.5px] border-[#F2C86B] bg-[#9C2218] px-2 text-[10px] font-bold tracking-tight text-white shadow-[0_3px_10px_rgba(0,0,0,0.65)] ring-1 ring-black/40"
+                  className="inline-flex h-5 items-center gap-1 rounded border border-[#C98574]/55 bg-[#221110]/95 px-1.5 text-[10px] font-semibold tracking-tight text-[#F0D3C8] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
                 >
-                  <span className="font-mono-num font-black text-[#FDE4A3]">BB</span>
+                  <span className="font-mono-num font-bold text-[#E8CF96]">BB</span>
                   <span>大盲</span>
                 </span>
               )}
@@ -253,7 +253,7 @@ export function SeatNode({
           )}
 
           <div className="flex items-center gap-3">
-            {/* Self Avatar: Canvas dynamic impact bubble anchored directly above avatar */}
+            {/* Self Avatar: Clean portrait with zero overlapping corner clutter */}
             <div className="relative shrink-0 overflow-visible">
               <AvatarImpactBubbleCanvas
                 event={impactFx}
@@ -284,11 +284,7 @@ export function SeatNode({
                   avatar={resolved.avatar}
                   name={player.name}
                   size="lg"
-                  level={resolved.levelInfo.level}
-                  levelTier={resolved.levelInfo.tier}
-                  levelTitle={resolved.levelInfo.title}
                   rankTier={resolved.rankTier}
-                  showLevelBadge={!isFolded}
                   showRankAura={!isFolded}
                   className={`group-hover:border-[#E8CF96] transition-all ${
                     isFolded ? 'grayscale brightness-60 opacity-65' : ''
@@ -303,41 +299,31 @@ export function SeatNode({
                   FOLD
                 </span>
               )}
-              {(isSmallBlind || isBigBlind) && (
-                <span
-                  aria-label={isSmallBlind ? '小盲位 SB' : '大盲位 BB'}
-                  title={isSmallBlind ? '小盲位 (SB)' : '大盲位 (BB)'}
-                  data-testid={`avatar-blind-icon-${player.id}`}
-                  className={`pointer-events-none absolute -bottom-1 -left-1.5 z-20 flex h-5 min-w-5 items-center justify-center rounded-full border-[1.5px] px-1 font-mono-num text-[9px] font-black leading-none shadow-[0_2px_8px_rgba(0,0,0,0.75)] ${
-                    isSmallBlind
-                      ? 'border-[#9CE2F4] bg-[#0D5970] text-white'
-                      : 'border-[#F2C86B] bg-[#9C2218] text-[#FFF8E6]'
-                  }`}
-                >
-                  {isSmallBlind ? 'SB' : 'BB'}
-                </span>
-              )}
-              <AvatarAchievementShowcase
-                equippedAchievement={resolved.equippedAchievement}
-                achievementDates={resolved.achievementDates}
-                size="sm"
-                tooltipPlacement="top"
-                onOpenAchievements={() =>
-                  onInspectPlayer ? onInspectPlayer(player.id) : onOpenAchievements?.()
-                }
-                className="absolute -top-1.5 -right-1.5 z-20"
-              />
             </div>
 
-            <div className="min-w-0 flex-1 pl-1">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1.5">
-                <span
-                  className={`truncate text-xs sm:text-sm font-semibold max-w-[132px] sm:max-w-[168px] ${
-                    isFolded ? 'line-through text-[#6E7772]' : 'text-[#F3F1EC]'
-                  }`}
-                >
-                  {player.name}
-                </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span
+                    className={`truncate text-xs sm:text-sm font-semibold max-w-[120px] sm:max-w-[152px] ${
+                      isFolded ? 'line-through text-[#6E7772]' : 'text-[#F3F1EC]'
+                    }`}
+                  >
+                    {player.name}
+                  </span>
+                  {resolved.equippedAchievement && (
+                    <AvatarAchievementShowcase
+                      equippedAchievement={resolved.equippedAchievement}
+                      achievementDates={resolved.achievementDates}
+                      size="xs"
+                      tooltipPlacement="top"
+                      onOpenAchievements={() =>
+                        onInspectPlayer ? onInspectPlayer(player.id) : onOpenAchievements?.()
+                      }
+                      className="shrink-0"
+                    />
+                  )}
+                </div>
                 {nextBlindRole && (
                   <span
                     data-testid={`next-blind-${player.id}`}
@@ -464,12 +450,12 @@ export function SeatNode({
         )}
 
         {(isDealer || isSmallBlind || isBigBlind) && (
-          <div className="absolute -top-3 -right-2 z-20 flex items-center gap-1">
+          <div className="absolute -top-2.5 right-2 z-20 flex items-center gap-1">
             {isDealer && (
               <span
                 title="庄家 (Dealer)"
                 data-testid={`badge-dealer-${player.id}`}
-                className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#D4A853] bg-[#F7F1E3] text-[10px] font-black text-[#0F1210] shadow-[0_3px_10px_rgba(0,0,0,0.65)] ring-1 ring-black/40"
+                className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#D4A853]/85 bg-[#EAE2CF] text-[9.5px] font-black text-[#0F1210] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
               >
                 D
               </span>
@@ -478,9 +464,9 @@ export function SeatNode({
               <span
                 title="小盲位 (Small Blind)"
                 data-testid={`badge-sb-${player.id}`}
-                className="inline-flex h-5 items-center gap-0.5 rounded-full border-[1.5px] border-[#9CE2F4] bg-[#0D5970] px-1.5 text-[10px] font-bold tracking-tight text-white shadow-[0_3px_10px_rgba(0,0,0,0.65)] ring-1 ring-black/40"
+                className="inline-flex h-[18px] items-center gap-0.5 rounded border border-[#7BA6B8]/55 bg-[#0D1A21]/95 px-1.5 text-[9.5px] font-semibold tracking-tight text-[#C7E0EB] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
               >
-                <span className="font-mono-num font-black text-[#BDF0FC]">SB</span>
+                <span className="font-mono-num font-bold text-[#95C7DC]">SB</span>
                 <span>小盲</span>
               </span>
             )}
@@ -488,9 +474,9 @@ export function SeatNode({
               <span
                 title="大盲位 (Big Blind)"
                 data-testid={`badge-bb-${player.id}`}
-                className="inline-flex h-5 items-center gap-0.5 rounded-full border-[1.5px] border-[#F2C86B] bg-[#9C2218] px-1.5 text-[10px] font-bold tracking-tight text-white shadow-[0_3px_10px_rgba(0,0,0,0.65)] ring-1 ring-black/40"
+                className="inline-flex h-[18px] items-center gap-0.5 rounded border border-[#C98574]/55 bg-[#221110]/95 px-1.5 text-[9.5px] font-semibold tracking-tight text-[#F0D3C8] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
               >
-                <span className="font-mono-num font-black text-[#FDE4A3]">BB</span>
+                <span className="font-mono-num font-bold text-[#E8CF96]">BB</span>
                 <span>大盲</span>
               </span>
             )}
@@ -509,7 +495,7 @@ export function SeatNode({
         )}
 
         <div className="flex items-center gap-2.5">
-          {/* Opponent Avatar: Canvas dynamic impact bubble anchored directly above avatar */}
+          {/* Opponent Avatar: Clean portrait with zero overlapping corner clutter */}
           <div className="relative shrink-0 overflow-visible">
             <AvatarImpactBubbleCanvas
               event={impactFx}
@@ -540,13 +526,9 @@ export function SeatNode({
                 avatar={resolved.avatar}
                 name={player.name}
                 size="sm"
-                level={resolved.levelInfo.level}
-                levelTier={resolved.levelInfo.tier}
-                levelTitle={resolved.levelInfo.title}
                 rankTier={resolved.rankTier}
-                showLevelBadge={!isFolded}
                 showRankAura={!isFolded}
-                className={`group-hover:border-[#E8CF96] group-hover:ring-2 group-hover:ring-[#D4A853]/30 transition-all ${
+                className={`group-hover:border-[#E8CF96] transition-all ${
                   isFolded ? 'grayscale brightness-60 opacity-60' : ''
                 }`}
               />
@@ -560,42 +542,28 @@ export function SeatNode({
                 FOLD
               </span>
             )}
-
-            {(isSmallBlind || isBigBlind) && (
-              <span
-                aria-label={isSmallBlind ? '小盲位 SB' : '大盲位 BB'}
-                title={isSmallBlind ? '小盲位 (SB)' : '大盲位 (BB)'}
-                data-testid={`avatar-blind-icon-${player.id}`}
-                className={`pointer-events-none absolute -bottom-1 -left-1.5 z-20 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 font-mono-num text-[8.5px] font-black leading-none shadow-[0_2px_6px_rgba(0,0,0,0.75)] ${
-                  isSmallBlind
-                    ? 'border-[#9CE2F4] bg-[#0D5970] text-white'
-                    : 'border-[#F2C86B] bg-[#9C2218] text-[#FFF8E6]'
-                }`}
-              >
-                {isSmallBlind ? 'SB' : 'BB'}
-              </span>
-            )}
-
-            <AvatarAchievementShowcase
-              equippedAchievement={resolved.equippedAchievement}
-              achievementDates={resolved.achievementDates}
-              size="xs"
-              tooltipPlacement="bottom"
-              onOpenAchievements={() => onInspectPlayer?.(player.id)}
-              className="absolute -top-1.5 -right-1.5 z-20"
-            />
           </div>
 
-          <div className="min-w-0 flex-1 pl-0.5">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-1">
               <div className="flex items-center gap-1.5 min-w-0">
                 <span
-                  className={`truncate text-xs font-semibold max-w-[82px] sm:max-w-[106px] ${
+                  className={`truncate text-xs font-semibold max-w-[78px] sm:max-w-[98px] ${
                     isFolded ? 'line-through text-[#6E7772]' : 'text-[#F3F1EC]'
                   }`}
                 >
                   {player.name}
                 </span>
+                {resolved.equippedAchievement && (
+                  <AvatarAchievementShowcase
+                    equippedAchievement={resolved.equippedAchievement}
+                    achievementDates={resolved.achievementDates}
+                    size="xs"
+                    tooltipPlacement="bottom"
+                    onOpenAchievements={() => onInspectPlayer?.(player.id)}
+                    className="shrink-0"
+                  />
+                )}
                 {player.isBot && (
                   <span className="shrink-0 text-[10px] font-normal text-[#7B8580]">
                     陪练

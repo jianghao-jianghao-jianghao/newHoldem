@@ -9,6 +9,7 @@ interface SeatEntryModalProps {
   tableName: string;
   initialName: string;
   initialAvatar: string;
+  isAuthenticated?: boolean;
   onClose: () => void;
   onConfirm: (playerName: string, avatar: string) => void;
 }
@@ -19,6 +20,7 @@ export function SeatEntryModal({
   tableName,
   initialName,
   initialAvatar,
+  isAuthenticated = false,
   onClose,
   onConfirm,
 }: SeatEntryModalProps) {
@@ -129,44 +131,60 @@ export function SeatEntryModal({
             />
           </div>
 
-          <div>
-            <div className="mb-2.5 flex items-center justify-between">
-              <span className="text-xs font-medium text-[#A9B3AE]">头像</span>
-              {isCustomAvatarDataUrl(avatar) && (
-                <span className="text-[11px] text-[#D4A853]">已使用自定义头像</span>
-              )}
+          {isAuthenticated ? (
+            <div className="flex items-center gap-3 border-y border-white/[0.08] py-3">
+              <PlayerAvatar
+                avatar={sanitizeAvatar(initialAvatar)}
+                name={name.trim() || 'V'}
+                size="md"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium text-[#DEDAD2]">沿用账号当前头像</div>
+                <p className="mt-0.5 text-[11px] text-[#7E8883]">
+                  已登录账号无需重复选头像，可随时在个人中心更换
+                </p>
+              </div>
             </div>
+          ) : (
+            <div>
+              <div className="mb-2.5 flex items-center justify-between">
+                <span className="text-xs font-medium text-[#A9B3AE]">头像</span>
+                {isCustomAvatarDataUrl(avatar) && (
+                  <span className="text-[11px] text-[#D4A853]">已使用自定义头像</span>
+                )}
+              </div>
 
-            <div className="grid grid-cols-7 gap-1.5">
-              {AVATAR_PRESETS.map((preset) => {
-                const selected = avatar === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    data-testid={`seat-avatar-${preset.id}`}
-                    aria-label={`选择头像 ${preset.label}`}
-                    aria-pressed={selected}
-                    onClick={() => setAvatar(preset.id)}
-                    className={`touch-manipulation flex flex-col items-center justify-center gap-1 rounded-md py-2 transition-colors cursor-pointer ${
-                      selected
-                        ? 'bg-[#D4A853]/16 text-[#F5E4B8] ring-1 ring-[#D4A853]/70'
-                        : 'text-[#848F8A] hover:bg-white/[0.05] hover:text-[#E2E8E5]'
-                    }`}
-                  >
-                    <PlayerAvatar
-                      avatar={preset.id}
-                      name={name.trim() || 'V'}
-                      size="sm"
-                    />
-                    <span className="text-[10px] leading-none whitespace-nowrap">
-                      {preset.label}
-                    </span>
-                  </button>
-                );
-              })}
+              <div className="grid grid-cols-7 gap-1.5">
+                {AVATAR_PRESETS.map((preset) => {
+                  const selected = avatar === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      data-testid={`seat-avatar-${preset.id}`}
+                      aria-label={`选择头像 ${preset.label}`}
+                      aria-pressed={selected}
+                      onClick={() => setAvatar(preset.id)}
+                      className={`touch-manipulation flex flex-col items-center justify-center gap-1 rounded-md py-2 transition-colors cursor-pointer ${
+                        selected
+                          ? 'bg-[#D4A853]/16 text-[#F5E4B8] ring-1 ring-[#D4A853]/70'
+                          : 'text-[#848F8A] hover:bg-white/[0.05] hover:text-[#E2E8E5]'
+                      }`}
+                    >
+                      <PlayerAvatar
+                        avatar={preset.id}
+                        name={name.trim() || 'V'}
+                        size="sm"
+                      />
+                      <span className="text-[10px] leading-none whitespace-nowrap">
+                        {preset.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           {localError && (
             <p role="alert" className="text-xs font-medium text-[#F87171]">

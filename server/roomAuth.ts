@@ -29,11 +29,11 @@ export function secretsMatch(expected: string | null | undefined, provided: stri
 
 /**
  * Verifies whether a requester is authorized to delete a room.
- * - Default CLUB01 room can never be deleted.
  * - When any human player is seated in the room (including during a transient disconnect grace period),
  *   only the room host may delete it; HTTP requests MUST also present the matching X-Seat-Secret.
- * - When a custom room is empty but bound to a creator secret, only that creator with the matching
+ * - When a room is empty and bound to a creator secret, only that creator with the matching
  *   X-Player-Id + X-Seat-Secret may delete it.
+ * - Empty unbound rooms (including the initial CLUB01 lobby table) may be deleted cleanly.
  */
 export function authorizeRoomDeletion(
   subject: RoomDeleteAuthSubject,
@@ -41,10 +41,6 @@ export function authorizeRoomDeletion(
   requesterSeatSecret: string | null | undefined,
   requireSecretCheck = true
 ): RoomDeleteAuthResult {
-  if (subject.isDefault || subject.roomId === 'CLUB01') {
-    return { ok: false, status: 403, error: '默认俱乐部大厅桌不可删除' };
-  }
-
   const cleanRequesterId = requesterPlayerId?.trim() || null;
   const cleanRequesterSecret = requesterSeatSecret?.trim() || null;
 
