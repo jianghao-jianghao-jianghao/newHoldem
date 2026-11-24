@@ -221,6 +221,71 @@ export function resolveNextHandSeats(state: TableState): NextBlindPreview {
   };
 }
 
+/**
+ * Determines which human player is authorized to start / trigger the next hand early.
+ * - Whoever currently holds the Dealer button (庄位: `dealerSeatIndex` in showdown, or
+ *   `previewDealerSeatIndex` in waiting) decides whether to start the next hand early.
+ * - If the Dealer seat is occupied by a Bot (or offline/absent), falls back to the room host
+ *   (or first seated human) so solo-vs-bot practice tables never stall.
+ */
+export function resolveNextHandStarter(
+  state: {
+    phase: TableState['phase'];
+    hostId: string | null;
+    dealerSeatIndex: number;
+    players: Array<{ id: string; name: string; seatIndex: number; isBot: boolean; connected: boolean }>;
+  },
+  previewDealerSeatIndex?: number | null
+): {
+  starterPlayerId: string | null;
+  starterPlayerName: string | null;
+  isDealerControlled: boolean;
+} {
+  const effectiveDealerSeat =
+    state.phase === 'waiting'
+      ? (previewDealerSeatIndex ?? (state.dealerSeatIndex >= 0 ? state.dealerSeatIndex : null))
+      : state.dealerSeatIndex >= 0
+        ? state.dealerSeatIndex
+        : (previewDealerSeatIndex ?? null);
+
+  if (effectiveDealerSeat !== null && effectiveDealerSeat >= 0) {
+    const dealer = state.players.find((p) => p.seatIndex === effectiveDealerSeat);
+    if (dealer && !dealer.isBot && dealer.connected) {
+      return {
+        starterPlayerId: dealer.id,
+        starterPlayerName: dealer.name,
+        isDealerControlled: true,
+      };
+    }
+  }
+
+  if (state.hostId) {
+    const host = state.players.find((p) => p.id === state.hostId && !p.isBot && p.connected);
+    if (host) {
+      return {
+        starterPlayerId: host.id,
+        starterPlayerName: host.name,
+        isDealerControlled: false,
+      };
+    }
+  }
+
+  const firstConnectedHuman = state.players.find((p) => !p.isBot && p.connected);
+  if (firstConnectedHuman) {
+    return {
+      starterPlayerId: firstConnectedHuman.id,
+      starterPlayerName: firstConnectedHuman.name,
+      isDealerControlled: false,
+    };
+  }
+
+  return {
+    starterPlayerId: null,
+    starterPlayerName: null,
+    isDealerControlled: false,
+  };
+}
+
 export function updateTableBlindSettings(
   state: TableState,
   params: {

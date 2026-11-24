@@ -28,6 +28,7 @@ import {
   resolvePlayerAvatarProfile,
   type ResolvedPlayerAvatarProfile,
 } from '../shared/playerProfile';
+import { resolveNextHandStarter } from '../shared/pokerEngine';
 import { resolveTableHotkeyAction } from '../shared/tableHotkeys';
 import { getHandOverviewStats, PHASE_STAGE_LABELS } from '../shared/tableOverview';
 import type {
@@ -486,9 +487,18 @@ export function PokerTable({
 
   const isHost = !table.hostId || table.hostId === myPlayerId;
 
-  const canStart =
+  const hasEnoughPlayersToStart =
     (table.phase === 'waiting' || table.phase === 'showdown') &&
     table.players.filter((p) => p.chips > 0 || p.isBot).length >= 2;
+
+  const nextHandStarter = useMemo(
+    () => resolveNextHandStarter(table, table.previewNextBlinds.dealerSeatIndex),
+    [table]
+  );
+
+  const canStart =
+    hasEnoughPlayersToStart &&
+    (!nextHandStarter.starterPlayerId || nextHandStarter.starterPlayerId === myPlayerId);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -613,14 +623,6 @@ export function PokerTable({
   const displayBbSeat = usePreviewBlinds
     ? table.previewNextBlinds.bigBlindSeatIndex
     : table.bigBlindSeatIndex;
-
-  const getNextBlindRole = (seatIndex: number): 'SB' | 'BB' | 'D' | null => {
-    if (table.phase !== 'showdown') return null;
-    if (table.previewNextBlinds.smallBlindSeatIndex === seatIndex) return 'SB';
-    if (table.previewNextBlinds.bigBlindSeatIndex === seatIndex) return 'BB';
-    if (table.previewNextBlinds.dealerSeatIndex === seatIndex) return 'D';
-    return null;
-  };
 
   const nextHandSeconds =
     table.phase === 'showdown' && table.autoNextHandEnabled && table.nextHandAt
@@ -986,7 +988,6 @@ export function PokerTable({
                     isDealer={displayDealerSeat === opp.seatIndex}
                     isSmallBlind={displaySbSeat === opp.seatIndex}
                     isBigBlind={displayBbSeat === opp.seatIndex}
-                    nextBlindRole={getNextBlindRole(opp.seatIndex)}
                     isWinner={Boolean(win)}
                     winAmount={win?.amount}
                     highlightedCards={highlightedCards}
@@ -1117,7 +1118,7 @@ export function PokerTable({
           {/* Pre-hand / Between-hands Controls */}
           {(table.phase === 'waiting' || table.phase === 'showdown') && (
             <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
-              {canStart && (
+              {canStart ? (
                 <button
                   type="button"
                   data-testid="start-hand-btn"
@@ -1136,7 +1137,15 @@ export function PokerTable({
                   </span>
                   <span className="hidden sm:inline text-xs font-semibold opacity-70">[N]</span>
                 </button>
-              )}
+              ) : hasEnoughPlayersToStart && nextHandStarter.starterPlayerName ? (
+                <span
+                  data-testid="waiting-dealer-next-hand"
+                  className="inline-flex h-9 items-center rounded border border-white/[0.1] bg-[#0B0E10]/88 px-3.5 text-xs text-[#9AA5A0] whitespace-nowrap"
+                >
+                  等待庄位「{nextHandStarter.starterPlayerName}」提前开局
+                  {nextHandSeconds !== null ? ` · ${nextHandSeconds}s 后自动发牌` : ''}
+                </span>
+              ) : null}
 
               {table.canRevealMyCards && (
                 <button
@@ -1264,7 +1273,6 @@ export function PokerTable({
               isDealer={displayDealerSeat === selfPlayer.seatIndex}
               isSmallBlind={displaySbSeat === selfPlayer.seatIndex}
               isBigBlind={displayBbSeat === selfPlayer.seatIndex}
-              nextBlindRole={getNextBlindRole(selfPlayer.seatIndex)}
               isWinner={winnerMap.has(selfPlayer.id)}
               winAmount={winnerMap.get(selfPlayer.id)?.amount}
               highlightedCards={highlightedCards}

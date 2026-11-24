@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from "crypto";
 
 export interface RoomDeleteAuthSubject {
   isDefault: boolean;
@@ -19,10 +19,13 @@ export interface RoomDeleteAuthResult {
 /**
  * Constant-time secret string comparison to prevent timing side-channels.
  */
-export function secretsMatch(expected: string | null | undefined, provided: string | null | undefined): boolean {
+export function secretsMatch(
+  expected: string | null | undefined,
+  provided: string | null | undefined,
+): boolean {
   if (!expected || !provided) return false;
-  const a = Buffer.from(expected, 'utf8');
-  const b = Buffer.from(provided, 'utf8');
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(provided, "utf8");
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
@@ -33,25 +36,29 @@ export function secretsMatch(expected: string | null | undefined, provided: stri
  *   only the room host may delete it; HTTP requests MUST also present the matching X-Seat-Secret.
  * - When a room is empty and bound to a creator secret, only that creator with the matching
  *   X-Player-Id + X-Seat-Secret may delete it.
- * - Empty unbound rooms (including the initial CLUB01 lobby table) may be deleted cleanly.
+ * - Empty unbound rooms (including the default CLUB01 lobby table) may be deleted freely.
  */
 export function authorizeRoomDeletion(
   subject: RoomDeleteAuthSubject,
   requesterPlayerId: string | null | undefined,
   requesterSeatSecret: string | null | undefined,
-  requireSecretCheck = true
+  requireSecretCheck = true,
 ): RoomDeleteAuthResult {
   const cleanRequesterId = requesterPlayerId?.trim() || null;
   const cleanRequesterSecret = requesterSeatSecret?.trim() || null;
 
   if (subject.hasAnyHumanPlayer) {
     if (!subject.hostId || cleanRequesterId !== subject.hostId) {
-      return { ok: false, status: 403, error: '仅房主本人可删除当前牌桌' };
+      return { ok: false, status: 403, error: "仅房主本人可删除当前牌桌" };
     }
     if (requireSecretCheck) {
       const hostSecret = subject.seatSecrets.get(subject.hostId) ?? null;
       if (!hostSecret || !secretsMatch(hostSecret, cleanRequesterSecret)) {
-        return { ok: false, status: 403, error: 'X-Seat-Secret 校验失败，仅房主本人可删除牌桌' };
+        return {
+          ok: false,
+          status: 403,
+          error: "X-Seat-Secret 校验失败，仅房主本人可删除牌桌",
+        };
       }
     }
     return { ok: true };
@@ -60,10 +67,17 @@ export function authorizeRoomDeletion(
   // Empty custom room: enforce creator ownership if creator credentials were bound on creation
   if (subject.creatorId && subject.creatorSecret) {
     if (cleanRequesterId !== subject.creatorId) {
-      return { ok: false, status: 403, error: '仅房间创建者可删除该牌桌' };
+      return { ok: false, status: 403, error: "仅房间创建者可删除该牌桌" };
     }
-    if (requireSecretCheck && !secretsMatch(subject.creatorSecret, cleanRequesterSecret)) {
-      return { ok: false, status: 403, error: 'X-Seat-Secret 校验失败，仅创建者可删除牌桌' };
+    if (
+      requireSecretCheck &&
+      !secretsMatch(subject.creatorSecret, cleanRequesterSecret)
+    ) {
+      return {
+        ok: false,
+        status: 403,
+        error: "X-Seat-Secret 校验失败，仅创建者可删除牌桌",
+      };
     }
   }
 

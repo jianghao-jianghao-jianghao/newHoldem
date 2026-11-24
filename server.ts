@@ -1,31 +1,34 @@
-import 'dotenv/config';
-import crypto from 'crypto';
-import express from 'express';
-import fs from 'fs';
-import http from 'http';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { WebSocket, WebSocketServer } from 'ws';
-import { EmailAuthStore } from './server/authStore';
-import { chooseBotAction } from './server/botAi';
-import { chooseBotActionWithAiEnhancement } from './server/botAiAdvisor';
+import "dotenv/config";
+import crypto from "crypto";
+import express from "express";
+import fs from "fs";
+import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
+import { WebSocket, WebSocketServer } from "ws";
+import { EmailAuthStore } from "./server/authStore";
+import { chooseBotAction } from "./server/botAi";
+import { chooseBotActionWithAiEnhancement } from "./server/botAiAdvisor";
 import {
   buildBotChatMessages,
   requestDeepSeekReply,
   selectRespondingBot,
   type BotChatTrigger,
-} from './server/botChat';
-import { getSharedDatabase } from './server/db';
-import { sharedGtoSpotCache } from './server/gtoSolver';
-import { persistCompletedHandRecord, resolveCompletedHandRecord } from './server/handPersistence';
-import { generateHandReview } from './server/handReview';
-import { registerAuthRoutes } from './server/http/authRoutes';
-import { registerGtoAndPersonaRoutes } from './server/http/gtoRoutes';
-import { LeaderboardStore, type LeaderboardMode } from './server/leaderboard';
-import { SessionOpponentProfiler } from './server/opponentProfiler';
-import { SlidingWindowRateLimiter } from './server/rateLimiter';
-import { authorizeRoomDeletion, secretsMatch } from './server/roomAuth';
-import { buildSessionReviewSummary } from './src/shared/sessionReview';
+} from "./server/botChat";
+import { getSharedDatabase } from "./server/db";
+import { sharedGtoSpotCache } from "./server/gtoSolver";
+import {
+  persistCompletedHandRecord,
+  resolveCompletedHandRecord,
+} from "./server/handPersistence";
+import { generateHandReview } from "./server/handReview";
+import { registerAuthRoutes } from "./server/http/authRoutes";
+import { registerGtoAndPersonaRoutes } from "./server/http/gtoRoutes";
+import { LeaderboardStore, type LeaderboardMode } from "./server/leaderboard";
+import { SessionOpponentProfiler } from "./server/opponentProfiler";
+import { SlidingWindowRateLimiter } from "./server/rateLimiter";
+import { authorizeRoomDeletion, secretsMatch } from "./server/roomAuth";
+import { buildSessionReviewSummary } from "./src/shared/sessionReview";
 import {
   addPlayerToTable,
   advanceAllInRunoutStep,
@@ -39,19 +42,21 @@ import {
   rebuyPlayerChips,
   rebindPlayerIdInTable,
   removePlayerFromTable,
+  resolveNextHandSeats,
+  resolveNextHandStarter,
   revealPlayerCards,
   sanitizeTableForPlayer,
   startNewHand,
   updateTableBlindSettings,
-} from './src/shared/pokerEngine';
-import { evaluateBestHand } from './src/shared/handEvaluator';
-import { sanitizeAvatar } from './src/shared/avatarUtils';
+} from "./src/shared/pokerEngine";
+import { evaluateBestHand } from "./src/shared/handEvaluator";
+import { sanitizeAvatar } from "./src/shared/avatarUtils";
 import {
   appendChatHistory,
   MAX_CHAT_HISTORY,
   NUDGE_PHRASES,
   sanitizeChatText,
-} from './src/shared/chatUtils';
+} from "./src/shared/chatUtils";
 import {
   applyHandToAchievementStats,
   mergeAchievementDates,
@@ -61,19 +66,19 @@ import {
   type AchievementDatesMap,
   type AchievementId,
   type PlayerAchievementStats,
-} from './src/shared/achievements';
+} from "./src/shared/achievements";
 import {
   buildBotInitialStats,
   computePlayerLevel,
   getBotClubPreset,
-} from './src/shared/playerProfile';
+} from "./src/shared/playerProfile";
 import {
   createEmptyPatternCounts,
   extractHandBehaviorDeltas,
   sanitizeBehaviorStats,
   type PlayerBehaviorStats,
   type SessionPatternTag,
-} from './src/shared/playerInsights';
+} from "./src/shared/playerInsights";
 import type {
   BotChatStatus,
   ChatMessage,
@@ -83,22 +88,23 @@ import type {
   RoomSummary,
   ServerWsMessage,
   TableState,
-} from './src/shared/types';
+} from "./src/shared/types";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 3000;
 const TRUST_PROXY =
-  process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY?.toLowerCase() === 'true';
-const RAW_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? '*').trim();
+  process.env.TRUST_PROXY === "1" ||
+  process.env.TRUST_PROXY?.toLowerCase() === "true";
+const RAW_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? "*").trim();
 const ALLOWED_CORS_ORIGINS =
-  RAW_CORS_ORIGIN === '*'
+  RAW_CORS_ORIGIN === "*"
     ? null
     : new Set(
-        RAW_CORS_ORIGIN.split(',')
+        RAW_CORS_ORIGIN.split(",")
           .map((s) => s.trim())
-          .filter(Boolean)
+          .filter(Boolean),
       );
 
 const MAX_CUSTOM_ROOMS = 60;
@@ -107,14 +113,14 @@ const AFK_MAX_CONSECUTIVE_TIMEOUTS = 3;
 const SERVER_STARTED_AT = Date.now();
 
 const BOT_NAMES = [
-  '陈默',
-  '林澈',
-  '周屿',
-  '苏砚',
-  '陆沉',
-  '沈舟',
-  '顾言',
-  '许嘉',
+  "陈默",
+  "林澈",
+  "周屿",
+  "苏砚",
+  "陆沉",
+  "沈舟",
+  "顾言",
+  "许嘉",
 ];
 
 interface DepartedHandContributor {
@@ -182,12 +188,30 @@ const sharedDb = getSharedDatabase();
 const leaderboard = new LeaderboardStore({ database: sharedDb });
 const authStore = new EmailAuthStore({ database: sharedDb });
 
-const otpSendLimiter = new SlidingWindowRateLimiter({ maxRequests: 6, windowMs: 10 * 60 * 1000 });
-const otpVerifyLimiter = new SlidingWindowRateLimiter({ maxRequests: 15, windowMs: 10 * 60 * 1000 });
-const roomCreateLimiter = new SlidingWindowRateLimiter({ maxRequests: 10, windowMs: 10 * 60 * 1000 });
-const gtoEvalLimiter = new SlidingWindowRateLimiter({ maxRequests: 30, windowMs: 60 * 1000 });
-const personaAiLimiter = new SlidingWindowRateLimiter({ maxRequests: 12, windowMs: 60 * 1000 });
-const wsMessageLimiter = new SlidingWindowRateLimiter({ maxRequests: 45, windowMs: 10 * 1000 });
+const otpSendLimiter = new SlidingWindowRateLimiter({
+  maxRequests: 6,
+  windowMs: 10 * 60 * 1000,
+});
+const otpVerifyLimiter = new SlidingWindowRateLimiter({
+  maxRequests: 15,
+  windowMs: 10 * 60 * 1000,
+});
+const roomCreateLimiter = new SlidingWindowRateLimiter({
+  maxRequests: 10,
+  windowMs: 10 * 60 * 1000,
+});
+const gtoEvalLimiter = new SlidingWindowRateLimiter({
+  maxRequests: 30,
+  windowMs: 60 * 1000,
+});
+const personaAiLimiter = new SlidingWindowRateLimiter({
+  maxRequests: 12,
+  windowMs: 60 * 1000,
+});
+const wsMessageLimiter = new SlidingWindowRateLimiter({
+  maxRequests: 45,
+  windowMs: 10 * 1000,
+});
 
 const rooms = new Map<string, RoomContext>();
 const sessions = new Map<WebSocket, ClientSession>();
@@ -195,23 +219,26 @@ const disconnectTimers = new Map<string, NodeJS.Timeout>();
 
 function getClientIp(req: express.Request): string {
   if (TRUST_PROXY) {
-    const xff = req.headers['x-forwarded-for'];
-    if (typeof xff === 'string' && xff.trim()) {
-      return xff.split(',')[0].trim().slice(0, 64);
+    const xff = req.headers["x-forwarded-for"];
+    if (typeof xff === "string" && xff.trim()) {
+      return xff.split(",")[0].trim().slice(0, 64);
     }
   }
-  return (req.socket?.remoteAddress ?? req.ip ?? 'unknown').slice(0, 64);
+  return (req.socket?.remoteAddress ?? req.ip ?? "unknown").slice(0, 64);
 }
 
 function resolveDistDir(): string {
-  if (fs.existsSync(path.resolve(__dirname, 'index.html'))) {
+  if (fs.existsSync(path.resolve(__dirname, "index.html"))) {
     return __dirname;
   }
-  return path.resolve(process.cwd(), 'dist');
+  return path.resolve(process.cwd(), "dist");
 }
 
 function normalizeRoomId(raw?: string): string {
-  const cleaned = (raw ?? '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  const cleaned = (raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "");
   return cleaned.slice(0, 12);
 }
 
@@ -220,8 +247,8 @@ function cryptoRng(): number {
 }
 
 function generateRoomId(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
   for (let i = 0; i < 6; i++) {
     code += chars[crypto.randomInt(0, chars.length)];
   }
@@ -241,18 +268,23 @@ function autoRebuyBustedBots(state: TableState): boolean {
 }
 
 function ensureDefaultClubRoom(): RoomContext {
-  let ctx = rooms.get('CLUB01');
+  let ctx = rooms.get("CLUB01");
   if (!ctx) {
     const now = Date.now();
     const hasServerKey = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
     ctx = {
-      tableName: '俱乐部大厅桌',
+      tableName: "俱乐部大厅桌",
       createdAt: now,
       lastActivityAt: now,
       isDefault: true,
       creatorId: null,
       creatorSecret: null,
-      state: createTableState('CLUB01', DEFAULT_SMALL_BLIND, DEFAULT_BIG_BLIND, STARTING_CHIPS),
+      state: createTableState(
+        "CLUB01",
+        DEFAULT_SMALL_BLIND,
+        DEFAULT_BIG_BLIND,
+        STARTING_CHIPS,
+      ),
       chatHistory: [],
       seatSecrets: new Map(),
       playerUids: new Map(),
@@ -272,7 +304,7 @@ function ensureDefaultClubRoom(): RoomContext {
       handRecordedForHandNumber: 0,
       opponentProfiler: new SessionOpponentProfiler(),
     };
-    rooms.set('CLUB01', ctx);
+    rooms.set("CLUB01", ctx);
   }
   return ctx;
 }
@@ -301,7 +333,7 @@ function createCustomRoom(params: {
     let oldestEmptyId: string | null = null;
     let oldestTs = Infinity;
     for (const [rid, rctx] of rooms.entries()) {
-      if (rctx.isDefault || rid === 'CLUB01') continue;
+      if (rctx.isDefault || rid === "CLUB01") continue;
       const hasHuman = rctx.state.players.some((p) => !p.isBot && p.connected);
       if (!hasHuman && rctx.lastActivityAt < oldestTs) {
         oldestTs = rctx.lastActivityAt;
@@ -311,18 +343,28 @@ function createCustomRoom(params: {
     if (oldestEmptyId) {
       deleteRoomById(oldestEmptyId);
     } else {
-      return { ok: false, error: '当前在线牌桌数量已达上限，请稍后再试' };
+      return { ok: false, error: "当前在线牌桌数量已达上限，请稍后再试" };
     }
   }
 
-  const sb = Math.max(1, Math.min(5000, Math.floor(Number(params.smallBlind) || DEFAULT_SMALL_BLIND)));
+  const sb = Math.max(
+    1,
+    Math.min(
+      5000,
+      Math.floor(Number(params.smallBlind) || DEFAULT_SMALL_BLIND),
+    ),
+  );
   const rawBb = Math.floor(Number(params.bigBlind) || sb * 2);
   const bb = Math.max(sb + 1, Math.min(10000, rawBb));
   const startingChips = Math.max(
     bb * 10,
-    Math.min(200_000, Math.floor(Number(params.startingChips) || STARTING_CHIPS))
+    Math.min(
+      200_000,
+      Math.floor(Number(params.startingChips) || STARTING_CHIPS),
+    ),
   );
-  const cleanName = (params.tableName ?? '').trim().slice(0, 24) || `牌桌 ${id}`;
+  const cleanName =
+    (params.tableName ?? "").trim().slice(0, 24) || `牌桌 ${id}`;
   const hasServerKey = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
   const cleanCreatorId = params.creatorId?.trim().slice(0, 48) || null;
   const cleanCreatorSecret = params.creatorSecret?.trim().slice(0, 64) || null;
@@ -332,16 +374,19 @@ function createCustomRoom(params: {
     tableName: cleanName,
     createdAt: now,
     lastActivityAt: now,
-    isDefault: id === 'CLUB01',
+    isDefault: id === "CLUB01",
     creatorId: cleanCreatorId && cleanCreatorSecret ? cleanCreatorId : null,
-    creatorSecret: cleanCreatorId && cleanCreatorSecret ? cleanCreatorSecret : null,
+    creatorSecret:
+      cleanCreatorId && cleanCreatorSecret ? cleanCreatorSecret : null,
     state: createTableState(
       id,
       sb,
       bb,
       startingChips,
-      typeof params.turnTimeoutSec === 'number' ? params.turnTimeoutSec : undefined,
-      params.allowRebuy !== false
+      typeof params.turnTimeoutSec === "number"
+        ? params.turnTimeoutSec
+        : undefined,
+      params.allowRebuy !== false,
     ),
     chatHistory: [],
     seatSecrets: new Map(),
@@ -367,7 +412,7 @@ function createCustomRoom(params: {
 }
 
 function getOrCreateRoom(roomId: string): RoomContext | null {
-  const id = normalizeRoomId(roomId) || 'CLUB01';
+  const id = normalizeRoomId(roomId) || "CLUB01";
   const existing = rooms.get(id);
   if (existing) {
     existing.lastActivityAt = Date.now();
@@ -381,7 +426,7 @@ function canRequesterDeleteRoom(
   ctx: RoomContext,
   requesterPlayerId: string | null | undefined,
   requesterSeatSecret?: string | null,
-  requireSecretCheck = false
+  requireSecretCheck = false,
 ): { ok: boolean; status?: number; error?: string } {
   return authorizeRoomDeletion(
     {
@@ -395,7 +440,7 @@ function canRequesterDeleteRoom(
     },
     requesterPlayerId,
     requesterSeatSecret,
-    requireSecretCheck
+    requireSecretCheck,
   );
 }
 
@@ -422,7 +467,7 @@ function deleteRoomById(roomId: string): { ok: boolean; error?: string } {
   const id = normalizeRoomId(roomId);
   const ctx = rooms.get(id);
   if (!ctx) {
-    return { ok: false, error: '牌桌不存在或已被删除' };
+    return { ok: false, error: "牌桌不存在或已被删除" };
   }
 
   clearRoomTimers(ctx);
@@ -440,7 +485,7 @@ function deleteRoomById(roomId: string): { ok: boolean; error?: string } {
       session.roomId = null;
       session.playerId = null;
       sendJson(session.ws, {
-        type: 'room_deleted',
+        type: "room_deleted",
         roomId: id,
         reason: `牌桌「${ctx.tableName}」已被删除`,
       });
@@ -479,8 +524,8 @@ function getRoomSummaries(): RoomSummary[] {
     list.push(toRoomSummary(ctx));
   }
   return list.sort((a, b) => {
-    if (a.roomId === 'CLUB01') return -1;
-    if (b.roomId === 'CLUB01') return 1;
+    if (a.roomId === "CLUB01") return -1;
+    if (b.roomId === "CLUB01") return 1;
     return b.createdAt - a.createdAt;
   });
 }
@@ -488,21 +533,21 @@ function getRoomSummaries(): RoomSummary[] {
 function broadcastRoomsList(): void {
   const summary = getRoomSummaries();
   for (const session of sessions.values()) {
-    sendJson(session.ws, { type: 'rooms_update', rooms: summary });
+    sendJson(session.ws, { type: "rooms_update", rooms: summary });
   }
 }
 
 function broadcastLeaderboard(): void {
   const entries = leaderboard.getRankedList(30);
   for (const session of sessions.values()) {
-    sendJson(session.ws, { type: 'leaderboard_update', entries });
+    sendJson(session.ws, { type: "leaderboard_update", entries });
   }
 }
 
 function broadcastRoomChat(ctx: RoomContext, message: ChatMessage): void {
   for (const session of sessions.values()) {
     if (session.roomId === ctx.state.roomId && session.playerId) {
-      sendJson(session.ws, { type: 'chat_message', message });
+      sendJson(session.ws, { type: "chat_message", message });
     }
   }
 }
@@ -517,12 +562,12 @@ function getEffectiveDeepSeekKey(ctx: RoomContext): string | null {
 function getBotChatStatus(ctx: RoomContext): BotChatStatus {
   const hasRoomKey = Boolean(ctx.deepseekApiKey?.trim());
   const hasServerKey = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
-  const source: BotChatStatus['source'] = hasRoomKey
-    ? 'room'
+  const source: BotChatStatus["source"] = hasRoomKey
+    ? "room"
     : hasServerKey
-      ? 'server'
-      : 'none';
-  const configured = source !== 'none';
+      ? "server"
+      : "none";
+  const configured = source !== "none";
   return {
     enabled: ctx.botChatEnabled && configured,
     configured,
@@ -535,7 +580,7 @@ function broadcastBotChatStatus(ctx: RoomContext): void {
   for (const session of sessions.values()) {
     if (session.roomId === ctx.state.roomId && session.playerId) {
       sendJson(session.ws, {
-        type: 'bot_chat_status',
+        type: "bot_chat_status",
         roomId: ctx.state.roomId,
         status,
       });
@@ -543,7 +588,10 @@ function broadcastBotChatStatus(ctx: RoomContext): void {
   }
 }
 
-function scheduleBotChatReaction(ctx: RoomContext, trigger: BotChatTrigger): void {
+function scheduleBotChatReaction(
+  ctx: RoomContext,
+  trigger: BotChatTrigger,
+): void {
   if (!ctx.botChatEnabled) return;
   const apiKey = getEffectiveDeepSeekKey(ctx);
   if (!apiKey) return;
@@ -551,14 +599,14 @@ function scheduleBotChatReaction(ctx: RoomContext, trigger: BotChatTrigger): voi
   if (!ctx.state.players.some((p) => p.isBot)) return;
 
   const now = Date.now();
-  const minCooldownMs = trigger.kind === 'nudge' ? 2800 : 4500;
+  const minCooldownMs = trigger.kind === "nudge" ? 2800 : 4500;
   if (now - ctx.lastBotChatAt < minCooldownMs) return;
 
   const bot = selectRespondingBot(
     ctx.state.players,
     trigger,
     ctx.lastBotChatSpeakerId,
-    cryptoRng
+    cryptoRng,
   );
   if (!bot) return;
 
@@ -568,9 +616,9 @@ function scheduleBotChatReaction(ctx: RoomContext, trigger: BotChatTrigger): voi
   }
 
   const delayMs =
-    trigger.kind === 'nudge'
+    trigger.kind === "nudge"
       ? 750 + crypto.randomInt(0, 750)
-      : trigger.kind === 'showdown'
+      : trigger.kind === "showdown"
         ? 1100 + crypto.randomInt(0, 900)
         : 900 + crypto.randomInt(0, 1100);
 
@@ -579,7 +627,9 @@ function scheduleBotChatReaction(ctx: RoomContext, trigger: BotChatTrigger): voi
     const activeKey = getEffectiveDeepSeekKey(ctx);
     if (!ctx.botChatEnabled || !activeKey || ctx.botChatInFlight) return;
     if (!rooms.has(ctx.state.roomId)) return;
-    const stillSeated = ctx.state.players.find((p) => p.id === bot.id && p.isBot);
+    const stillSeated = ctx.state.players.find(
+      (p) => p.id === bot.id && p.isBot,
+    );
     if (!stillSeated) return;
 
     ctx.botChatInFlight = true;
@@ -602,7 +652,7 @@ function scheduleBotChatReaction(ctx: RoomContext, trigger: BotChatTrigger): voi
         ctx.lastBotChatAt = sentAt;
         ctx.lastBotChatSpeakerId = stillSeated.id;
         const chatMsg: ChatMessage = {
-          id: `chat_${sentAt.toString(36)}_${crypto.randomBytes(3).toString('hex')}`,
+          id: `chat_${sentAt.toString(36)}_${crypto.randomBytes(3).toString("hex")}`,
           roomId: ctx.state.roomId,
           playerId: stillSeated.id,
           playerName: stillSeated.name,
@@ -610,7 +660,11 @@ function scheduleBotChatReaction(ctx: RoomContext, trigger: BotChatTrigger): voi
           createdAt: sentAt,
           isBot: true,
         };
-        ctx.chatHistory = appendChatHistory(ctx.chatHistory, chatMsg, MAX_CHAT_HISTORY);
+        ctx.chatHistory = appendChatHistory(
+          ctx.chatHistory,
+          chatMsg,
+          MAX_CHAT_HISTORY,
+        );
         broadcastRoomChat(ctx, chatMsg);
       })
       .catch(() => {
@@ -625,37 +679,50 @@ function scheduleBotChatReaction(ctx: RoomContext, trigger: BotChatTrigger): voi
 function broadcastRoomNudge(ctx: RoomContext, nudge: PlayerNudgeEvent): void {
   for (const session of sessions.values()) {
     if (session.roomId === ctx.state.roomId && session.playerId) {
-      sendJson(session.ws, { type: 'player_nudged', nudge });
+      sendJson(session.ws, { type: "player_nudged", nudge });
     }
   }
 }
 
 function recordShowdownIfNeeded(ctx: RoomContext): void {
   const { state } = ctx;
-  if (state.phase !== 'showdown') return;
+  if (state.phase !== "showdown") return;
   if (ctx.handRecordedForHandNumber === state.handNumber) return;
   ctx.handRecordedForHandNumber = state.handNumber;
   runtimeMetrics.handsCompleted += 1;
 
   const winnerMap = new Map(state.winners.map((w) => [w.playerId, w]));
-  const nonFoldedCount = state.players.filter((p) => p.inHand && !p.folded).length;
+  const nonFoldedCount = state.players.filter(
+    (p) => p.inHand && !p.folded,
+  ).length;
   const wonByFoldOnly = nonFoldedCount <= 1;
   const isPracticeWithBots = state.players.some((p) => p.isBot && p.inHand);
-  const newlyUnlockedToNotify: Array<{ playerId: string; ids: AchievementId[] }> = [];
+  const newlyUnlockedToNotify: Array<{
+    playerId: string;
+    ids: AchievementId[];
+  }> = [];
 
   // Update strictly session-scoped opponent profiler with showdown reveals & hand completion
   ctx.opponentProfiler.observeHandEnd(state);
 
-  const matchedHandRecord = resolveCompletedHandRecord(state.handHistory, state.handNumber);
+  const matchedHandRecord = resolveCompletedHandRecord(
+    state.handHistory,
+    state.handNumber,
+  );
   const rawBehaviorDeltas = matchedHandRecord
     ? extractHandBehaviorDeltas(matchedHandRecord)
     : {};
 
   leaderboard.runBatch(() => {
-    persistCompletedHandRecord(sharedDb, state.roomId, state.handHistory, state.handNumber);
+    persistCompletedHandRecord(
+      sharedDb,
+      state.roomId,
+      state.handHistory,
+      state.handNumber,
+    );
 
     const handDeparted = ctx.departedContributors.filter(
-      (d) => d.handNumber === state.handNumber && d.totalContributed > 0
+      (d) => d.handNumber === state.handNumber && d.totalContributed > 0,
     );
     ctx.departedContributors = [];
     for (const dep of handDeparted) {
@@ -697,7 +764,11 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
       let handName: string | undefined;
       let handScore: number | undefined;
       let handCategory: HandCategory | undefined;
-      if (!p.folded && p.holeCards.length === 2 && state.communityCards.length === 5) {
+      if (
+        !p.folded &&
+        p.holeCards.length === 2 &&
+        state.communityCards.length === 5
+      ) {
         const ev = evaluateBestHand([...p.holeCards, ...state.communityCards]);
         handName = ev.categoryName;
         handScore = ev.score;
@@ -708,31 +779,38 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
         !p.folded && !wonByFoldOnly && state.communityCards.length === 5;
       const wasSplitPot = state.winners.length > 1;
       const isBigBlind = p.seatIndex === state.bigBlindSeatIndex;
-      const startingHandChips = Math.max(0, p.chips + p.totalContributed - potWon);
+      const startingHandChips = Math.max(
+        0,
+        p.chips + p.totalContributed - potWon,
+      );
 
       if (p.isBot) {
         const prevBot = ctx.botStats.get(p.id);
-        const botRes = applyHandToAchievementStats(prevBot?.stats, prevBot?.achievements, {
-          won,
-          potWon,
-          netChips,
-          wasAllIn: p.allIn,
-          wonByFold: won && wonByFoldOnly,
-          handCategory: handCategory ?? null,
-          currentChips: p.chips,
-          startingChips: state.startingChips,
-          bigBlind: state.bigBlind,
-          holeCards: p.holeCards,
-          communityCardsCount: state.communityCards.length,
-          wasSplitPot,
-          isBigBlind,
-          startingHandChips,
-          reachedShowdown,
-        });
+        const botRes = applyHandToAchievementStats(
+          prevBot?.stats,
+          prevBot?.achievements,
+          {
+            won,
+            potWon,
+            netChips,
+            wasAllIn: p.allIn,
+            wonByFold: won && wonByFoldOnly,
+            handCategory: handCategory ?? null,
+            currentChips: p.chips,
+            startingChips: state.startingChips,
+            bigBlind: state.bigBlind,
+            holeCards: p.holeCards,
+            communityCardsCount: state.communityCards.length,
+            wasSplitPot,
+            isBigBlind,
+            startingHandChips,
+            reachedShowdown,
+          },
+        );
         const botDates = mergeAchievementDates(
           prevBot?.achievementDates,
           botRes.unlocked,
-          botRes.newlyUnlocked
+          botRes.newlyUnlocked,
         );
         ctx.botStats.set(p.id, {
           stats: botRes.nextStats,
@@ -746,7 +824,8 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
           achievements: botRes.unlocked,
           handsPlayed: botRes.nextStats.handsPlayed,
           handsWon: botRes.nextStats.handsWon,
-          points: 1000 + botRes.nextStats.netChips + botRes.nextStats.handsWon * 20,
+          points:
+            1000 + botRes.nextStats.netChips + botRes.nextStats.handsWon * 20,
           explicitLevel: p.level,
         }).level;
         continue;
@@ -755,9 +834,8 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
       const verifiedUid = ctx.playerUids.get(p.id) ?? null;
 
       // Link per-hand evidence review verdicts & session profiler table-image reads into cumulative behaviorStats
-      let behaviorDelta: Partial<PlayerBehaviorStats> | undefined = rawBehaviorDeltas[p.id]
-        ? { ...rawBehaviorDeltas[p.id] }
-        : undefined;
+      let behaviorDelta: Partial<PlayerBehaviorStats> | undefined =
+        rawBehaviorDeltas[p.id] ? { ...rawBehaviorDeltas[p.id] } : undefined;
       if (matchedHandRecord && behaviorDelta) {
         const handReview = generateHandReview({
           record: matchedHandRecord,
@@ -772,22 +850,29 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
         if (handReview) {
           for (const st of handReview.streets) {
             for (const dec of st.heroDecisions) {
-              if (dec.verdict === 'optimal') optimalCount += 1;
-              else if (dec.verdict === 'acceptable') acceptableCount += 1;
-              else if (dec.verdict === 'inaccuracy') inaccuracyCount += 1;
-              else if (dec.verdict === 'mistake') mistakeCount += 1;
+              if (dec.verdict === "optimal") optimalCount += 1;
+              else if (dec.verdict === "acceptable") acceptableCount += 1;
+              else if (dec.verdict === "inaccuracy") inaccuracyCount += 1;
+              else if (dec.verdict === "mistake") mistakeCount += 1;
             }
           }
         }
         const sessionRead = ctx.opponentProfiler.getOpponentRead(p.id);
         const detectedPattern: SessionPatternTag =
-          sessionRead.archetype !== 'unknown' ? sessionRead.archetype : 'balanced';
+          sessionRead.archetype !== "unknown"
+            ? sessionRead.archetype
+            : "balanced";
         const patternCounts = createEmptyPatternCounts();
-        if (sessionRead.handsObserved >= 2 && sessionRead.archetype !== 'unknown') {
+        if (
+          sessionRead.handsObserved >= 2 &&
+          sessionRead.archetype !== "unknown"
+        ) {
           patternCounts[detectedPattern] = 1;
         }
         const netBB =
-          state.bigBlind > 0 ? Number((netChips / state.bigBlind).toFixed(2)) : 0;
+          state.bigBlind > 0
+            ? Number((netChips / state.bigBlind).toFixed(2))
+            : 0;
         behaviorDelta = {
           ...behaviorDelta,
           reviewOptimalDecisions: optimalCount,
@@ -878,7 +963,7 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
       const mergedPlayerDates = mergeAchievementDates(
         { ...(p.achievementDates ?? {}), ...authoritativeDates },
         mergedPlayerAch,
-        newlyUnlocked
+        newlyUnlocked,
       );
       p.achievements = mergedPlayerAch;
       p.achievementDates = mergedPlayerDates;
@@ -899,9 +984,12 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
 
   for (const item of newlyUnlockedToNotify) {
     for (const session of sessions.values()) {
-      if (session.roomId === state.roomId && session.playerId === item.playerId) {
+      if (
+        session.roomId === state.roomId &&
+        session.playerId === item.playerId
+      ) {
         sendJson(session.ws, {
-          type: 'achievement_unlocked',
+          type: "achievement_unlocked",
           achievementIds: item.ids,
         });
       }
@@ -915,7 +1003,7 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
     const chance = isBigPot ? 0.78 : 0.45;
     if (cryptoRng() < chance) {
       scheduleBotChatReaction(ctx, {
-        kind: 'showdown',
+        kind: "showdown",
         winnerNames: state.winners.map((w) => w.playerName),
         pot: state.pot,
       });
@@ -929,7 +1017,7 @@ function broadcastRoomState(ctx: RoomContext): void {
 
   const { state } = ctx;
   if (
-    state.phase === 'showdown' &&
+    state.phase === "showdown" &&
     state.autoNextHandEnabled &&
     !state.nextHandAt &&
     state.players.some((p) => !p.isBot && p.connected) &&
@@ -941,7 +1029,7 @@ function broadcastRoomState(ctx: RoomContext): void {
   for (const session of sessions.values()) {
     if (session.roomId === ctx.state.roomId && session.playerId) {
       sendJson(session.ws, {
-        type: 'table_state',
+        type: "table_state",
         state: sanitizeTableForPlayer(ctx.state, session.playerId),
       });
     }
@@ -958,13 +1046,22 @@ function scheduleAllInStepIfNeeded(ctx: RoomContext): void {
     ctx.allInTimer = null;
   }
   const { state } = ctx;
-  if (!state.allInRunout || state.phase === 'waiting' || state.phase === 'showdown') {
+  if (
+    !state.allInRunout ||
+    state.phase === "waiting" ||
+    state.phase === "showdown"
+  ) {
     return;
   }
 
   ctx.allInTimer = setTimeout(() => {
     ctx.allInTimer = null;
-    if (!state.allInRunout || state.phase === 'showdown' || state.phase === 'waiting') return;
+    if (
+      !state.allInRunout ||
+      state.phase === "showdown" ||
+      state.phase === "waiting"
+    )
+      return;
     const step = advanceAllInRunoutStep(state);
     if (step.ok) {
       broadcastRoomState(ctx);
@@ -978,14 +1075,14 @@ function scheduleAutoNextHandIfNeeded(ctx: RoomContext): void {
     ctx.autoNextTimer = null;
   }
   const { state } = ctx;
-  if (state.phase !== 'showdown' || !state.autoNextHandEnabled) {
+  if (state.phase !== "showdown" || !state.autoNextHandEnabled) {
     return;
   }
   const hasHuman = state.players.some((p) => !p.isBot && p.connected);
   if (!hasHuman) return;
 
   const potentialNextHandPlayers = state.players.filter(
-    (p) => p.chips > 0 || p.isBot
+    (p) => p.chips > 0 || p.isBot,
   ).length;
   if (potentialNextHandPlayers < 2) {
     return;
@@ -998,11 +1095,13 @@ function scheduleAutoNextHandIfNeeded(ctx: RoomContext): void {
   const delay = Math.max(400, state.nextHandAt - Date.now());
   ctx.autoNextTimer = setTimeout(() => {
     ctx.autoNextTimer = null;
-    if (state.phase !== 'showdown' || !state.autoNextHandEnabled) return;
+    if (state.phase !== "showdown" || !state.autoNextHandEnabled) return;
     autoRebuyBustedBots(state);
     if (!canStartHand(state)) return;
     ctx.departedContributors = [];
-    const started = startNewHand(state, cryptoRng, Date.now(), { stepAllIn: true });
+    const started = startNewHand(state, cryptoRng, Date.now(), {
+      stepAllIn: true,
+    });
     if (started.ok) {
       broadcastRoomState(ctx);
       broadcastRoomsList();
@@ -1018,8 +1117,8 @@ function scheduleBotTurnIfNeeded(ctx: RoomContext): void {
 
   const { state } = ctx;
   if (
-    state.phase === 'waiting' ||
-    state.phase === 'showdown' ||
+    state.phase === "waiting" ||
+    state.phase === "showdown" ||
     state.allInRunout ||
     !state.currentTurnPlayerId
   ) {
@@ -1031,27 +1130,44 @@ function scheduleBotTurnIfNeeded(ctx: RoomContext): void {
     return;
   }
 
-  const activePlayer = state.players.find((p) => p.id === state.currentTurnPlayerId);
+  const activePlayer = state.players.find(
+    (p) => p.id === state.currentTurnPlayerId,
+  );
   if (!activePlayer || !activePlayer.isBot) return;
 
   const thinkMs = 700 + crypto.randomInt(0, 1100);
   const scheduledHandNumber = state.handNumber;
   ctx.botTimer = setTimeout(() => {
     ctx.botTimer = null;
-    if (state.handNumber !== scheduledHandNumber || state.currentTurnPlayerId !== activePlayer.id) {
+    if (
+      state.handNumber !== scheduledHandNumber ||
+      state.currentTurnPlayerId !== activePlayer.id
+    ) {
       return;
     }
     if (!state.players.some((p) => !p.isBot && p.connected)) return;
 
-    const commitBotAction = (action: ReturnType<typeof chooseBotAction>, elapsed: number) => {
-      if (state.handNumber !== scheduledHandNumber || state.currentTurnPlayerId !== activePlayer.id) {
+    const commitBotAction = (
+      action: ReturnType<typeof chooseBotAction>,
+      elapsed: number,
+    ) => {
+      if (
+        state.handNumber !== scheduledHandNumber ||
+        state.currentTurnPlayerId !== activePlayer.id
+      ) {
         return;
       }
       runtimeMetrics.botDecisionsCount += 1;
       runtimeMetrics.botDecisionTotalMs += elapsed;
 
       ctx.opponentProfiler.observeAction(state, activePlayer.id, action);
-      const res = applyPlayerAction(state, activePlayer.id, action, Date.now(), { stepAllIn: true });
+      const res = applyPlayerAction(
+        state,
+        activePlayer.id,
+        action,
+        Date.now(),
+        { stepAllIn: true },
+      );
       if (res.ok) {
         broadcastRoomState(ctx);
       }
@@ -1059,9 +1175,13 @@ function scheduleBotTurnIfNeeded(ctx: RoomContext): void {
 
     const t0 = performance.now();
     const useAiEnhance =
-      process.env.AI_BOT_ENHANCEMENT?.trim().toLowerCase() === 'true' &&
+      process.env.AI_BOT_ENHANCEMENT?.trim().toLowerCase() === "true" &&
       Boolean(process.env.DEEPSEEK_API_KEY?.trim());
-    if (useAiEnhance && state.phase !== 'preflop' && state.pot >= state.bigBlind * 8) {
+    if (
+      useAiEnhance &&
+      state.phase !== "preflop" &&
+      state.pot >= state.bigBlind * 8
+    ) {
       void chooseBotActionWithAiEnhancement({
         state,
         botId: activePlayer.id,
@@ -1073,14 +1193,19 @@ function scheduleBotTurnIfNeeded(ctx: RoomContext): void {
       return;
     }
 
-    const action = chooseBotAction(state, activePlayer.id, cryptoRng, ctx.opponentProfiler);
+    const action = chooseBotAction(
+      state,
+      activePlayer.id,
+      cryptoRng,
+      ctx.opponentProfiler,
+    );
     commitBotAction(action, performance.now() - t0);
   }, thinkMs);
 }
 
 function recordMidHandDeparture(ctx: RoomContext, playerId: string): void {
   const { state } = ctx;
-  if (state.phase === 'waiting' || state.phase === 'showdown') return;
+  if (state.phase === "waiting" || state.phase === "showdown") return;
   const p = state.players.find((pl) => pl.id === playerId);
   if (!p || p.isBot || !p.inHand || p.totalContributed <= 0) return;
   ctx.departedContributors.push({
@@ -1104,7 +1229,10 @@ function rememberDepartedPlayerChips(ctx: RoomContext, playerId: string): void {
   }
 }
 
-function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean): void {
+function cleanupPlayerFromCurrentRoom(
+  session: ClientSession,
+  immediate: boolean,
+): void {
   if (!session.roomId || !session.playerId) return;
   const ctx = rooms.get(session.roomId);
   const { roomId, playerId } = session;
@@ -1145,7 +1273,7 @@ function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean
     setTimeout(() => {
       disconnectTimers.delete(key);
       const stillDisconnected = ctx.state.players.find(
-        (p) => p.id === playerId && !p.connected
+        (p) => p.id === playerId && !p.connected,
       );
       if (stillDisconnected) {
         recordMidHandDeparture(ctx, playerId);
@@ -1158,43 +1286,43 @@ function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean
         broadcastRoomState(ctx);
         broadcastRoomsList();
       }
-    }, 15_000)
+    }, 15_000),
   );
 }
 
 async function startServer() {
   const app = express();
-  app.disable('x-powered-by');
+  app.disable("x-powered-by");
   if (TRUST_PROXY) {
-    app.set('trust proxy', 1);
+    app.set("trust proxy", 1);
   }
-  app.use(express.json({ limit: '128kb' }));
+  app.use(express.json({ limit: "128kb" }));
 
   app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
 
     const reqOrigin = req.headers.origin;
     if (!ALLOWED_CORS_ORIGINS) {
-      res.header('Access-Control-Allow-Origin', '*');
+      res.header("Access-Control-Allow-Origin", "*");
     } else if (reqOrigin && ALLOWED_CORS_ORIGINS.has(reqOrigin)) {
-      res.header('Access-Control-Allow-Origin', reqOrigin);
-      res.header('Vary', 'Origin');
+      res.header("Access-Control-Allow-Origin", reqOrigin);
+      res.header("Vary", "Origin");
     }
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    res.header("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
     res.header(
-      'Access-Control-Allow-Headers',
-      'Content-Type, Authorization, X-Player-Id, X-Seat-Secret'
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Player-Id, X-Seat-Secret",
     );
-    if (req.method === 'OPTIONS') {
+    if (req.method === "OPTIONS") {
       res.sendStatus(204);
       return;
     }
     next();
   });
 
-  app.get('/api/health', (_req, res) => {
+  app.get("/api/health", (_req, res) => {
     const dbOk = sharedDb.ping();
     let humans = 0;
     let bots = 0;
@@ -1212,22 +1340,28 @@ async function startServer() {
       bots,
       activeSessions: sessions.size,
       memoryRssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
-      persistence: 'sqlite',
-      botEngine: 'gto-v3-rnr',
+      persistence: "sqlite",
+      botEngine: "gto-v3-rnr",
       gtoSolverCacheSize: sharedGtoSpotCache.size,
       aiProviders: {
         deepseek: Boolean(process.env.DEEPSEEK_API_KEY?.trim()),
         gemini: Boolean(process.env.GEMINI_API_KEY?.trim()),
         texasSolver: Boolean(process.env.TEXASSOLVER_BIN?.trim()),
-        botAiEnhancement: process.env.AI_BOT_ENHANCEMENT?.trim().toLowerCase() === 'true',
+        botAiEnhancement:
+          process.env.AI_BOT_ENHANCEMENT?.trim().toLowerCase() === "true",
       },
     });
   });
 
-  app.get('/api/metrics', (_req, res) => {
+  app.get("/api/metrics", (_req, res) => {
     const avgBotDecisionMs =
       runtimeMetrics.botDecisionsCount > 0
-        ? Number((runtimeMetrics.botDecisionTotalMs / runtimeMetrics.botDecisionsCount).toFixed(2))
+        ? Number(
+            (
+              runtimeMetrics.botDecisionTotalMs /
+              runtimeMetrics.botDecisionsCount
+            ).toFixed(2),
+          )
         : 0;
     res.json({
       uptimeSec: Math.floor((Date.now() - SERVER_STARTED_AT) / 1000),
@@ -1248,7 +1382,7 @@ async function startServer() {
 
   const extractBearerToken = (req: express.Request): string | null => {
     const raw = req.headers.authorization;
-    if (!raw || !raw.startsWith('Bearer ')) return null;
+    if (!raw || !raw.startsWith("Bearer ")) return null;
     return raw.slice(7).trim() || null;
   };
 
@@ -1280,40 +1414,40 @@ async function startServer() {
     },
   });
 
-  app.get('/api/leaderboard', (req, res) => {
-    const rawMode = typeof req.query.mode === 'string' ? req.query.mode : 'all';
+  app.get("/api/leaderboard", (req, res) => {
+    const rawMode = typeof req.query.mode === "string" ? req.query.mode : "all";
     const mode: LeaderboardMode =
-      rawMode === 'ranked' || rawMode === 'practice' ? rawMode : 'all';
+      rawMode === "ranked" || rawMode === "practice" ? rawMode : "all";
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30));
     res.json({ entries: leaderboard.getRankedList(limit, mode), mode });
   });
 
-  app.get('/api/rooms', (_req, res) => {
+  app.get("/api/rooms", (_req, res) => {
     res.json({ rooms: getRoomSummaries() });
   });
 
-  app.get('/api/rooms/:roomId', (req, res) => {
+  app.get("/api/rooms/:roomId", (req, res) => {
     const id = normalizeRoomId(req.params.roomId);
     const ctx = rooms.get(id);
     if (!ctx) {
-      res.status(404).json({ error: '牌桌不存在或已被删除' });
+      res.status(404).json({ error: "牌桌不存在或已被删除" });
       return;
     }
     res.json({ room: toRoomSummary(ctx) });
   });
 
-  app.get('/api/rooms/:roomId/history', (req, res) => {
+  app.get("/api/rooms/:roomId/history", (req, res) => {
     const id = normalizeRoomId(req.params.roomId);
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
     const history = sharedDb.getRoomHandHistory(id, limit);
     res.json({ roomId: id, history });
   });
 
-  app.post('/api/rooms/:roomId/hand-review', (req, res) => {
+  app.post("/api/rooms/:roomId/hand-review", (req, res) => {
     const id = normalizeRoomId(req.params.roomId);
     const ctx = rooms.get(id);
     if (!ctx) {
-      res.status(404).json({ ok: false, error: '牌桌不存在或已关闭' });
+      res.status(404).json({ ok: false, error: "牌桌不存在或已关闭" });
       return;
     }
 
@@ -1323,49 +1457,56 @@ async function startServer() {
       seatSecret?: unknown;
     };
     const headerPlayerId =
-      typeof req.headers['x-player-id'] === 'string' ? req.headers['x-player-id'].trim() : '';
+      typeof req.headers["x-player-id"] === "string"
+        ? req.headers["x-player-id"].trim()
+        : "";
     const headerSeatSecret =
-      typeof req.headers['x-seat-secret'] === 'string'
-        ? req.headers['x-seat-secret'].trim().slice(0, 64)
-        : '';
+      typeof req.headers["x-seat-secret"] === "string"
+        ? req.headers["x-seat-secret"].trim().slice(0, 64)
+        : "";
     const playerId =
-      typeof body.playerId === 'string' && body.playerId.trim()
+      typeof body.playerId === "string" && body.playerId.trim()
         ? body.playerId.trim().slice(0, 48)
         : headerPlayerId.slice(0, 48);
     const providedSecret =
-      typeof body.seatSecret === 'string' && body.seatSecret.trim()
+      typeof body.seatSecret === "string" && body.seatSecret.trim()
         ? body.seatSecret.trim().slice(0, 64)
         : headerSeatSecret;
 
     if (!playerId) {
-      res.status(400).json({ ok: false, error: '缺少玩家标识，无法生成复盘报告' });
+      res
+        .status(400)
+        .json({ ok: false, error: "缺少玩家标识，无法生成复盘报告" });
       return;
     }
 
     const heroHands = ctx.state.handHistory.filter((h) =>
-      h.players.some((pl) => pl.id === playerId)
+      h.players.some((pl) => pl.id === playerId),
     );
     if (heroHands.length === 0) {
-      res.status(404).json({ ok: false, error: '当前房间暂无你参与的已结束牌局记录' });
+      res
+        .status(404)
+        .json({ ok: false, error: "当前房间暂无你参与的已结束牌局记录" });
       return;
     }
 
     const requestedHandNumber =
-      typeof body.handNumber === 'number' && Number.isFinite(body.handNumber)
+      typeof body.handNumber === "number" && Number.isFinite(body.handNumber)
         ? Math.floor(body.handNumber)
         : null;
     const targetRecord =
       requestedHandNumber !== null
-        ? heroHands.find((h) => h.handNumber === requestedHandNumber) ?? null
+        ? (heroHands.find((h) => h.handNumber === requestedHandNumber) ?? null)
         : heroHands[heroHands.length - 1];
 
     if (!targetRecord) {
-      res.status(404).json({ ok: false, error: '未找到指定局号的历史记录' });
+      res.status(404).json({ ok: false, error: "未找到指定局号的历史记录" });
       return;
     }
 
     const storedSecret = ctx.seatSecrets.get(playerId) ?? null;
-    const isVerifiedOwner = !storedSecret || secretsMatch(storedSecret, providedSecret);
+    const isVerifiedOwner =
+      !storedSecret || secretsMatch(storedSecret, providedSecret);
 
     // Strictly sanitize unrevealed opponent cards and protect private hero cards if secret mismatch
     const safeRecord = {
@@ -1391,7 +1532,9 @@ async function startServer() {
       profiler: ctx.opponentProfiler,
     });
     if (!report) {
-      res.status(400).json({ ok: false, error: '该局记录缺少有效数据，暂无法复盘' });
+      res
+        .status(400)
+        .json({ ok: false, error: "该局记录缺少有效数据，暂无法复盘" });
       return;
     }
 
@@ -1399,11 +1542,11 @@ async function startServer() {
     res.json({ ok: true, report, availableHandNumbers });
   });
 
-  app.post('/api/rooms/:roomId/session-review', (req, res) => {
+  app.post("/api/rooms/:roomId/session-review", (req, res) => {
     const id = normalizeRoomId(req.params.roomId);
     const ctx = rooms.get(id);
     if (!ctx) {
-      res.status(404).json({ ok: false, error: '牌桌不存在或已关闭' });
+      res.status(404).json({ ok: false, error: "牌桌不存在或已关闭" });
       return;
     }
 
@@ -1413,45 +1556,60 @@ async function startServer() {
       bookmarkedHandNumbers?: unknown;
     };
     const headerPlayerId =
-      typeof req.headers['x-player-id'] === 'string' ? req.headers['x-player-id'].trim() : '';
+      typeof req.headers["x-player-id"] === "string"
+        ? req.headers["x-player-id"].trim()
+        : "";
     const headerSeatSecret =
-      typeof req.headers['x-seat-secret'] === 'string'
-        ? req.headers['x-seat-secret'].trim().slice(0, 64)
-        : '';
+      typeof req.headers["x-seat-secret"] === "string"
+        ? req.headers["x-seat-secret"].trim().slice(0, 64)
+        : "";
     const playerId =
-      typeof body.playerId === 'string' && body.playerId.trim()
+      typeof body.playerId === "string" && body.playerId.trim()
         ? body.playerId.trim().slice(0, 48)
         : headerPlayerId.slice(0, 48);
     const providedSecret =
-      typeof body.seatSecret === 'string' && body.seatSecret.trim()
+      typeof body.seatSecret === "string" && body.seatSecret.trim()
         ? body.seatSecret.trim().slice(0, 64)
         : headerSeatSecret;
 
     if (!playerId) {
-      res.status(400).json({ ok: false, error: '缺少玩家标识，无法生成整场复盘' });
+      res
+        .status(400)
+        .json({ ok: false, error: "缺少玩家标识，无法生成整场复盘" });
       return;
     }
 
     const heroHands = ctx.state.handHistory.filter((h) =>
-      h.players.some((pl) => pl.id === playerId)
+      h.players.some((pl) => pl.id === playerId),
     );
     if (heroHands.length === 0) {
-      res.status(404).json({ ok: false, error: '当前房间暂无你参与的已结束牌局记录' });
+      res
+        .status(404)
+        .json({ ok: false, error: "当前房间暂无你参与的已结束牌局记录" });
       return;
     }
 
-    const bookmarkedHandNumbers: number[] = Array.isArray(body.bookmarkedHandNumbers)
+    const bookmarkedHandNumbers: number[] = Array.isArray(
+      body.bookmarkedHandNumbers,
+    )
       ? body.bookmarkedHandNumbers
-          .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+          .filter(
+            (n): n is number => typeof n === "number" && Number.isFinite(n),
+          )
           .map((n) => Math.floor(n))
           .slice(0, 60)
       : [];
 
     const storedSecret = ctx.seatSecrets.get(playerId) ?? null;
-    const isVerifiedOwner = !storedSecret || secretsMatch(storedSecret, providedSecret);
+    const isVerifiedOwner =
+      !storedSecret || secretsMatch(storedSecret, providedSecret);
 
-    const reports: Array<NonNullable<ReturnType<typeof generateHandReview>>> = [];
-    const reportsByHand: Record<number, NonNullable<ReturnType<typeof generateHandReview>>> = {};
+    const reports: Array<NonNullable<ReturnType<typeof generateHandReview>>> =
+      [];
+    const reportsByHand: Record<
+      number,
+      NonNullable<ReturnType<typeof generateHandReview>>
+    > = {};
 
     for (const record of heroHands) {
       const safeRecord = {
@@ -1483,7 +1641,9 @@ async function startServer() {
     }
 
     if (reports.length === 0) {
-      res.status(400).json({ ok: false, error: '本场记录缺少有效数据，暂无法复盘' });
+      res
+        .status(400)
+        .json({ ok: false, error: "本场记录缺少有效数据，暂无法复盘" });
       return;
     }
 
@@ -1496,7 +1656,9 @@ async function startServer() {
           ? Math.round((matchStat.vpipHands / matchStat.handsPlayed) * 100)
           : null;
     const pfrPct =
-      profilerRead.handsObserved > 0 ? Math.round(profilerRead.pfrRate * 100) : null;
+      profilerRead.handsObserved > 0
+        ? Math.round(profilerRead.pfrRate * 100)
+        : null;
 
     const summary = buildSessionReviewSummary({
       reports,
@@ -1508,32 +1670,42 @@ async function startServer() {
     res.json({ ok: true, summary, reportsByHand });
   });
 
-  app.post('/api/rooms', (req, res) => {
+  app.post("/api/rooms", (req, res) => {
     const ip = getClientIp(req);
     const rate = roomCreateLimiter.consume(ip);
     if (!rate.allowed) {
       runtimeMetrics.rateLimitRejections += 1;
-      res.status(429).json({ error: `创建牌桌过于频繁，请 ${rate.retryAfterSec} 秒后再试` });
+      res
+        .status(429)
+        .json({ error: `创建牌桌过于频繁，请 ${rate.retryAfterSec} 秒后再试` });
       return;
     }
     const creatorId =
-      typeof req.headers['x-player-id'] === 'string'
-        ? req.headers['x-player-id'].trim().slice(0, 48)
+      typeof req.headers["x-player-id"] === "string"
+        ? req.headers["x-player-id"].trim().slice(0, 48)
         : null;
     const creatorSecret =
-      typeof req.headers['x-seat-secret'] === 'string'
-        ? req.headers['x-seat-secret'].trim().slice(0, 64)
+      typeof req.headers["x-seat-secret"] === "string"
+        ? req.headers["x-seat-secret"].trim().slice(0, 64)
         : null;
-    const { tableName, roomId, smallBlind, bigBlind, startingChips, turnTimeoutSec, allowRebuy } =
-      req.body ?? {};
+    const {
+      tableName,
+      roomId,
+      smallBlind,
+      bigBlind,
+      startingChips,
+      turnTimeoutSec,
+      allowRebuy,
+    } = req.body ?? {};
     const created = createCustomRoom({
       tableName,
       roomId,
       smallBlind,
       bigBlind,
       startingChips,
-      turnTimeoutSec: typeof turnTimeoutSec === 'number' ? turnTimeoutSec : undefined,
-      allowRebuy: typeof allowRebuy === 'boolean' ? allowRebuy : undefined,
+      turnTimeoutSec:
+        typeof turnTimeoutSec === "number" ? turnTimeoutSec : undefined,
+      allowRebuy: typeof allowRebuy === "boolean" ? allowRebuy : undefined,
       creatorId,
       creatorSecret,
     });
@@ -1545,22 +1717,27 @@ async function startServer() {
     res.status(201).json({ room: toRoomSummary(created.ctx) });
   });
 
-  app.delete('/api/rooms/:roomId', (req, res) => {
+  app.delete("/api/rooms/:roomId", (req, res) => {
     const id = normalizeRoomId(req.params.roomId);
     const ctx = rooms.get(id);
     if (!ctx) {
-      res.status(404).json({ error: '牌桌不存在或已被删除' });
+      res.status(404).json({ error: "牌桌不存在或已被删除" });
       return;
     }
     const requesterId =
-      typeof req.headers['x-player-id'] === 'string'
-        ? req.headers['x-player-id'].trim().slice(0, 48)
+      typeof req.headers["x-player-id"] === "string"
+        ? req.headers["x-player-id"].trim().slice(0, 48)
         : null;
     const requesterSecret =
-      typeof req.headers['x-seat-secret'] === 'string'
-        ? req.headers['x-seat-secret'].trim().slice(0, 64)
+      typeof req.headers["x-seat-secret"] === "string"
+        ? req.headers["x-seat-secret"].trim().slice(0, 64)
         : null;
-    const authCheck = canRequesterDeleteRoom(ctx, requesterId, requesterSecret, true);
+    const authCheck = canRequesterDeleteRoom(
+      ctx,
+      requesterId,
+      requesterSecret,
+      true,
+    );
     if (!authCheck.ok) {
       res.status(authCheck.status ?? 403).json({ error: authCheck.error });
       return;
@@ -1573,43 +1750,43 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.get('/api/rooms/:roomId/bot-chat/status', (req, res) => {
+  app.get("/api/rooms/:roomId/bot-chat/status", (req, res) => {
     const id = normalizeRoomId(req.params.roomId);
     const ctx = rooms.get(id);
     if (!ctx) {
-      res.status(404).json({ error: '牌桌不存在' });
+      res.status(404).json({ error: "牌桌不存在" });
       return;
     }
     res.json({ status: getBotChatStatus(ctx) });
   });
 
-  app.post('/api/rooms/:roomId/bot-chat/config', async (req, res) => {
+  app.post("/api/rooms/:roomId/bot-chat/config", async (req, res) => {
     const id = normalizeRoomId(req.params.roomId);
     const ctx = rooms.get(id);
     if (!ctx) {
-      res.status(404).json({ error: '牌桌不存在' });
+      res.status(404).json({ error: "牌桌不存在" });
       return;
     }
 
     const requesterId =
-      typeof req.headers['x-player-id'] === 'string'
-        ? req.headers['x-player-id'].trim()
+      typeof req.headers["x-player-id"] === "string"
+        ? req.headers["x-player-id"].trim()
         : null;
     const requesterSecret =
-      typeof req.headers['x-seat-secret'] === 'string'
-        ? req.headers['x-seat-secret'].trim().slice(0, 64)
+      typeof req.headers["x-seat-secret"] === "string"
+        ? req.headers["x-seat-secret"].trim().slice(0, 64)
         : null;
 
     const seatedPlayer = requesterId
       ? ctx.state.players.find((p) => p.id === requesterId && !p.isBot)
       : null;
     if (!seatedPlayer || !requesterId) {
-      res.status(403).json({ error: '仅在座玩家可配置当前牌桌的陪练对话' });
+      res.status(403).json({ error: "仅在座玩家可配置当前牌桌的陪练对话" });
       return;
     }
     const storedSecret = ctx.seatSecrets.get(requesterId) ?? null;
     if (!storedSecret || !secretsMatch(storedSecret, requesterSecret)) {
-      res.status(403).json({ error: '座位身份校验失败' });
+      res.status(403).json({ error: "座位身份校验失败" });
       return;
     }
 
@@ -1622,16 +1799,18 @@ async function startServer() {
 
     const nextClearKey = body.clearKey === true;
     const rawKey =
-      typeof body.apiKey === 'string' ? body.apiKey.trim().slice(0, 160) : '';
+      typeof body.apiKey === "string" ? body.apiKey.trim().slice(0, 160) : "";
     const nextEnabled =
-      typeof body.enabled === 'boolean' ? body.enabled : ctx.botChatEnabled;
+      typeof body.enabled === "boolean" ? body.enabled : ctx.botChatEnabled;
 
     const candidateKey = nextClearKey
       ? process.env.DEEPSEEK_API_KEY?.trim() || null
       : rawKey || getEffectiveDeepSeekKey(ctx);
 
     if (nextEnabled && !candidateKey) {
-      res.status(400).json({ error: '启用陪练对话前，请先填入 DeepSeek API Key' });
+      res
+        .status(400)
+        .json({ error: "启用陪练对话前，请先填入 DeepSeek API Key" });
       return;
     }
 
@@ -1640,14 +1819,17 @@ async function startServer() {
         await requestDeepSeekReply({
           apiKey: candidateKey,
           messages: [
-            { role: 'system', content: '你是一名德州扑克牌友，只回复一个简短的打招呼表情或词。' },
-            { role: 'user', content: '打个招呼' },
+            {
+              role: "system",
+              content: "你是一名德州扑克牌友，只回复一个简短的打招呼表情或词。",
+            },
+            { role: "user", content: "打个招呼" },
           ],
           timeoutMs: 8000,
         });
       } catch (err) {
         res.status(400).json({
-          error: err instanceof Error ? err.message : 'DeepSeek 连通性校验失败',
+          error: err instanceof Error ? err.message : "DeepSeek 连通性校验失败",
         });
         return;
       }
@@ -1669,36 +1851,40 @@ async function startServer() {
       err: unknown,
       _req: express.Request,
       res: express.Response,
-      next: express.NextFunction
+      next: express.NextFunction,
     ) => {
-      if (err instanceof SyntaxError && 'body' in err) {
-        res.status(400).json({ error: '无效的 JSON 请求体' });
+      if (err instanceof SyntaxError && "body" in err) {
+        res.status(400).json({ error: "无效的 JSON 请求体" });
         return;
       }
       next(err);
-    }
+    },
   );
 
-  if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
+  if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true, allowedHosts: true },
-      appType: 'spa',
+      appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
     const distDir = resolveDistDir();
-    app.use(express.static(distDir, { maxAge: '1h', index: false }));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distDir, 'index.html'));
+    app.use(express.static(distDir, { maxAge: "1h", index: false }));
+    app.get("*", (_req, res) => {
+      res.sendFile(path.join(distDir, "index.html"));
     });
   }
 
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
+  const wss = new WebSocketServer({
+    server,
+    path: "/ws",
+    maxPayload: 64 * 1024,
+  });
 
-  wss.on('connection', (ws) => {
-    const wsKey = `ws_${crypto.randomBytes(6).toString('hex')}`;
+  wss.on("connection", (ws) => {
+    const wsKey = `ws_${crypto.randomBytes(6).toString("hex")}`;
     const session: ClientSession = {
       ws,
       isAlive: true,
@@ -1710,20 +1896,23 @@ async function startServer() {
     };
     sessions.set(ws, session);
 
-    ws.on('pong', () => {
+    ws.on("pong", () => {
       session.isAlive = true;
     });
 
-    sendJson(ws, { type: 'rooms_update', rooms: getRoomSummaries() });
-    sendJson(ws, { type: 'leaderboard_update', entries: leaderboard.getRankedList(30) });
+    sendJson(ws, { type: "rooms_update", rooms: getRoomSummaries() });
+    sendJson(ws, {
+      type: "leaderboard_update",
+      entries: leaderboard.getRankedList(30),
+    });
 
-    ws.on('message', (raw) => {
+    ws.on("message", (raw) => {
       session.isAlive = true;
       runtimeMetrics.wsMessagesHandled += 1;
       const wsRate = wsMessageLimiter.consume(wsKey);
       if (!wsRate.allowed) {
         runtimeMetrics.rateLimitRejections += 1;
-        sendJson(ws, { type: 'error', message: '操作频率过高，请稍后再试' });
+        sendJson(ws, { type: "error", message: "操作频率过高，请稍后再试" });
         return;
       }
 
@@ -1731,102 +1920,137 @@ async function startServer() {
         let msg: ClientWsMessage;
         try {
           const parsed: unknown = JSON.parse(raw.toString());
-          if (!parsed || typeof parsed !== 'object' || typeof (parsed as { type?: unknown }).type !== 'string') {
-            sendJson(ws, { type: 'error', message: '无效的消息格式' });
+          if (
+            !parsed ||
+            typeof parsed !== "object" ||
+            typeof (parsed as { type?: unknown }).type !== "string"
+          ) {
+            sendJson(ws, { type: "error", message: "无效的消息格式" });
             return;
           }
           msg = parsed as ClientWsMessage;
         } catch {
-          sendJson(ws, { type: 'error', message: '无效的消息格式' });
+          sendJson(ws, { type: "error", message: "无效的消息格式" });
           return;
         }
 
-        if (msg.type === 'ping') {
-          sendJson(ws, { type: 'pong' });
+        if (msg.type === "ping") {
+          sendJson(ws, { type: "pong" });
           return;
         }
 
-        if (msg.type === 'create_room') {
+        if (msg.type === "create_room") {
           const created = createCustomRoom({
-            tableName: typeof msg.tableName === 'string' ? msg.tableName : undefined,
-            roomId: typeof msg.roomId === 'string' ? msg.roomId : undefined,
-            smallBlind: typeof msg.smallBlind === 'number' ? msg.smallBlind : undefined,
-            bigBlind: typeof msg.bigBlind === 'number' ? msg.bigBlind : undefined,
-            startingChips: typeof msg.startingChips === 'number' ? msg.startingChips : undefined,
-            turnTimeoutSec: typeof msg.turnTimeoutSec === 'number' ? msg.turnTimeoutSec : undefined,
-            allowRebuy: typeof msg.allowRebuy === 'boolean' ? msg.allowRebuy : undefined,
+            tableName:
+              typeof msg.tableName === "string" ? msg.tableName : undefined,
+            roomId: typeof msg.roomId === "string" ? msg.roomId : undefined,
+            smallBlind:
+              typeof msg.smallBlind === "number" ? msg.smallBlind : undefined,
+            bigBlind:
+              typeof msg.bigBlind === "number" ? msg.bigBlind : undefined,
+            startingChips:
+              typeof msg.startingChips === "number"
+                ? msg.startingChips
+                : undefined,
+            turnTimeoutSec:
+              typeof msg.turnTimeoutSec === "number"
+                ? msg.turnTimeoutSec
+                : undefined,
+            allowRebuy:
+              typeof msg.allowRebuy === "boolean" ? msg.allowRebuy : undefined,
             creatorId: session.playerId,
           });
           if (!created.ok) {
-            sendJson(ws, { type: 'error', message: created.error });
+            sendJson(ws, { type: "error", message: created.error });
             return;
           }
           broadcastRoomsList();
           return;
         }
 
-        if (msg.type === 'delete_room') {
-          if (typeof msg.roomId !== 'string') {
-            sendJson(ws, { type: 'error', message: '缺少牌桌编号' });
+        if (msg.type === "delete_room") {
+          if (typeof msg.roomId !== "string") {
+            sendJson(ws, { type: "error", message: "缺少牌桌编号" });
             return;
           }
           const targetId = normalizeRoomId(msg.roomId);
           const targetCtx = rooms.get(targetId);
           if (!targetCtx) {
-            sendJson(ws, { type: 'error', message: '牌桌不存在或已被删除' });
+            sendJson(ws, { type: "error", message: "牌桌不存在或已被删除" });
             return;
           }
-          const authCheck = canRequesterDeleteRoom(targetCtx, session.playerId, null, false);
+          const authCheck = canRequesterDeleteRoom(
+            targetCtx,
+            session.playerId,
+            null,
+            false,
+          );
           if (!authCheck.ok) {
-            sendJson(ws, { type: 'error', message: authCheck.error ?? '无权删除牌桌' });
+            sendJson(ws, {
+              type: "error",
+              message: authCheck.error ?? "无权删除牌桌",
+            });
             return;
           }
           const result = deleteRoomById(targetId);
           if (!result.ok) {
-            sendJson(ws, { type: 'error', message: result.error ?? '删除牌桌失败' });
+            sendJson(ws, {
+              type: "error",
+              message: result.error ?? "删除牌桌失败",
+            });
           }
           return;
         }
 
-        if (msg.type === 'join_room') {
-          if (typeof msg.playerName !== 'string' || typeof msg.playerId !== 'string') {
-            sendJson(ws, { type: 'error', message: '缺少有效的玩家信息' });
+        if (msg.type === "join_room") {
+          if (
+            typeof msg.playerName !== "string" ||
+            typeof msg.playerId !== "string"
+          ) {
+            sendJson(ws, { type: "error", message: "缺少有效的玩家信息" });
             return;
           }
           const cleanName = msg.playerName.trim().slice(0, 18);
           const cleanId = msg.playerId.trim().slice(0, 48);
           if (!cleanName || !cleanId) {
-            sendJson(ws, { type: 'error', message: '请输入有效的玩家昵称' });
+            sendJson(ws, { type: "error", message: "请输入有效的玩家昵称" });
             return;
           }
-          if (cleanId.startsWith('bot_')) {
-            sendJson(ws, { type: 'error', message: '无效的玩家身份标识' });
+          if (cleanId.startsWith("bot_")) {
+            sendJson(ws, { type: "error", message: "无效的玩家身份标识" });
             return;
           }
 
           const targetRoomId =
-            normalizeRoomId(typeof msg.roomId === 'string' ? msg.roomId : 'CLUB01') || 'CLUB01';
+            normalizeRoomId(
+              typeof msg.roomId === "string" ? msg.roomId : "CLUB01",
+            ) || "CLUB01";
           const ctx = getOrCreateRoom(targetRoomId);
           if (!ctx) {
-            sendJson(ws, { type: 'error', message: '当前在线牌桌数量已达上限' });
+            sendJson(ws, {
+              type: "error",
+              message: "当前在线牌桌数量已达上限",
+            });
             return;
           }
 
           const verifiedAccount =
-            typeof msg.authToken === 'string'
+            typeof msg.authToken === "string"
               ? authStore.verifySessionToken(msg.authToken)
               : null;
           const verifiedUid = verifiedAccount?.uid ?? null;
           session.verifiedUid = verifiedUid;
 
           const incomingSecret =
-            typeof msg.seatSecret === 'string' ? msg.seatSecret.trim().slice(0, 64) : '';
+            typeof msg.seatSecret === "string"
+              ? msg.seatSecret.trim().slice(0, 64)
+              : "";
 
           // Deduplicate same authenticated user re-entering from another tab/device with a different playerId
           let existingPlayer = ctx.state.players.find((p) => p.id === cleanId);
           if (!existingPlayer && verifiedUid) {
             const sameAccountSeat = ctx.state.players.find(
-              (p) => !p.isBot && ctx.playerUids.get(p.id) === verifiedUid
+              (p) => !p.isBot && ctx.playerUids.get(p.id) === verifiedUid,
             );
             if (sameAccountSeat) {
               const oldId = sameAccountSeat.id;
@@ -1837,7 +2061,11 @@ async function startServer() {
                 disconnectTimers.delete(oldKey);
               }
               for (const other of sessions.values()) {
-                if (other !== session && other.roomId === targetRoomId && other.playerId === oldId) {
+                if (
+                  other !== session &&
+                  other.roomId === targetRoomId &&
+                  other.playerId === oldId
+                ) {
                   other.roomId = null;
                   other.playerId = null;
                   try {
@@ -1870,7 +2098,7 @@ async function startServer() {
           }
 
           if (existingPlayer?.isBot) {
-            sendJson(ws, { type: 'error', message: '不可接管陪练 AI 座位' });
+            sendJson(ws, { type: "error", message: "不可接管陪练 AI 座位" });
             return;
           }
 
@@ -1878,9 +2106,17 @@ async function startServer() {
 
           if (existingPlayer) {
             const sameVerifiedOwner =
-              Boolean(verifiedUid) && ctx.playerUids.get(cleanId) === verifiedUid;
-            if (storedSecret && !sameVerifiedOwner && !secretsMatch(storedSecret, incomingSecret)) {
-              sendJson(ws, { type: 'error', message: '该座位已被其他会话占用' });
+              Boolean(verifiedUid) &&
+              ctx.playerUids.get(cleanId) === verifiedUid;
+            if (
+              storedSecret &&
+              !sameVerifiedOwner &&
+              !secretsMatch(storedSecret, incomingSecret)
+            ) {
+              sendJson(ws, {
+                type: "error",
+                message: "该座位已被其他会话占用",
+              });
               return;
             }
             if (!storedSecret && !sameVerifiedOwner) {
@@ -1891,7 +2127,10 @@ async function startServer() {
                   other.roomId === targetRoomId &&
                   other.playerId === cleanId
                 ) {
-                  sendJson(ws, { type: 'error', message: '该玩家已在牌桌在线，请勿重复登录' });
+                  sendJson(ws, {
+                    type: "error",
+                    message: "该玩家已在牌桌在线，请勿重复登录",
+                  });
                   return;
                 }
               }
@@ -1928,7 +2167,10 @@ async function startServer() {
             disconnectTimers.delete(key);
           }
 
-          const lbProfile = leaderboard.getPlayerProfile(cleanName, verifiedUid);
+          const lbProfile = leaderboard.getPlayerProfile(
+            cleanName,
+            verifiedUid,
+          );
           let authoritativeAch: AchievementId[];
           let authoritativeDates: AchievementDatesMap;
           let authoritativeStreak: number;
@@ -1944,31 +2186,45 @@ async function startServer() {
             };
             authoritativeStreak = Math.max(
               verifiedAccount.currentWinStreak,
-              lbProfile.currentWinStreak
+              lbProfile.currentWinStreak,
             );
           } else {
             authoritativeAch = sanitizeAchievementIds(lbProfile.achievements);
-            authoritativeDates = sanitizeAchievementDates(lbProfile.achievementDates);
+            authoritativeDates = sanitizeAchievementDates(
+              lbProfile.achievementDates,
+            );
             authoritativeStreak = lbProfile.currentWinStreak;
           }
 
           const resolvedAvatar =
-            typeof msg.avatar === 'string'
+            typeof msg.avatar === "string"
               ? sanitizeAvatar(msg.avatar)
               : verifiedAccount?.avatar
                 ? sanitizeAvatar(verifiedAccount.avatar)
                 : lbProfile.avatar
                   ? sanitizeAvatar(lbProfile.avatar)
-                  : 'default';
-          const incomingEquipped = sanitizeEquippedAchievement(msg.equippedAchievement);
+                  : "default";
+          const incomingEquipped = sanitizeEquippedAchievement(
+            msg.equippedAchievement,
+          );
           const resolvedEquipped =
-            incomingEquipped ?? verifiedAccount?.equippedAchievement ?? lbProfile.equippedAchievement;
+            incomingEquipped ??
+            verifiedAccount?.equippedAchievement ??
+            lbProfile.equippedAchievement;
 
           let leaderboardDirty = false;
-          if (leaderboard.syncPlayerAvatar(cleanName, resolvedAvatar, verifiedUid)) {
+          if (
+            leaderboard.syncPlayerAvatar(cleanName, resolvedAvatar, verifiedUid)
+          ) {
             leaderboardDirty = true;
           }
-          if (leaderboard.syncPlayerEquippedAchievement(cleanName, resolvedEquipped, verifiedUid)) {
+          if (
+            leaderboard.syncPlayerEquippedAchievement(
+              cleanName,
+              resolvedEquipped,
+              verifiedUid,
+            )
+          ) {
             leaderboardDirty = true;
           }
           if (leaderboardDirty) {
@@ -1977,15 +2233,23 @@ async function startServer() {
 
           const resolvedLevel = computePlayerLevel({
             achievements: authoritativeAch,
-            handsPlayed: Math.max(verifiedAccount?.handsPlayed ?? 0, lbProfile.handsPlayed),
-            handsWon: Math.max(verifiedAccount?.handsWon ?? 0, lbProfile.handsWon),
+            handsPlayed: Math.max(
+              verifiedAccount?.handsPlayed ?? 0,
+              lbProfile.handsPlayed,
+            ),
+            handsWon: Math.max(
+              verifiedAccount?.handsWon ?? 0,
+              lbProfile.handsWon,
+            ),
             points: Math.max(verifiedAccount?.points ?? 1000, lbProfile.points),
             explicitLevel: lbProfile.level,
           }).level;
 
           const rememberedChips = !ctx.state.allowRebuy
             ? (ctx.departedChips.get(cleanId) ??
-              (verifiedUid ? ctx.departedChips.get(`uid:${verifiedUid}`) : undefined))
+              (verifiedUid
+                ? ctx.departedChips.get(`uid:${verifiedUid}`)
+                : undefined))
             : undefined;
 
           const res = addPlayerToTable(ctx.state, {
@@ -2001,7 +2265,10 @@ async function startServer() {
           });
 
           if (!res.ok) {
-            sendJson(ws, { type: 'error', message: res.error ?? '无法加入牌桌' });
+            sendJson(ws, {
+              type: "error",
+              message: res.error ?? "无法加入牌桌",
+            });
             return;
           }
 
@@ -2011,7 +2278,8 @@ async function startServer() {
           if (verifiedUid) {
             ctx.playerUids.set(cleanId, verifiedUid);
           }
-          const warmStats = verifiedAccount?.behaviorStats ?? lbProfile.behaviorStats ?? null;
+          const warmStats =
+            verifiedAccount?.behaviorStats ?? lbProfile.behaviorStats ?? null;
           if (warmStats) {
             ctx.opponentProfiler.seedPriorFromBehaviorStats(cleanId, warmStats);
           }
@@ -2021,12 +2289,12 @@ async function startServer() {
           session.playerId = cleanId;
           broadcastRoomState(ctx);
           sendJson(ws, {
-            type: 'chat_history',
+            type: "chat_history",
             roomId: ctx.state.roomId,
             messages: ctx.chatHistory,
           });
           sendJson(ws, {
-            type: 'bot_chat_status',
+            type: "bot_chat_status",
             roomId: ctx.state.roomId,
             status: getBotChatStatus(ctx),
           });
@@ -2034,54 +2302,67 @@ async function startServer() {
           return;
         }
 
-        if (msg.type === 'leave_room') {
+        if (msg.type === "leave_room") {
           cleanupPlayerFromCurrentRoom(session, true);
           return;
         }
 
         if (!session.roomId || !session.playerId) {
-          sendJson(ws, { type: 'error', message: '请先加入一个牌桌' });
+          sendJson(ws, { type: "error", message: "请先加入一个牌桌" });
           return;
         }
 
         const ctx = rooms.get(session.roomId);
         if (!ctx) {
-          sendJson(ws, { type: 'error', message: '牌桌不存在' });
+          sendJson(ws, { type: "error", message: "牌桌不存在" });
           return;
         }
 
-        if (msg.type === 'update_profile') {
-          const seatPlayer = ctx.state.players.find((p) => p.id === session.playerId && !p.isBot);
+        if (msg.type === "update_profile") {
+          const seatPlayer = ctx.state.players.find(
+            (p) => p.id === session.playerId && !p.isBot,
+          );
           if (!seatPlayer) return;
           let changed = false;
           let lbDirty = false;
-          if (typeof msg.playerName === 'string') {
+          if (typeof msg.playerName === "string") {
             const nextName = msg.playerName.trim().slice(0, 18);
             if (nextName && nextName !== seatPlayer.name) {
               seatPlayer.name = nextName;
               changed = true;
             }
           }
-          if (typeof msg.avatar === 'string') {
+          if (typeof msg.avatar === "string") {
             const nextAvatar = sanitizeAvatar(msg.avatar);
             if (nextAvatar !== seatPlayer.avatar) {
               seatPlayer.avatar = nextAvatar;
               changed = true;
-              if (leaderboard.syncPlayerAvatar(seatPlayer.name, nextAvatar, session.verifiedUid)) {
+              if (
+                leaderboard.syncPlayerAvatar(
+                  seatPlayer.name,
+                  nextAvatar,
+                  session.verifiedUid,
+                )
+              ) {
                 lbDirty = true;
               }
             }
           }
           if (msg.equippedAchievement !== undefined) {
-            const safeEquipped = sanitizeEquippedAchievement(msg.equippedAchievement);
-            if (safeEquipped && safeEquipped !== seatPlayer.equippedAchievement) {
+            const safeEquipped = sanitizeEquippedAchievement(
+              msg.equippedAchievement,
+            );
+            if (
+              safeEquipped &&
+              safeEquipped !== seatPlayer.equippedAchievement
+            ) {
               seatPlayer.equippedAchievement = safeEquipped;
               changed = true;
               if (
                 leaderboard.syncPlayerEquippedAchievement(
                   seatPlayer.name,
                   safeEquipped,
-                  session.verifiedUid
+                  session.verifiedUid,
                 )
               ) {
                 lbDirty = true;
@@ -2093,18 +2374,43 @@ async function startServer() {
           return;
         }
 
-        const isRoomHost = !ctx.state.hostId || ctx.state.hostId === session.playerId;
+        const isRoomHost =
+          !ctx.state.hostId || ctx.state.hostId === session.playerId;
 
-        if (msg.type === 'start_hand') {
+        if (msg.type === "start_hand") {
+          const previewDealer = resolveNextHandSeats(ctx.state).dealerSeatIndex;
+          const starter = resolveNextHandStarter(ctx.state, previewDealer);
+          if (
+            starter.starterPlayerId &&
+            starter.starterPlayerId !== session.playerId
+          ) {
+            sendJson(ws, {
+              type: "error",
+              message: starter.isDealerControlled
+                ? starter.starterPlayerName
+                  ? `当前由庄位「${starter.starterPlayerName}」决定是否提前开启下一局`
+                  : "当前由庄位决定是否提前开启下一局"
+                : "仅房主或庄位可提前开启下一局",
+            });
+            return;
+          }
           autoRebuyBustedBots(ctx.state);
           if (!canStartHand(ctx.state)) {
-            sendJson(ws, { type: 'error', message: '至少需要 2 名有筹码的玩家才能开始' });
+            sendJson(ws, {
+              type: "error",
+              message: "至少需要 2 名有筹码的玩家才能开始",
+            });
             return;
           }
           ctx.departedContributors = [];
-          const started = startNewHand(ctx.state, cryptoRng, Date.now(), { stepAllIn: true });
+          const started = startNewHand(ctx.state, cryptoRng, Date.now(), {
+            stepAllIn: true,
+          });
           if (!started.ok) {
-            sendJson(ws, { type: 'error', message: started.error ?? '无法开始牌局' });
+            sendJson(ws, {
+              type: "error",
+              message: started.error ?? "无法开始牌局",
+            });
             return;
           }
           broadcastRoomState(ctx);
@@ -2112,23 +2418,37 @@ async function startServer() {
           return;
         }
 
-        if (msg.type === 'player_action') {
-          if (!msg.action || typeof msg.action !== 'object' || typeof msg.action.type !== 'string') {
-            sendJson(ws, { type: 'error', message: '操作格式无效' });
+        if (msg.type === "player_action") {
+          if (
+            !msg.action ||
+            typeof msg.action !== "object" ||
+            typeof msg.action.type !== "string"
+          ) {
+            sendJson(ws, { type: "error", message: "操作格式无效" });
             return;
           }
           const isTurnActor =
-            ctx.state.phase !== 'waiting' &&
-            ctx.state.phase !== 'showdown' &&
+            ctx.state.phase !== "waiting" &&
+            ctx.state.phase !== "showdown" &&
             ctx.state.currentTurnPlayerId === session.playerId;
           if (isTurnActor) {
-            ctx.opponentProfiler.observeAction(ctx.state, session.playerId, msg.action);
+            ctx.opponentProfiler.observeAction(
+              ctx.state,
+              session.playerId,
+              msg.action,
+            );
           }
-          const res = applyPlayerAction(ctx.state, session.playerId, msg.action, Date.now(), {
-            stepAllIn: true,
-          });
+          const res = applyPlayerAction(
+            ctx.state,
+            session.playerId,
+            msg.action,
+            Date.now(),
+            {
+              stepAllIn: true,
+            },
+          );
           if (!res.ok) {
-            sendJson(ws, { type: 'error', message: res.error ?? '操作无效' });
+            sendJson(ws, { type: "error", message: res.error ?? "操作无效" });
             return;
           }
           ctx.consecutiveTimeouts.set(session.playerId, 0);
@@ -2136,26 +2456,33 @@ async function startServer() {
           return;
         }
 
-        if (msg.type === 'reveal_cards') {
+        if (msg.type === "reveal_cards") {
           const res = revealPlayerCards(ctx.state, session.playerId);
           if (!res.ok) {
-            sendJson(ws, { type: 'error', message: res.error ?? '当前无法亮牌' });
+            sendJson(ws, {
+              type: "error",
+              message: res.error ?? "当前无法亮牌",
+            });
             return;
           }
           persistCompletedHandRecord(
             sharedDb,
             ctx.state.roomId,
             ctx.state.handHistory,
-            ctx.state.handNumber
+            ctx.state.handNumber,
           );
           broadcastRoomState(ctx);
           return;
         }
 
-        if (msg.type === 'nudge_player') {
-          if (typeof msg.targetPlayerId !== 'string') return;
-          const sender = ctx.state.players.find((p) => p.id === session.playerId);
-          const target = ctx.state.players.find((p) => p.id === msg.targetPlayerId);
+        if (msg.type === "nudge_player") {
+          if (typeof msg.targetPlayerId !== "string") return;
+          const sender = ctx.state.players.find(
+            (p) => p.id === session.playerId,
+          );
+          const target = ctx.state.players.find(
+            (p) => p.id === msg.targetPlayerId,
+          );
           if (!sender || !target || sender.id === target.id) return;
 
           const now = Date.now();
@@ -2164,11 +2491,12 @@ async function startServer() {
           }
           const lastAt = session.nudgeCooldowns.get(target.id) ?? 0;
           if (now - lastAt < 3500) {
-            sendJson(ws, { type: 'error', message: '催促冷却中，请稍后再试' });
+            sendJson(ws, { type: "error", message: "催促冷却中，请稍后再试" });
             return;
           }
           session.nudgeCooldowns.set(target.id, now);
-          const phrase = NUDGE_PHRASES[crypto.randomInt(0, NUDGE_PHRASES.length)];
+          const phrase =
+            NUDGE_PHRASES[crypto.randomInt(0, NUDGE_PHRASES.length)];
           broadcastRoomNudge(ctx, {
             fromPlayerId: sender.id,
             fromPlayerName: sender.name,
@@ -2179,7 +2507,7 @@ async function startServer() {
           });
           if (target.isBot) {
             scheduleBotChatReaction(ctx, {
-              kind: 'nudge',
+              kind: "nudge",
               fromName: sender.name,
               targetBotId: target.id,
             });
@@ -2187,10 +2515,12 @@ async function startServer() {
           return;
         }
 
-        if (msg.type === 'toggle_auto_next') {
+        if (msg.type === "toggle_auto_next") {
           ctx.state.autoNextHandEnabled = Boolean(msg.enabled);
-          if (ctx.state.phase === 'showdown') {
-            const potentialCount = ctx.state.players.filter((p) => p.chips > 0 || p.isBot).length;
+          if (ctx.state.phase === "showdown") {
+            const potentialCount = ctx.state.players.filter(
+              (p) => p.chips > 0 || p.isBot,
+            ).length;
             ctx.state.nextHandAt =
               ctx.state.autoNextHandEnabled && potentialCount >= 2
                 ? Date.now() + AUTO_NEXT_HAND_DELAY_MS
@@ -2200,9 +2530,9 @@ async function startServer() {
           return;
         }
 
-        if (msg.type === 'add_bot') {
+        if (msg.type === "add_bot") {
           if (!isRoomHost) {
-            sendJson(ws, { type: 'error', message: '仅房主可添加陪练' });
+            sendJson(ws, { type: "error", message: "仅房主可添加陪练" });
             return;
           }
           const usedNames = new Set(ctx.state.players.map((p) => p.name));
@@ -2210,8 +2540,16 @@ async function startServer() {
             BOT_NAMES.find((n) => !usedNames.has(n)) ??
             `陪练 Bot ${ctx.state.players.length + 1}`;
           const botId = `bot_${Date.now()}_${crypto.randomInt(100, 1000)}`;
-          const botAvatarPool = ['spade', 'owl', 'fox', 'lion', 'crown', 'phoenix'];
-          const fallbackAvatar = botAvatarPool[ctx.state.players.length % botAvatarPool.length];
+          const botAvatarPool = [
+            "spade",
+            "owl",
+            "fox",
+            "lion",
+            "crown",
+            "phoenix",
+          ];
+          const fallbackAvatar =
+            botAvatarPool[ctx.state.players.length % botAvatarPool.length];
           const botPreset = getBotClubPreset(nextName);
           const lbBotProfile = leaderboard.getPlayerProfile(nextName);
           const botInit = botPreset ? buildBotInitialStats(botPreset) : null;
@@ -2224,19 +2562,26 @@ async function startServer() {
             ...(lbBotProfile.achievementDates ?? {}),
           };
           const botAvatar =
-            (lbBotProfile.avatar && sanitizeAvatar(lbBotProfile.avatar) !== 'default'
+            (lbBotProfile.avatar &&
+            sanitizeAvatar(lbBotProfile.avatar) !== "default"
               ? sanitizeAvatar(lbBotProfile.avatar)
               : botPreset?.avatar) ?? fallbackAvatar;
           const botLevel = computePlayerLevel({
             achievements: botAchievements,
-            handsPlayed: Math.max(lbBotProfile.handsPlayed, botPreset?.handsPlayed ?? 0),
+            handsPlayed: Math.max(
+              lbBotProfile.handsPlayed,
+              botPreset?.handsPlayed ?? 0,
+            ),
             handsWon: Math.max(lbBotProfile.handsWon, botPreset?.handsWon ?? 0),
-            points: lbBotProfile.handsPlayed > 0 ? lbBotProfile.points : (botPreset?.points ?? 1000),
+            points:
+              lbBotProfile.handsPlayed > 0
+                ? lbBotProfile.points
+                : (botPreset?.points ?? 1000),
             explicitLevel: Math.max(lbBotProfile.level, botInit?.level ?? 1),
           }).level;
           const botWinStreak = Math.max(
             lbBotProfile.currentWinStreak,
-            botPreset?.currentWinStreak ?? 0
+            botPreset?.currentWinStreak ?? 0,
           );
           if (botInit) {
             ctx.botStats.set(botId, {
@@ -2256,7 +2601,10 @@ async function startServer() {
             isBot: true,
           });
           if (!added.ok) {
-            sendJson(ws, { type: 'error', message: added.error ?? '无法添加陪练' });
+            sendJson(ws, {
+              type: "error",
+              message: added.error ?? "无法添加陪练",
+            });
             return;
           }
           broadcastRoomState(ctx);
@@ -2264,13 +2612,15 @@ async function startServer() {
           return;
         }
 
-        if (msg.type === 'remove_bot') {
+        if (msg.type === "remove_bot") {
           if (!isRoomHost) {
-            sendJson(ws, { type: 'error', message: '仅房主可移除陪练' });
+            sendJson(ws, { type: "error", message: "仅房主可移除陪练" });
             return;
           }
-          if (typeof msg.botId !== 'string') return;
-          const target = ctx.state.players.find((p) => p.id === msg.botId && p.isBot);
+          if (typeof msg.botId !== "string") return;
+          const target = ctx.state.players.find(
+            (p) => p.id === msg.botId && p.isBot,
+          );
           if (!target) return;
           removePlayerFromTable(ctx.state, target.id);
           ctx.opponentProfiler.resetPlayer(target.id);
@@ -2279,23 +2629,26 @@ async function startServer() {
           return;
         }
 
-        if (msg.type === 'rebuy') {
+        if (msg.type === "rebuy") {
           if (!ctx.state.allowRebuy) {
-            sendJson(ws, { type: 'error', message: '本牌桌已禁止补充筹码' });
+            sendJson(ws, { type: "error", message: "本牌桌已禁止补充筹码" });
             return;
           }
           const ok = rebuyPlayerChips(ctx.state, session.playerId);
           if (!ok) {
-            sendJson(ws, { type: 'error', message: '当前筹码已满或本局进行中，暂不可补充' });
+            sendJson(ws, {
+              type: "error",
+              message: "当前筹码已满或本局进行中，暂不可补充",
+            });
             return;
           }
           broadcastRoomState(ctx);
           return;
         }
 
-        if (msg.type === 'update_blind_settings') {
+        if (msg.type === "update_blind_settings") {
           if (!isRoomHost) {
-            sendJson(ws, { type: 'error', message: '仅房主可调整盲注设置' });
+            sendJson(ws, { type: "error", message: "仅房主可调整盲注设置" });
             return;
           }
           const res = updateTableBlindSettings(ctx.state, {
@@ -2304,7 +2657,10 @@ async function startServer() {
             manualBlindTarget: msg.manualBlindTarget,
           });
           if (!res.ok) {
-            sendJson(ws, { type: 'error', message: res.error ?? '大小盲设置无效' });
+            sendJson(ws, {
+              type: "error",
+              message: res.error ?? "大小盲设置无效",
+            });
             return;
           }
           broadcastRoomState(ctx);
@@ -2312,13 +2668,15 @@ async function startServer() {
           return;
         }
 
-        if (msg.type === 'send_chat') {
-          if (typeof msg.text !== 'string') return;
+        if (msg.type === "send_chat") {
+          if (typeof msg.text !== "string") return;
           const now = Date.now();
           if (now - session.lastChatAt < 350) {
             return;
           }
-          const player = ctx.state.players.find((p) => p.id === session.playerId);
+          const player = ctx.state.players.find(
+            (p) => p.id === session.playerId,
+          );
           if (!player) return;
 
           const cleanText = sanitizeChatText(msg.text);
@@ -2326,28 +2684,32 @@ async function startServer() {
 
           session.lastChatAt = now;
           const chatMsg: ChatMessage = {
-            id: `chat_${now.toString(36)}_${crypto.randomBytes(3).toString('hex')}`,
+            id: `chat_${now.toString(36)}_${crypto.randomBytes(3).toString("hex")}`,
             roomId: ctx.state.roomId,
             playerId: player.id,
             playerName: player.name,
             text: cleanText,
             createdAt: now,
           };
-          ctx.chatHistory = appendChatHistory(ctx.chatHistory, chatMsg, MAX_CHAT_HISTORY);
+          ctx.chatHistory = appendChatHistory(
+            ctx.chatHistory,
+            chatMsg,
+            MAX_CHAT_HISTORY,
+          );
           broadcastRoomChat(ctx, chatMsg);
           scheduleBotChatReaction(ctx, {
-            kind: 'player_chat',
+            kind: "player_chat",
             senderName: player.name,
             text: cleanText,
           });
         }
       } catch (err) {
-        console.error('[WS Message Error]', err);
-        sendJson(ws, { type: 'error', message: '请求处理异常，请重试' });
+        console.error("[WS Message Error]", err);
+        sendJson(ws, { type: "error", message: "请求处理异常，请重试" });
       }
     });
 
-    ws.on('close', () => {
+    ws.on("close", () => {
       sessions.delete(ws);
       cleanupPlayerFromCurrentRoom(session, false);
     });
@@ -2374,54 +2736,60 @@ async function startServer() {
     }
   }, 15_000);
 
-  const gcInterval = setInterval(() => {
-    const now = Date.now();
-    authStore.pruneExpiredOtps(now);
-    const toDelete: string[] = [];
-    for (const [rid, ctx] of rooms.entries()) {
-      if (ctx.isDefault || rid === 'CLUB01') continue;
-      const hasHuman = ctx.state.players.some((p) => !p.isBot && p.connected);
-      if (!hasHuman && now - ctx.lastActivityAt > EMPTY_ROOM_IDLE_TTL_MS) {
-        toDelete.push(rid);
+  const gcInterval = setInterval(
+    () => {
+      const now = Date.now();
+      authStore.pruneExpiredOtps(now);
+      const toDelete: string[] = [];
+      for (const [rid, ctx] of rooms.entries()) {
+        if (ctx.isDefault || rid === "CLUB01") continue;
+        const hasHuman = ctx.state.players.some((p) => !p.isBot && p.connected);
+        if (!hasHuman && now - ctx.lastActivityAt > EMPTY_ROOM_IDLE_TTL_MS) {
+          toDelete.push(rid);
+        }
       }
-    }
-    for (const rid of toDelete) {
-      deleteRoomById(rid);
-    }
-  }, 5 * 60 * 1000);
+      for (const rid of toDelete) {
+        deleteRoomById(rid);
+      }
+    },
+    5 * 60 * 1000,
+  );
 
   const turnWatchdogInterval = setInterval(() => {
     const now = Date.now();
     for (const ctx of rooms.values()) {
       const { state } = ctx;
       if (
-        state.phase !== 'waiting' &&
-        state.phase !== 'showdown' &&
+        state.phase !== "waiting" &&
+        state.phase !== "showdown" &&
         state.currentTurnPlayerId &&
         state.turnDeadline &&
         now >= state.turnDeadline
       ) {
-        const turnPlayer = state.players.find((p) => p.id === state.currentTurnPlayerId);
+        const turnPlayer = state.players.find(
+          (p) => p.id === state.currentTurnPlayerId,
+        );
         if (!turnPlayer) continue;
         const canCheck = state.currentBet <= turnPlayer.currentBet;
-        const timeoutAction = { type: canCheck ? 'check' : 'fold' } as const;
+        const timeoutAction = { type: canCheck ? "check" : "fold" } as const;
         ctx.opponentProfiler.observeAction(state, turnPlayer.id, timeoutAction);
         const res = applyPlayerAction(
           state,
           turnPlayer.id,
           timeoutAction,
           now,
-          { stepAllIn: true }
+          { stepAllIn: true },
         );
         if (res.ok) {
           if (!turnPlayer.isBot) {
-            const strikes = (ctx.consecutiveTimeouts.get(turnPlayer.id) ?? 0) + 1;
+            const strikes =
+              (ctx.consecutiveTimeouts.get(turnPlayer.id) ?? 0) + 1;
             ctx.consecutiveTimeouts.set(turnPlayer.id, strikes);
             if (strikes >= AFK_MAX_CONSECUTIVE_TIMEOUTS) {
               for (const s of sessions.values()) {
                 if (s.roomId === state.roomId && s.playerId === turnPlayer.id) {
                   sendJson(s.ws, {
-                    type: 'error',
+                    type: "error",
                     message: `连续 ${AFK_MAX_CONSECUTIVE_TIMEOUTS} 次操作超时，已自动离座`,
                   });
                   cleanupPlayerFromCurrentRoom(s, true);
@@ -2441,7 +2809,9 @@ async function startServer() {
   const gracefulShutdown = (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[Velvet Hold'em] Received ${signal}, shutting down gracefully...`);
+    console.log(
+      `[Velvet Hold'em] Received ${signal}, shutting down gracefully...`,
+    );
 
     clearInterval(heartbeatInterval);
     clearInterval(gcInterval);
@@ -2457,7 +2827,7 @@ async function startServer() {
 
     for (const ws of sessions.keys()) {
       try {
-        ws.close(1001, 'Server shutting down');
+        ws.close(1001, "Server shutting down");
       } catch {
         // Ignore already closed sockets
       }
@@ -2479,15 +2849,15 @@ async function startServer() {
     });
   };
 
-  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.once("SIGINT", () => gracefulShutdown("SIGINT"));
 
-  server.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`Velvet Hold'em server running on http://0.0.0.0:${PORT}`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('Failed to start server:', err);
+  console.error("Failed to start server:", err);
   process.exit(1);
 });

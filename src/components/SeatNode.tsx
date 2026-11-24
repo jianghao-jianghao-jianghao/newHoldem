@@ -25,7 +25,6 @@ interface SeatNodeProps {
   isDealer: boolean;
   isSmallBlind: boolean;
   isBigBlind: boolean;
-  nextBlindRole?: 'SB' | 'BB' | 'D' | null;
   isWinner: boolean;
   winAmount?: number;
   highlightedCards: Card[];
@@ -55,7 +54,6 @@ export function SeatNode({
   isDealer,
   isSmallBlind,
   isBigBlind,
-  nextBlindRole = null,
   isWinner,
   winAmount,
   highlightedCards,
@@ -219,21 +217,22 @@ export function SeatNode({
             ))}
 
           {(isDealer || isSmallBlind || isBigBlind) && (
-            <div className="absolute -top-2.5 right-2 z-20 flex items-center gap-1">
+            <div className="absolute -top-2.5 right-2.5 z-20 flex items-center gap-1">
               {isDealer && (
                 <span
-                  title="庄家 (Dealer)"
+                  title="庄位 / 按钮位 (Dealer / Button)"
                   data-testid={`badge-dealer-${player.id}`}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#D4A853]/85 bg-[#EAE2CF] text-[10px] font-black text-[#0F1210] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
+                  className="inline-flex h-5 items-center gap-1 rounded-full border border-[#D4A853]/75 bg-[#1B160C]/95 px-2 text-[10px] font-semibold tracking-tight text-[#F2DFAA] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
                 >
-                  D
+                  <span className="font-mono-num font-bold text-[#E8C56E]">D</span>
+                  <span>庄位</span>
                 </span>
               )}
               {isSmallBlind && (
                 <span
                   title="小盲位 (Small Blind)"
                   data-testid={`badge-sb-${player.id}`}
-                  className="inline-flex h-5 items-center gap-1 rounded border border-[#7BA6B8]/55 bg-[#0D1A21]/95 px-1.5 text-[10px] font-semibold tracking-tight text-[#C7E0EB] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
+                  className="inline-flex h-5 items-center gap-1 rounded-full border border-[#7BA6B8]/55 bg-[#0D1A21]/95 px-2 text-[10px] font-semibold tracking-tight text-[#C7E0EB] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
                 >
                   <span className="font-mono-num font-bold text-[#95C7DC]">SB</span>
                   <span>小盲</span>
@@ -243,7 +242,7 @@ export function SeatNode({
                 <span
                   title="大盲位 (Big Blind)"
                   data-testid={`badge-bb-${player.id}`}
-                  className="inline-flex h-5 items-center gap-1 rounded border border-[#C98574]/55 bg-[#221110]/95 px-1.5 text-[10px] font-semibold tracking-tight text-[#F0D3C8] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
+                  className="inline-flex h-5 items-center gap-1 rounded-full border border-[#C98574]/55 bg-[#221110]/95 px-2 text-[10px] font-semibold tracking-tight text-[#F0D3C8] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
                 >
                   <span className="font-mono-num font-bold text-[#E8CF96]">BB</span>
                   <span>大盲</span>
@@ -294,7 +293,7 @@ export function SeatNode({
               {isFolded && (
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute -bottom-1.5 left-1/2 z-30 -translate-x-1/2 rounded border border-[#EF4444]/60 bg-[#2C1013]/95 px-1.5 py-[1px] font-mono-num text-[9px] font-black tracking-wider text-[#FCA5A5] shadow-[0_2px_8px_rgba(0,0,0,0.85)]"
+                  className="pointer-events-none absolute -bottom-1.5 left-1/2 z-30 -translate-x-1/2 rounded-full border border-[#EF4444]/55 bg-[#241012]/95 px-2 py-[1px] font-mono-num text-[9px] font-bold tracking-wider text-[#FCA5A5] shadow-[0_2px_6px_rgba(0,0,0,0.85)]"
                 >
                   FOLD
                 </span>
@@ -324,20 +323,6 @@ export function SeatNode({
                     />
                   )}
                 </div>
-                {nextBlindRole && (
-                  <span
-                    data-testid={`next-blind-${player.id}`}
-                    className={`font-mono-num rounded px-1.5 py-0.5 text-[10px] font-semibold shrink-0 ${
-                      nextBlindRole === 'SB'
-                        ? 'bg-[#114E60]/70 text-[#BDE7F2]'
-                        : nextBlindRole === 'BB'
-                          ? 'bg-[#8E231B]/75 text-[#FCE6B5]'
-                          : 'bg-[#D4A853]/18 text-[#E8CF96]'
-                    }`}
-                  >
-                    {nextBlindRole === 'SB' ? '下局小盲' : nextBlindRole === 'BB' ? '下局大盲' : '下局庄'}
-                  </span>
-                )}
               </div>
 
               <div className="mt-1 flex items-center justify-between gap-2">
@@ -348,14 +333,7 @@ export function SeatNode({
                 >
                   {player.chips.toLocaleString()}
                 </span>
-                {isFolded ? (
-                  <span
-                    data-testid={`folded-badge-${player.id}`}
-                    className="inline-flex items-center rounded border border-[#EF4444]/45 bg-[#2A1114]/92 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[#FCA5A5] whitespace-nowrap"
-                  >
-                    已弃牌
-                  </span>
-                ) : isTurn && hasTimedTurn ? (
+                {isFolded ? null : isTurn && hasTimedTurn ? (
                   <span className="inline-flex items-center gap-1.5 font-mono-num text-xs font-semibold">
                     {player.currentBet > 0 && (
                       <span className="text-[11px] font-normal text-[#9AA5A0]">
@@ -453,18 +431,19 @@ export function SeatNode({
           <div className="absolute -top-2.5 right-2 z-20 flex items-center gap-1">
             {isDealer && (
               <span
-                title="庄家 (Dealer)"
+                title="庄位 / 按钮位 (Dealer / Button)"
                 data-testid={`badge-dealer-${player.id}`}
-                className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#D4A853]/85 bg-[#EAE2CF] text-[9.5px] font-black text-[#0F1210] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
+                className="inline-flex h-[19px] items-center gap-0.5 rounded-full border border-[#D4A853]/75 bg-[#1B160C]/95 px-2 text-[9.5px] font-semibold tracking-tight text-[#F2DFAA] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
               >
-                D
+                <span className="font-mono-num font-bold text-[#E8C56E]">D</span>
+                <span>庄位</span>
               </span>
             )}
             {isSmallBlind && (
               <span
                 title="小盲位 (Small Blind)"
                 data-testid={`badge-sb-${player.id}`}
-                className="inline-flex h-[18px] items-center gap-0.5 rounded border border-[#7BA6B8]/55 bg-[#0D1A21]/95 px-1.5 text-[9.5px] font-semibold tracking-tight text-[#C7E0EB] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
+                className="inline-flex h-[19px] items-center gap-0.5 rounded-full border border-[#7BA6B8]/55 bg-[#0D1A21]/95 px-2 text-[9.5px] font-semibold tracking-tight text-[#C7E0EB] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
               >
                 <span className="font-mono-num font-bold text-[#95C7DC]">SB</span>
                 <span>小盲</span>
@@ -474,7 +453,7 @@ export function SeatNode({
               <span
                 title="大盲位 (Big Blind)"
                 data-testid={`badge-bb-${player.id}`}
-                className="inline-flex h-[18px] items-center gap-0.5 rounded border border-[#C98574]/55 bg-[#221110]/95 px-1.5 text-[9.5px] font-semibold tracking-tight text-[#F0D3C8] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
+                className="inline-flex h-[19px] items-center gap-0.5 rounded-full border border-[#C98574]/55 bg-[#221110]/95 px-2 text-[9.5px] font-semibold tracking-tight text-[#F0D3C8] shadow-[0_2px_6px_rgba(0,0,0,0.55)]"
               >
                 <span className="font-mono-num font-bold text-[#E8CF96]">BB</span>
                 <span>大盲</span>
@@ -537,7 +516,7 @@ export function SeatNode({
             {isFolded && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute -bottom-1.5 left-1/2 z-30 -translate-x-1/2 rounded border border-[#EF4444]/60 bg-[#2C1013]/95 px-1 py-[0.5px] font-mono-num text-[8px] font-black tracking-wider text-[#FCA5A5] shadow-[0_2px_6px_rgba(0,0,0,0.85)]"
+                className="pointer-events-none absolute -bottom-1.5 left-1/2 z-30 -translate-x-1/2 rounded-full border border-[#EF4444]/55 bg-[#241012]/95 px-1.5 py-[0.5px] font-mono-num text-[8px] font-bold tracking-wider text-[#FCA5A5] shadow-[0_2px_6px_rgba(0,0,0,0.85)]"
               >
                 FOLD
               </span>
@@ -570,23 +549,9 @@ export function SeatNode({
                   </span>
                 )}
               </div>
-              {nextBlindRole && (
-                <span
-                  data-testid={`next-blind-${player.id}`}
-                  className={`font-mono-num rounded px-1 py-0.5 text-[10px] font-semibold shrink-0 ${
-                    nextBlindRole === 'SB'
-                      ? 'bg-[#114E60]/70 text-[#BDE7F2]'
-                      : nextBlindRole === 'BB'
-                        ? 'bg-[#8E231B]/75 text-[#FCE6B5]'
-                        : 'bg-[#D4A853]/18 text-[#E8CF96]'
-                  }`}
-                >
-                  {nextBlindRole === 'SB' ? '下局小盲' : nextBlindRole === 'BB' ? '下局大盲' : '下局庄'}
-                </span>
-              )}
             </div>
 
-            <div className="mt-0.5 flex items-center justify-between gap-1.5">
+            <div className="mt-1 flex items-center justify-between gap-1.5">
               <span
                 className={`font-mono-num text-xs font-bold ${
                   isFolded ? 'text-[#7C847F]' : 'text-[#E8CF96]'
@@ -595,14 +560,7 @@ export function SeatNode({
                 {player.chips.toLocaleString()}
               </span>
 
-              {isFolded ? (
-                <span
-                  data-testid={`folded-badge-${player.id}`}
-                  className="inline-flex items-center rounded border border-[#EF4444]/45 bg-[#2A1114]/92 px-1.5 py-[1px] text-[10px] font-semibold tracking-wide text-[#FCA5A5] whitespace-nowrap"
-                >
-                  已弃牌
-                </span>
-              ) : isTurn && secondsRemaining !== null ? (
+              {isFolded ? null : isTurn && secondsRemaining !== null ? (
                 <span className="inline-flex items-center gap-1 font-mono-num text-[11px] font-semibold">
                   {player.currentBet > 0 && (
                     <span className="font-normal text-[#9AA5A0]">注 {player.currentBet}</span>

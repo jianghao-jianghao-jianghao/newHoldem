@@ -11,6 +11,7 @@ import {
   rebindPlayerIdInTable,
   removePlayerFromTable,
   resolveNextHandSeats,
+  resolveNextHandStarter,
   revealPlayerCards,
   sanitizeTableForPlayer,
   sanitizeTurnTimeoutSec,
@@ -594,6 +595,40 @@ test('rebindPlayerIdInTable seamlessly transfers an existing seat without duplic
   assert.equal(table.currentTurnPlayerId, 'new_tab');
   assert.ok(table.playerStats['new_tab']);
   assert.equal(table.playerStats['old_tab'], undefined);
+});
+
+test('resolveNextHandStarter restricts early next hand to human dealer and falls back to host when dealer is a bot', () => {
+  const humanTable = createTableState('ROOM_DEALER_START', 10, 20, 2000);
+  addPlayerToTable(humanTable, { id: 'p1', name: 'HostA', chips: 2000 });
+  addPlayerToTable(humanTable, { id: 'p2', name: 'DealerB', chips: 2000 });
+  startNewHand(humanTable, () => 0.4, 1000);
+  // Hand 1: p1 (seat 0) is Dealer
+  applyPlayerAction(humanTable, humanTable.currentTurnPlayerId!, { type: 'fold' }, 1100);
+  assert.equal(humanTable.phase, 'showdown');
+  assert.equal(humanTable.dealerSeatIndex, 0);
+  assert.equal(resolveNextHandStarter(humanTable).starterPlayerId, 'p1');
+
+  // Hand 2: Dealer rotates to p2 (seat 1) -> now ONLY p2 (DealerB) controls starting next hand!
+  startNewHand(humanTable, () => 0.4, 2000);
+  applyPlayerAction(humanTable, humanTable.currentTurnPlayerId!, { type: 'fold' }, 2100);
+  assert.equal(humanTable.phase, 'showdown');
+  assert.equal(humanTable.dealerSeatIndex, 1);
+  const starter = resolveNextHandStarter(humanTable);
+  assert.equal(starter.starterPlayerId, 'p2');
+  assert.equal(starter.isDealerControlled, true);
+
+  // Solo vs Bot: when Bot holds the Dealer button, fallback cleanly to human host
+  const botTable = createTableState('ROOM_BOT_DEALER', 10, 20, 2000);
+  addPlayerToTable(botTable, { id: 'human1', name: 'Hero', chips: 2000 });
+  addPlayerToTable(botTable, { id: 'bot_1', name: '陈默', isBot: true, chips: 2000 });
+  startNewHand(botTable, () => 0.4, 1000);
+  applyPlayerAction(botTable, botTable.currentTurnPlayerId!, { type: 'fold' }, 1100);
+  startNewHand(botTable, () => 0.4, 2000);
+  applyPlayerAction(botTable, botTable.currentTurnPlayerId!, { type: 'fold' }, 2100);
+  assert.equal(botTable.dealerSeatIndex, 1); // Bot is Dealer
+  const botFallback = resolveNextHandStarter(botTable);
+  assert.equal(botFallback.starterPlayerId, 'human1');
+  assert.equal(botFallback.isDealerControlled, false);
 });
 
 test('sanitizeTurnTimeoutSec clamps finite values and treats <=0 as unlimited (0)', () => {

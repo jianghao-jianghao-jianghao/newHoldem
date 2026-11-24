@@ -1,16 +1,16 @@
-import { useEffect, useState } from 'react';
-import type { AchievementTier } from '../shared/achievements';
-import { getAvatarInitial, isCustomAvatarDataUrl } from '../shared/avatarUtils';
+import { useEffect, useState } from "react";
+import type { AchievementTier } from "../shared/achievements";
+import { getAvatarInitial, isCustomAvatarDataUrl } from "../shared/avatarUtils";
 import {
   RANK_TIER_LABELS,
   type RankTier,
   type ResolvedPlayerAvatarProfile,
-} from '../shared/playerProfile';
+} from "../shared/playerProfile";
 
 interface PlayerAvatarProps {
   avatar?: string;
   name: string;
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
   level?: number;
   levelTier?: AchievementTier;
   levelTitle?: string;
@@ -22,31 +22,33 @@ interface PlayerAvatarProps {
 }
 
 const SIZE_MAP = {
-  xs: 'h-8 w-8 text-xs',
-  sm: 'h-10 w-10 text-sm',
-  md: 'h-12 w-12 text-base',
-  lg: 'h-14 w-14 text-lg',
-  xl: 'h-16 w-16 text-xl',
+  xs: "h-8 w-8 text-xs",
+  sm: "h-10 w-10 text-sm",
+  md: "h-12 w-12 text-base",
+  lg: "h-14 w-14 text-lg",
+  xl: "h-16 w-16 text-xl",
 };
 
 const RANK_BORDER_CLASS: Record<RankTier, string> = {
-  bronze: 'border-[#B87D52]/55',
-  silver: 'border-[#B8C5D1]/60',
-  gold: 'border-[#D4A853]/75',
-  platinum: 'border-[#8FC2BC]/75',
-  diamond: 'border-[#8FC4E3]/80',
-  master: 'border-[#EBD392]/90',
+  bronze: "border-[#B87D52]/55",
+  silver: "border-[#B8C5D1]/60",
+  gold: "border-[#D4A853]/75",
+  platinum: "border-[#8FC2BC]/75",
+  diamond: "border-[#8FC4E3]/80",
+  master: "border-[#EBD392]/90",
 };
 
-function mapAchievementTierToRankTier(tier?: AchievementTier): RankTier | undefined {
+function mapAchievementTierToRankTier(
+  tier?: AchievementTier,
+): RankTier | undefined {
   if (!tier) return undefined;
-  if (tier === 'obsidian') return 'master';
+  if (tier === "obsidian") return "master";
   return tier;
 }
 
 function renderPresetEmblem(id: string, name: string) {
   switch (id) {
-    case 'spade':
+    case "spade":
       return (
         <svg viewBox="0 0 40 40" className="h-full w-full" aria-hidden="true">
           <rect width="40" height="40" fill="#102C21" />
@@ -56,7 +58,7 @@ function renderPresetEmblem(id: string, name: string) {
           />
         </svg>
       );
-    case 'fox':
+    case "fox":
       return (
         <svg viewBox="0 0 40 40" className="h-full w-full" aria-hidden="true">
           <rect width="40" height="40" fill="#2A1614" />
@@ -69,11 +71,14 @@ function renderPresetEmblem(id: string, name: string) {
           <circle cx="20" cy="30.5" r="1.8" fill="#151517" />
         </svg>
       );
-    case 'owl':
+    case "owl":
       return (
         <svg viewBox="0 0 40 40" className="h-full w-full" aria-hidden="true">
           <rect width="40" height="40" fill="#171E27" />
-          <path d="M10 13 L15 16 L25 16 L30 13 L29 31 L20 34 L11 31 Z" fill="#2E3F53" />
+          <path
+            d="M10 13 L15 16 L25 16 L30 13 L29 31 L20 34 L11 31 Z"
+            fill="#2E3F53"
+          />
           <circle cx="15.5" cy="20.5" r="4.5" fill="#F5E4B8" />
           <circle cx="24.5" cy="20.5" r="4.5" fill="#F5E4B8" />
           <circle cx="15.5" cy="20.5" r="2" fill="#12161A" />
@@ -81,34 +86,46 @@ function renderPresetEmblem(id: string, name: string) {
           <polygon points="20,23 17.5,27 22.5,27" fill="#D4A853" />
         </svg>
       );
-    case 'lion':
+    case "lion":
       return (
         <svg viewBox="0 0 40 40" className="h-full w-full" aria-hidden="true">
           <rect width="40" height="40" fill="#231B12" />
-          <polygon points="20,6 28,11 33,20 28,31 20,35 12,31 7,20 12,11" fill="#A67428" />
+          <polygon
+            points="20,6 28,11 33,20 28,31 20,35 12,31 7,20 12,11"
+            fill="#A67428"
+          />
           <circle cx="20" cy="21" r="8.5" fill="#E4B85B" />
           <circle cx="16.8" cy="19.5" r="1.4" fill="#1C140C" />
           <circle cx="23.2" cy="19.5" r="1.4" fill="#1C140C" />
           <polygon points="20,22 18,24.5 22,24.5" fill="#1C140C" />
         </svg>
       );
-    case 'crown':
+    case "crown":
       return (
         <svg viewBox="0 0 40 40" className="h-full w-full" aria-hidden="true">
           <rect width="40" height="40" fill="#1A1722" />
-          <polygon points="8,28 10,14 16.5,21 20,11 23.5,21 30,14 32,28" fill="#D4A853" />
+          <polygon
+            points="8,28 10,14 16.5,21 20,11 23.5,21 30,14 32,28"
+            fill="#D4A853"
+          />
           <rect x="8" y="29" width="24" height="3.5" rx="1" fill="#F3D695" />
         </svg>
       );
-    case 'phoenix':
+    case "phoenix":
       return (
         <svg viewBox="0 0 40 40" className="h-full w-full" aria-hidden="true">
           <rect width="40" height="40" fill="#241219" />
-          <path d="M20 8 C24 14 29 15 31 22 C27 21 24 23 23 28 L20 33 L17 28 C16 23 13 21 9 22 C11 15 16 14 20 8 Z" fill="#E04F5F" />
-          <path d="M20 13 C22 17 24 19 24 23 L20 27 L16 23 C16 19 18 17 20 13 Z" fill="#F2B857" />
+          <path
+            d="M20 8 C24 14 29 15 31 22 C27 21 24 23 23 28 L20 33 L17 28 C16 23 13 21 9 22 C11 15 16 14 20 8 Z"
+            fill="#E04F5F"
+          />
+          <path
+            d="M20 13 C22 17 24 19 24 23 L20 27 L16 23 C16 19 18 17 20 13 Z"
+            fill="#F2B857"
+          />
         </svg>
       );
-    case 'default':
+    case "default":
     default:
       return (
         <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#1C2421] to-[#0E1311] font-display font-bold text-[#E8CF96]">
@@ -121,19 +138,19 @@ function renderPresetEmblem(id: string, name: string) {
 export function PlayerAvatar({
   avatar,
   name,
-  size = 'sm',
+  size = "sm",
   levelTier,
   rankTier,
   showRankAura = false,
   syncedProfile = null,
-  className = '',
+  className = "",
 }: PlayerAvatarProps) {
-  const effectiveAvatar = avatar ?? syncedProfile?.avatar ?? 'default';
+  const effectiveAvatar = avatar ?? syncedProfile?.avatar ?? "default";
   const effectiveRankTier: RankTier =
     rankTier ??
     syncedProfile?.rankTier ??
     mapAchievementTierToRankTier(levelTier ?? syncedProfile?.levelInfo.tier) ??
-    'bronze';
+    "bronze";
 
   const [imgFailed, setImgFailed] = useState(false);
 
@@ -145,12 +162,14 @@ export function PlayerAvatar({
   const isCustom = isCustomAvatarDataUrl(effectiveAvatar) && !imgFailed;
   const ringClass = showRankAura
     ? RANK_BORDER_CLASS[effectiveRankTier]
-    : 'border-white/[0.16]';
+    : "border-white/[0.16]";
 
   return (
     <div
       className="relative inline-flex shrink-0 select-none"
-      title={showRankAura ? `${RANK_TIER_LABELS[effectiveRankTier]}段位` : undefined}
+      title={
+        showRankAura ? `${RANK_TIER_LABELS[effectiveRankTier]}段位` : undefined
+      }
     >
       <div
         data-rank-tier={showRankAura ? effectiveRankTier : undefined}
@@ -159,7 +178,7 @@ export function PlayerAvatar({
         {isCustom ? (
           <img
             src={effectiveAvatar}
-            alt={name || '玩家头像'}
+            alt={name || "玩家头像"}
             referrerPolicy="no-referrer"
             onError={() => setImgFailed(true)}
             className="h-full w-full object-cover"

@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Flame } from 'lucide-react';
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Flame } from "lucide-react";
 import {
   ACHIEVEMENT_MAP,
   ACHIEVEMENT_TIER_LABELS,
@@ -8,11 +8,11 @@ import {
   type AchievementDatesMap,
   type AchievementId,
   type AchievementTier,
-} from '../shared/achievements';
+} from "../shared/achievements";
 
 interface AchievementMedalIconProps {
   id: AchievementId;
-  size?: 'xs' | 'sm' | 'md' | 'lg';
+  size?: "xs" | "sm" | "md" | "lg";
   locked?: boolean;
   showNativeTitle?: boolean;
 }
@@ -22,72 +22,82 @@ const TIER_STYLES: Record<
   { bg: string; border: string; fg: string; text: string }
 > = {
   bronze: {
-    bg: '#2A1B12',
-    border: '#B87A4B',
-    fg: '#E3A778',
-    text: 'text-[#D89A6C]',
+    bg: "#2A1B12",
+    border: "#B87A4B",
+    fg: "#E3A778",
+    text: "text-[#D89A6C]",
   },
   silver: {
-    bg: '#1A2026',
-    border: '#9FB0C0',
-    fg: '#DCE6F0',
-    text: 'text-[#C8D4E0]',
+    bg: "#1A2026",
+    border: "#9FB0C0",
+    fg: "#DCE6F0",
+    text: "text-[#C8D4E0]",
   },
   gold: {
-    bg: '#251D0D',
-    border: '#D4A853',
-    fg: '#F2D27A',
-    text: 'text-[#E8CF96]',
+    bg: "#251D0D",
+    border: "#D4A853",
+    fg: "#F2D27A",
+    text: "text-[#E8CF96]",
   },
   obsidian: {
-    bg: '#151218',
-    border: '#D4A853',
-    fg: '#F7DB82',
-    text: 'text-[#F3DA8B]',
+    bg: "#151218",
+    border: "#D4A853",
+    fg: "#F7DB82",
+    text: "text-[#F3DA8B]",
   },
 };
 
-const SIZE_CLASSES: Record<'xs' | 'sm' | 'md' | 'lg', string> = {
-  xs: 'h-4 w-4',
-  sm: 'h-[18px] w-[18px]',
-  md: 'h-8 w-8',
-  lg: 'h-10 w-10',
+const SIZE_CLASSES: Record<"xs" | "sm" | "md" | "lg", string> = {
+  xs: "h-4 w-4",
+  sm: "h-[18px] w-[18px]",
+  md: "h-8 w-8",
+  lg: "h-10 w-10",
 };
 
 function renderMedalGlyph(id: AchievementId, fg: string) {
   switch (id) {
-    case 'first_blood':
+    case "first_blood":
       return (
         <polygon
           points="12,4 14.5,9.2 20,10 16,13.9 17,19.5 12,16.8 7,19.5 8,13.9 4,10 9.5,9.2"
           fill={fg}
         />
       );
-    case 'streak_3':
+    case "streak_3":
       return (
         <path
           d="M12 4 C14.5 7 17 9.5 17 13 A5 5 0 1 1 7 13 C7 10.5 8.5 8.5 10 7 C10 9 11 9.5 12 8.5 Z"
           fill={fg}
         />
       );
-    case 'streak_5':
+    case "streak_5":
       return (
         <>
-          <polygon points="5,17 6.5,8 10,12 12,6 14,12 17.5,8 19,17" fill={fg} />
+          <polygon
+            points="5,17 6.5,8 10,12 12,6 14,12 17.5,8 19,17"
+            fill={fg}
+          />
           <rect x="5" y="18" width="14" height="2" rx="1" fill={fg} />
         </>
       );
-    case 'allin_winner':
+    case "allin_winner":
       return (
         <>
           <polygon points="12,4 19,12 12,20 5,12" fill={fg} />
           <circle cx="12" cy="12" r="2.6" fill="#14181A" />
         </>
       );
-    case 'allin_jackpot':
+    case "allin_jackpot":
       return (
         <>
-          <circle cx="12" cy="12" r="6.8" fill="none" stroke={fg} strokeWidth="2.2" />
+          <circle
+            cx="12"
+            cy="12"
+            r="6.8"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2.2"
+          />
           <path
             d="M12 7.2 V16.8 M9.5 9.8 C9.5 8.6 14.5 8.6 14.5 10.2 C14.5 11.8 9.5 11.8 9.5 13.6 C9.5 15.2 14.5 15.2 14.5 13.8"
             fill="none"
@@ -97,14 +107,20 @@ function renderMedalGlyph(id: AchievementId, fg: string) {
           />
         </>
       );
-    case 'mega_pot':
+    case "mega_pot":
       return (
         <>
-          <polygon points="12,3.5 18.5,8.5 16.2,18.5 7.8,18.5 5.5,8.5" fill={fg} />
-          <polygon points="12,7 15,10 13.8,15.5 10.2,15.5 9,10" fill="#151218" />
+          <polygon
+            points="12,3.5 18.5,8.5 16.2,18.5 7.8,18.5 5.5,8.5"
+            fill={fg}
+          />
+          <polygon
+            points="12,7 15,10 13.8,15.5 10.2,15.5 9,10"
+            fill="#151218"
+          />
         </>
       );
-    case 'bluff_king':
+    case "bluff_king":
       return (
         <>
           <path
@@ -116,7 +132,7 @@ function renderMedalGlyph(id: AchievementId, fg: string) {
           <circle cx="12" cy="12" r="2.3" fill={fg} />
         </>
       );
-    case 'trips_master':
+    case "trips_master":
       return (
         <>
           <circle cx="12" cy="8.2" r="2.7" fill={fg} />
@@ -125,21 +141,21 @@ function renderMedalGlyph(id: AchievementId, fg: string) {
           <rect x="11" y="14.5" width="2" height="4.5" fill={fg} />
         </>
       );
-    case 'flush_full':
+    case "flush_full":
       return (
         <path
           d="M12 5 C8.5 9.5 6.5 11.8 6.5 14.2 A3.5 3.5 0 0 0 12 16.5 A3.5 3.5 0 0 0 17.5 14.2 C17.5 11.8 15.5 9.5 12 5 Z M10.5 16.5 L9 19.5 L15 19.5 L13.5 16.5 Z"
           fill={fg}
         />
       );
-    case 'royal_legend':
+    case "royal_legend":
       return (
         <>
           <path d="M6 17 L5 8 L10 11 L12 5 L14 11 L19 8 L18 17 Z" fill={fg} />
           <circle cx="12" cy="13.5" r="1.6" fill="#151218" />
         </>
       );
-    case 'chip_doubler':
+    case "chip_doubler":
       return (
         <>
           <path
@@ -160,17 +176,48 @@ function renderMedalGlyph(id: AchievementId, fg: string) {
           />
         </>
       );
-    case 'seven_two_legend':
+    case "seven_two_legend":
       // Iconic 7-2 jester/wildcard diamond cards glyph
       return (
         <>
-          <rect x="4.5" y="5.5" width="8.5" height="12" rx="1.4" fill="none" stroke={fg} strokeWidth="1.7" />
-          <path d="M6.8 9.2 H10.8 L8.2 14.5" fill="none" stroke={fg} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <rect x="11" y="7" width="8.5" height="12" rx="1.4" fill="#151218" stroke={fg} strokeWidth="1.7" />
-          <path d="M13.5 11.2 C13.5 10 17 10 17 11.6 C17 13 13.5 13.8 13.5 15.5 H17.2" fill="none" stroke={fg} strokeWidth="1.5" strokeLinecap="round" />
+          <rect
+            x="4.5"
+            y="5.5"
+            width="8.5"
+            height="12"
+            rx="1.4"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.7"
+          />
+          <path
+            d="M6.8 9.2 H10.8 L8.2 14.5"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <rect
+            x="11"
+            y="7"
+            width="8.5"
+            height="12"
+            rx="1.4"
+            fill="#151218"
+            stroke={fg}
+            strokeWidth="1.7"
+          />
+          <path
+            d="M13.5 11.2 C13.5 10 17 10 17 11.6 C17 13 13.5 13.8 13.5 15.5 H17.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
         </>
       );
-    case 'chip_whale':
+    case "chip_whale":
       // Stylized geometric whale tail crest
       return (
         <>
@@ -182,153 +229,397 @@ function renderMedalGlyph(id: AchievementId, fg: string) {
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-          <path d="M6.5 18.8 H17.5" stroke={fg} strokeWidth="1.8" strokeLinecap="round" />
+          <path
+            d="M6.5 18.8 H17.5"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
         </>
       );
-    case 'high_card_hero':
+    case "high_card_hero":
       // Minimalist wind-gust / air blade glyph
       return (
         <>
-          <path d="M4.5 9.5 H15.5 C17.5 9.5 17.5 6.5 15.5 6.5 C14.3 6.5 13.6 7.3 13.6 8" fill="none" stroke={fg} strokeWidth="1.9" strokeLinecap="round" />
-          <path d="M4.5 13 H18.2 C19.8 13 19.8 15.8 18 15.8 C16.9 15.8 16.3 15 16.3 14.3" fill="none" stroke={fg} strokeWidth="1.9" strokeLinecap="round" />
-          <path d="M6.5 16.5 H12.8" fill="none" stroke={fg} strokeWidth="1.9" strokeLinecap="round" />
+          <path
+            d="M4.5 9.5 H15.5 C17.5 9.5 17.5 6.5 15.5 6.5 C14.3 6.5 13.6 7.3 13.6 8"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.9"
+            strokeLinecap="round"
+          />
+          <path
+            d="M4.5 13 H18.2 C19.8 13 19.8 15.8 18 15.8 C16.9 15.8 16.3 15 16.3 14.3"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.9"
+            strokeLinecap="round"
+          />
+          <path
+            d="M6.5 16.5 H12.8"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.9"
+            strokeLinecap="round"
+          />
         </>
       );
-    case 'short_stack_ninja':
+    case "short_stack_ninja":
       // Razor 4-point shuriken emblem
       return (
         <>
-          <polygon points="12,3.5 14.2,9.8 20.5,12 14.2,14.2 12,20.5 9.8,14.2 3.5,12 9.8,9.8" fill={fg} />
+          <polygon
+            points="12,3.5 14.2,9.8 20.5,12 14.2,14.2 12,20.5 9.8,14.2 3.5,12 9.8,9.8"
+            fill={fg}
+          />
           <circle cx="12" cy="12" r="2.1" fill="#1A1710" />
         </>
       );
-    case 'pocket_rockets':
+    case "pocket_rockets":
       // Ascending sleek rocket / Ace chevron
       return (
         <>
-          <path d="M12 4 C14.8 6.8 16 10 15.5 14.2 L12 12.6 L8.5 14.2 C8 10 9.2 6.8 12 4 Z" fill={fg} />
-          <path d="M8.5 13.5 L6.2 16.5 L9.4 15.8 M15.5 13.5 L17.8 16.5 L14.6 15.8" fill={fg} />
-          <path d="M12 15.2 V19.5" stroke={fg} strokeWidth="2" strokeLinecap="round" />
+          <path
+            d="M12 4 C14.8 6.8 16 10 15.5 14.2 L12 12.6 L8.5 14.2 C8 10 9.2 6.8 12 4 Z"
+            fill={fg}
+          />
+          <path
+            d="M8.5 13.5 L6.2 16.5 L9.4 15.8 M15.5 13.5 L17.8 16.5 L14.6 15.8"
+            fill={fg}
+          />
+          <path
+            d="M12 15.2 V19.5"
+            stroke={fg}
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
         </>
       );
-    case 'aces_cracked':
+    case "aces_cracked":
       // Cracked Ace lightning fracture
       return (
         <>
-          <polygon points="12,4 18.5,14.5 13.5,14.5 12,11 10.5,14.5 5.5,14.5" fill="none" stroke={fg} strokeWidth="1.8" strokeLinejoin="round" />
-          <polyline points="13.5,5.5 10.5,11.5 13.8,12.2 10.2,19.2" fill="none" stroke={fg} strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+          <polygon
+            points="12,4 18.5,14.5 13.5,14.5 12,11 10.5,14.5 5.5,14.5"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+          />
+          <polyline
+            points="13.5,5.5 10.5,11.5 13.8,12.2 10.2,19.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2.1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </>
       );
-    case 'bad_beat_survivor':
+    case "bad_beat_survivor":
       // Broken shield / storm bolt emblem
       return (
         <>
-          <path d="M12 4.2 L18 6.8 V12 C18 15.8 15.4 18.5 12 19.8 C8.6 18.5 6 15.8 6 12 V6.8 Z" fill="none" stroke={fg} strokeWidth="1.9" strokeLinejoin="round" />
-          <polyline points="12.5,7.2 10.2,11.8 13.4,12.4 11.2,16.8" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M12 4.2 L18 6.8 V12 C18 15.8 15.4 18.5 12 19.8 C8.6 18.5 6 15.8 6 12 V6.8 Z"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.9"
+            strokeLinejoin="round"
+          />
+          <polyline
+            points="12.5,7.2 10.2,11.8 13.4,12.4 11.2,16.8"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </>
       );
-    case 'blind_guardian':
+    case "blind_guardian":
       // Club shield with inner fortress bar
       return (
         <>
-          <path d="M12 4 L18.2 6.6 V11.8 C18.2 15.8 15.5 18.4 12 19.8 C8.5 18.4 5.8 15.8 5.8 11.8 V6.6 Z" fill={fg} />
-          <rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1" fill="#1A2026" />
+          <path
+            d="M12 4 L18.2 6.6 V11.8 C18.2 15.8 15.5 18.4 12 19.8 C8.5 18.4 5.8 15.8 5.8 11.8 V6.6 Z"
+            fill={fg}
+          />
+          <rect
+            x="9.2"
+            y="9.2"
+            width="5.6"
+            height="5.6"
+            rx="1"
+            fill="#1A2026"
+          />
         </>
       );
-    case 'iron_regular':
+    case "iron_regular":
       // Classic club clock / veteran ring
       return (
         <>
-          <circle cx="12" cy="12" r="7" fill="none" stroke={fg} strokeWidth="2" />
-          <polyline points="12,7.8 12,12 15.2,13.8" fill="none" stroke={fg} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <circle
+            cx="12"
+            cy="12"
+            r="7"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2"
+          />
+          <polyline
+            points="12,7.8 12,12 15.2,13.8"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </>
       );
-    case 'preflop_bandit':
+    case "preflop_bandit":
       // Lightning strike fast-steal bolt
       return (
-        <polygon points="13.5,3.8 6.5,13 11.5,13 10.2,20.2 17.5,10.8 12.6,10.8" fill={fg} />
+        <polygon
+          points="13.5,3.8 6.5,13 11.5,13 10.2,20.2 17.5,10.8 12.6,10.8"
+          fill={fg}
+        />
       );
-    case 'split_peace':
+    case "split_peace":
       // Balanced twin halves / scales emblem
       return (
         <>
-          <line x1="12" y1="5" x2="12" y2="19" stroke={fg} strokeWidth="1.8" strokeLinecap="round" />
-          <line x1="6" y1="8.5" x2="18" y2="8.5" stroke={fg} strokeWidth="1.8" strokeLinecap="round" />
+          <line
+            x1="12"
+            y1="5"
+            x2="12"
+            y2="19"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+          <line
+            x1="6"
+            y1="8.5"
+            x2="18"
+            y2="8.5"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
           <circle cx="7.2" cy="13.8" r="2.2" fill={fg} />
           <circle cx="16.8" cy="13.8" r="2.2" fill={fg} />
         </>
       );
-    case 'tuition_paid':
+    case "tuition_paid":
       // Graduation cap ("交完学费")
       return (
         <>
           <polygon points="12,6.2 19.5,10.2 12,14.2 4.5,10.2" fill={fg} />
-          <path d="M7.5 12.2 V15.8 C7.5 17 9.5 18 12 18 C14.5 18 16.5 17 16.5 15.8 V12.2" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" />
-          <line x1="19" y1="10.5" x2="19" y2="15.8" stroke={fg} strokeWidth="1.6" strokeLinecap="round" />
+          <path
+            d="M7.5 12.2 V15.8 C7.5 17 9.5 18 12 18 C14.5 18 16.5 17 16.5 15.8 V12.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+          <line
+            x1="19"
+            y1="10.5"
+            x2="19"
+            y2="15.8"
+            stroke={fg}
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
         </>
       );
-    case 'showdown_streak_3':
+    case "showdown_streak_3":
       // Triple showdown cards fan with strike chevron
       return (
         <>
-          <rect x="4.8" y="6.8" width="6.2" height="9.4" rx="1.2" fill="none" stroke={fg} strokeWidth="1.6" transform="rotate(-14 7.9 11.5)" />
-          <rect x="8.9" y="5.4" width="6.2" height="9.4" rx="1.2" fill="#1A1710" stroke={fg} strokeWidth="1.7" />
-          <rect x="13" y="6.8" width="6.2" height="9.4" rx="1.2" fill="none" stroke={fg} strokeWidth="1.6" transform="rotate(14 16.1 11.5)" />
-          <polyline points="8.2,17.8 12,20 15.8,17.8" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <rect
+            x="4.8"
+            y="6.8"
+            width="6.2"
+            height="9.4"
+            rx="1.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.6"
+            transform="rotate(-14 7.9 11.5)"
+          />
+          <rect
+            x="8.9"
+            y="5.4"
+            width="6.2"
+            height="9.4"
+            rx="1.2"
+            fill="#1A1710"
+            stroke={fg}
+            strokeWidth="1.7"
+          />
+          <rect
+            x="13"
+            y="6.8"
+            width="6.2"
+            height="9.4"
+            rx="1.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.6"
+            transform="rotate(14 16.1 11.5)"
+          />
+          <polyline
+            points="8.2,17.8 12,20 15.8,17.8"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </>
       );
-    case 'doyle_brunson':
+    case "doyle_brunson":
       // Classic Texas ten-deuce (T2) laurel monogram
       return (
         <>
-          <rect x="4.5" y="5.5" width="8.2" height="12" rx="1.4" fill="none" stroke={fg} strokeWidth="1.6" />
-          <path d="M6.4 9.2 H10.8 M8.6 9.2 V14.6" fill="none" stroke={fg} strokeWidth="1.6" strokeLinecap="round" />
-          <rect x="11.2" y="7" width="8.2" height="12" rx="1.4" fill="#151218" stroke={fg} strokeWidth="1.6" />
-          <path d="M13.6 11.2 C13.6 10 17 10 17 11.6 C17 13 13.6 13.8 13.6 15.5 H17.2" fill="none" stroke={fg} strokeWidth="1.5" strokeLinecap="round" />
+          <rect
+            x="4.5"
+            y="5.5"
+            width="8.2"
+            height="12"
+            rx="1.4"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.6"
+          />
+          <path
+            d="M6.4 9.2 H10.8 M8.6 9.2 V14.6"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+          <rect
+            x="11.2"
+            y="7"
+            width="8.2"
+            height="12"
+            rx="1.4"
+            fill="#151218"
+            stroke={fg}
+            strokeWidth="1.6"
+          />
+          <path
+            d="M13.6 11.2 C13.6 10 17 10 17 11.6 C17 13 13.6 13.8 13.6 15.5 H17.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
         </>
       );
-    case 'big_slick_win':
+    case "big_slick_win":
       // Sleek twin Ace-King diamond blades
       return (
         <>
-          <path d="M6 17 L9.5 6.5 L13 17 M7.3 13.6 H11.7" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M14.5 7 V17 M18.5 7.5 L14.8 12 L18.8 17" fill="none" stroke={fg} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M6 17 L9.5 6.5 L13 17 M7.3 13.6 H11.7"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M14.5 7 V17 M18.5 7.5 L14.8 12 L18.8 17"
+            fill="none"
+            stroke={fg}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </>
       );
-    case 'cowboys_win':
+    case "cowboys_win":
       // Western cowboy hat & star spur crest (KK)
       return (
         <>
-          <path d="M4.5 14.2 C7.5 15.8 16.5 15.8 19.5 14.2" fill="none" stroke={fg} strokeWidth="2" strokeLinecap="round" />
-          <path d="M7.2 14.2 L8.8 8.2 C9.8 9.2 11 9.5 12 8.6 C13 9.5 14.2 9.2 15.2 8.2 L16.8 14.2" fill={fg} />
+          <path
+            d="M4.5 14.2 C7.5 15.8 16.5 15.8 19.5 14.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          <path
+            d="M7.2 14.2 L8.8 8.2 C9.8 9.2 11 9.5 12 8.6 C13 9.5 14.2 9.2 15.2 8.2 L16.8 14.2"
+            fill={fg}
+          />
           <circle cx="12" cy="18.2" r="1.5" fill={fg} />
         </>
       );
-    case 'snowmen_win':
+    case "snowmen_win":
       // Geometric double-8 snowman silhouette
       return (
         <>
-          <circle cx="12" cy="8.2" r="3.2" fill="none" stroke={fg} strokeWidth="2" />
-          <circle cx="12" cy="15.2" r="4.3" fill="none" stroke={fg} strokeWidth="2" />
+          <circle
+            cx="12"
+            cy="8.2"
+            r="3.2"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2"
+          />
+          <circle
+            cx="12"
+            cy="15.2"
+            r="4.3"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2"
+          />
           <circle cx="12" cy="14.2" r="0.9" fill={fg} />
           <circle cx="12" cy="16.6" r="0.9" fill={fg} />
         </>
       );
-    case 'suited_connector_art':
+    case "suited_connector_art":
       // Interlocked twin spades / sequential chain link
       return (
         <>
-          <rect x="4.5" y="9" width="8.5" height="6" rx="3" fill="none" stroke={fg} strokeWidth="2" />
-          <rect x="11" y="9" width="8.5" height="6" rx="3" fill="none" stroke={fg} strokeWidth="2" />
+          <rect
+            x="4.5"
+            y="9"
+            width="8.5"
+            height="6"
+            rx="3"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2"
+          />
+          <rect
+            x="11"
+            y="9"
+            width="8.5"
+            height="6"
+            rx="3"
+            fill="none"
+            stroke={fg}
+            strokeWidth="2"
+          />
           <circle cx="12" cy="6" r="1.3" fill={fg} />
           <circle cx="12" cy="18" r="1.3" fill={fg} />
         </>
       );
-    case 'club_tycoon':
+    case "club_tycoon":
     default:
       return (
         <>
-          <path d="M7 6 H17 V11 C17 14 14.8 16 12 16 C9.2 16 7 14 7 11 Z" fill={fg} />
+          <path
+            d="M7 6 H17 V11 C17 14 14.8 16 12 16 C9.2 16 7 14 7 11 Z"
+            fill={fg}
+          />
           <rect x="11" y="15.5" width="2" height="3" fill={fg} />
           <rect x="8.5" y="18.2" width="7" height="1.8" rx="0.8" fill={fg} />
         </>
@@ -338,7 +629,7 @@ function renderMedalGlyph(id: AchievementId, fg: string) {
 
 export function AchievementMedalIcon({
   id,
-  size = 'sm',
+  size = "sm",
   locked = false,
   showNativeTitle = false,
 }: AchievementMedalIconProps) {
@@ -352,7 +643,7 @@ export function AchievementMedalIcon({
       title={showNativeTitle ? `${def.name} · ${def.description}` : undefined}
       aria-label={def.name}
       className={`${sizeClass} relative inline-flex shrink-0 items-center justify-center rounded-full border select-none shadow-[0_2px_6px_rgba(0,0,0,0.6)] ${
-        locked ? 'opacity-35 grayscale' : ''
+        locked ? "opacity-35 grayscale" : ""
       }`}
       style={{
         backgroundColor: style.bg,
@@ -369,14 +660,14 @@ export function AchievementMedalIcon({
 interface AchievementHoverCardProps {
   id: AchievementId;
   unlockedAt?: number;
-  placement?: 'top' | 'bottom';
+  placement?: "top" | "bottom";
   anchorRect?: DOMRect | null;
 }
 
 function AchievementHoverCard({
   id,
   unlockedAt,
-  placement = 'top',
+  placement = "top",
   anchorRect = null,
 }: AchievementHoverCardProps) {
   const def = ACHIEVEMENT_MAP.get(id);
@@ -404,23 +695,31 @@ function AchievementHoverCard({
         </div>
         <div className="font-mono-num">
           <span className="text-[#7E8883]">解锁日期：</span>
-          <span className="text-[#E8CF96]">{formatAchievementDateTime(unlockedAt)}</span>
+          <span className="text-[#E8CF96]">
+            {formatAchievementDateTime(unlockedAt)}
+          </span>
         </div>
       </div>
     </>
   );
 
   // Render via viewport-clamped portal when an anchor rect is available so overflow-hidden modals never clip the card
-  if (anchorRect && typeof document !== 'undefined' && typeof window !== 'undefined') {
+  if (
+    anchorRect &&
+    typeof document !== "undefined" &&
+    typeof window !== "undefined"
+  ) {
     const cardWidth = 224;
     const margin = 12;
     const idealLeft = anchorRect.left + anchorRect.width / 2 - cardWidth / 2;
     const clampedLeft = Math.max(
       margin,
-      Math.min(window.innerWidth - cardWidth - margin, idealLeft)
+      Math.min(window.innerWidth - cardWidth - margin, idealLeft),
     );
-    const preferTop = placement === 'top';
-    const openAbove = preferTop ? anchorRect.top > 150 : anchorRect.bottom + 150 > window.innerHeight;
+    const preferTop = placement === "top";
+    const openAbove = preferTop
+      ? anchorRect.top > 150
+      : anchorRect.bottom + 150 > window.innerHeight;
     const topPos = openAbove ? anchorRect.top - 8 : anchorRect.bottom + 8;
 
     return createPortal(
@@ -428,10 +727,10 @@ function AchievementHoverCard({
         role="tooltip"
         data-testid={`achievement-tooltip-${id}`}
         style={{
-          position: 'fixed',
+          position: "fixed",
           left: `${clampedLeft}px`,
           top: `${topPos}px`,
-          transform: openAbove ? 'translateY(-100%)' : undefined,
+          transform: openAbove ? "translateY(-100%)" : undefined,
           width: `${cardWidth}px`,
           zIndex: 90,
         }}
@@ -439,14 +738,12 @@ function AchievementHoverCard({
       >
         {cardContent}
       </div>,
-      document.body
+      document.body,
     );
   }
 
   const placementClass =
-    placement === 'bottom'
-      ? 'top-full mt-2'
-      : 'bottom-full mb-2';
+    placement === "bottom" ? "top-full mt-2" : "bottom-full mb-2";
 
   return (
     <div
@@ -464,8 +761,8 @@ interface AvatarAchievementShowcaseProps {
   equippedAchievement?: AchievementId | null;
   achievements?: AchievementId[];
   achievementDates?: AchievementDatesMap;
-  size?: 'xs' | 'sm';
-  tooltipPlacement?: 'top' | 'bottom';
+  size?: "xs" | "sm";
+  tooltipPlacement?: "top" | "bottom";
   onOpenAchievements?: () => void;
   className?: string;
 }
@@ -478,10 +775,10 @@ export function AvatarAchievementShowcase({
   equippedAchievement,
   achievements = [],
   achievementDates = {},
-  size = 'xs',
-  tooltipPlacement = 'top',
+  size = "xs",
+  tooltipPlacement = "top",
   onOpenAchievements,
-  className = 'inline-flex',
+  className = "inline-flex",
 }: AvatarAchievementShowcaseProps) {
   const [hoveredRect, setHoveredRect] = useState<DOMRect | null>(null);
   const triggerRef = useRef<HTMLDivElement | null>(null);
@@ -520,7 +817,11 @@ export function AvatarAchievementShowcase({
           if (onOpenAchievements) {
             onOpenAchievements();
           } else {
-            setHoveredRect((curr) => (curr ? null : triggerRef.current?.getBoundingClientRect() ?? null));
+            setHoveredRect((curr) =>
+              curr
+                ? null
+                : (triggerRef.current?.getBoundingClientRect() ?? null),
+            );
           }
         }}
         className="flex items-center justify-center rounded-full focus-visible:outline-1 focus-visible:outline-[#D4A853] hover:scale-110 transition-transform cursor-pointer"
@@ -545,7 +846,7 @@ interface AchievementMedalRowProps {
   achievementDates?: AchievementDatesMap;
   winStreak?: number;
   maxVisible?: number;
-  size?: 'xs' | 'sm';
+  size?: "xs" | "sm";
   onClick?: () => void;
 }
 
@@ -554,7 +855,7 @@ export function AchievementMedalRow({
   achievementDates = {},
   winStreak = 0,
   maxVisible = 3,
-  size = 'xs',
+  size = "xs",
   onClick,
 }: AchievementMedalRowProps) {
   const [hoveredId, setHoveredId] = useState<AchievementId | null>(null);
@@ -574,11 +875,17 @@ export function AchievementMedalRow({
           key={id}
           className="relative inline-flex items-center"
           onMouseEnter={() => setHoveredId(id)}
-          onMouseLeave={() => setHoveredId((curr) => (curr === id ? null : curr))}
+          onMouseLeave={() =>
+            setHoveredId((curr) => (curr === id ? null : curr))
+          }
         >
           <span
             onClick={onClick}
-            className={onClick ? 'cursor-pointer hover:scale-110 transition-transform' : ''}
+            className={
+              onClick
+                ? "cursor-pointer hover:scale-110 transition-transform"
+                : ""
+            }
           >
             <AchievementMedalIcon id={id} size={size} />
           </span>
