@@ -6,12 +6,17 @@
 
 <div align="center">
 
+<p>
+  <strong>简体中文</strong> &nbsp;|&nbsp; <a href="README.en.md">English</a>
+</p>
+
 <h3>把私人德州俱乐部的克制质感，搬进浏览器</h3>
 
 <p>
   <a href="#宣传片">宣传片</a> &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#一局流程">一局流程</a> &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#设计与实现">设计与实现</a> &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#gto-与安全剥削引擎">GTO 与剥削</a> &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#系统架构">系统架构</a> &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#快速启动">快速启动</a> &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#合规说明">合规说明</a>
@@ -19,17 +24,19 @@
 
 <p>
   <img src="https://img.shields.io/badge/Three.js-WebGL_3D-D4A853?style=flat-square&labelColor=0B0E10" alt="Three.js" />
-  <img src="https://img.shields.io/badge/Engine-WSOP_%2F_GTO_v2-1E6B4B?style=flat-square&labelColor=0B0E10" alt="WSOP & GTO v2" />
+  <img src="https://img.shields.io/badge/Engine-WSOP_%2F_GTO_v3_+_RNR-1E6B4B?style=flat-square&labelColor=0B0E10" alt="WSOP & GTO v3 + RNR" />
   <img src="https://img.shields.io/badge/Storage-SQLite_WAL-2A332E?style=flat-square&labelColor=0B0E10" alt="SQLite WAL" />
-  <img src="https://img.shields.io/badge/Tests-92_Passing-1E6B4B?style=flat-square&labelColor=0B0E10" alt="92 Tests Passing" />
+  <img src="https://img.shields.io/badge/Tests-129_Passing-1E6B4B?style=flat-square&labelColor=0B0E10" alt="129 Tests Passing" />
+  <img src="https://img.shields.io/badge/Runtime-CPU_Only_(No_GPU)-2A332E?style=flat-square&labelColor=0B0E10" alt="CPU Only" />
+  <img src="https://img.shields.io/badge/Docker-Compose_Ready-2496ED?style=flat-square&labelColor=0B0E10" alt="Docker Ready" />
   <img src="https://img.shields.io/badge/License-MIT-2A332E?style=flat-square&labelColor=0B0E10" alt="MIT" />
 </p>
 
 <br />
 
 <p>
-  为亲友约局与个人练牌打造的 3D 实时多人无上限德州扑克。<br />
-  没有花哨廉价的棋牌弹窗，也没有含糊其辞的简化规则——围绕「<strong>打开即入局，久玩不累眼</strong>」打磨每一处交互。
+  为亲友约局与个人 GTO 练牌打造的 3D 实时多人无上限德州扑克。<br />
+  没有花哨廉价的棋牌弹窗，也没有含糊其辞的简化规则——围绕「<strong>打开即入局，久玩不累眼</strong>」打磨每一处交互与博弈算法。
 </p>
 
 </div>
@@ -56,16 +63,16 @@
       <sub>Three.js 实景牌桌、胡桃木包边、立体筹码物理堆叠与双视角切换，无 WebGL 自动回退 2D。</sub>
     </td>
     <td width="25%" valign="top">
-      <strong>严谨清算与 GTO v2</strong><br />
-      <sub>WSOP / TDA 多级边池与 Rule 47，内置 169 手牌矩阵、Nash 推弃与蒙特卡洛胜率陪练。</sub>
+      <strong>GTO v3 × RNR 安全剥削</strong><br />
+      <sub>WSOP / TDA 多级边池与 Rule 47，融合 169 手牌矩阵、贝叶斯对手画像与 Restricted Nash Response 反制。</sub>
     </td>
     <td width="25%" valign="top">
-      <strong>物理声效与打击感</strong><br />
-      <sub>全押光刃与筹码喷泉特效，按筹码面值实时合成物理碰撞音，配轻爵士 BGM 一键静音。</sub>
+      <strong>复盘工作台与 AI 画像</strong><br />
+      <sub>13×13 策略热力矩阵、EV Loss 五级评级、Node-Lock 剥削推演与六维性格雷达（支持 Gemini / DeepSeek）。</sub>
     </td>
     <td width="25%" valign="top">
       <strong>零门槛与持久化</strong><br />
-      <sub>游客免登录直玩、6 位邮箱验证码跨端同步、原生 SQLite (WAL) 存储与 Docker 一键起服。</sub>
+      <sub>游客免登录直玩与组局、6 位邮箱验证码跨端同步、原生 SQLite (WAL) 存储与 Docker 一键起服。</sub>
     </td>
   </tr>
 </table>
@@ -87,7 +94,7 @@
     <td width="33.3%" align="center" valign="top">
       <img src="docs/media/flow-join.gif" alt="进大厅入座" width="100%" /><br />
       <strong>01 · 进厅入座</strong><br />
-      <sub>3D 牌室大厅浏览在线桌，一键入局</sub>
+      <sub>3D 牌室大厅浏览在线桌，免登录一键入局</sub>
     </td>
     <td width="33.3%" align="center" valign="top">
       <img src="docs/media/flow-camera.gif" alt="双视角切换" width="100%" /><br />
@@ -114,7 +121,7 @@
     <td width="33.3%" align="center" valign="top">
       <img src="docs/media/flow-analytics.gif" alt="账簿与复盘" width="100%" /><br />
       <strong>06 · 账簿复盘</strong><br />
-      <sub>排行、走势、底池、牌风与手牌回放</sub>
+      <sub>13×13 GTO 矩阵、Node-Lock 推演与手牌回放</sub>
     </td>
   </tr>
 </table>
@@ -136,9 +143,9 @@
   </tr>
   <tr>
     <td width="42%" valign="middle">
-      <h4>WSOP / TDA 清算 × GTO v2 陪练引擎</h4>
+      <h4>WSOP / TDA 清算 × GTO v3 陪练与工作台</h4>
       <p>完整支持 2–10 人桌、密码学安全洗牌（<code>crypto.randomInt</code>）、多人全下多级边池、超额未跟注退还、中途离桌死钱守恒、Rule 47 短全下规则，以及局间补码与出局重买。</p>
-      <p>内置 <strong>GTO v2</strong> 策略陪练——覆盖 6-max / HU 169 手牌翻前矩阵、≤15BB Nash 推/弃表、零分配 O(1) 7 张牌评估、蒙特卡洛范围胜率、MDF、阻断牌与几何下注尺度；亦可在设置中<strong>非强制</strong>接入 DeepSeek API，驱动陪练闲聊接梗与局后复盘点评。</p>
+      <p>内置 <strong>GTO v3 + RNR</strong> 陪练引擎与 <strong>13×13 策略复盘工作台</strong>——支持逐街 EV Loss 五级评级、范围/坚果优势分析、阻断牌组合移除与贝叶斯 Node-Lock 剥削推演，可选接入 Gemini / DeepSeek 驱动性格雷达分析、陪练闲聊与高杠杆局面战术增强。</p>
     </td>
     <td width="58%" align="center" valign="middle">
       <img src="docs/media/showdown.jpg" alt="摊牌亮牌与动态段位光环" width="100%" />
@@ -149,8 +156,8 @@
       <img src="docs/media/profile-achievements.jpg" alt="30 枚荣誉与趣事勋章陈列" width="100%" />
     </td>
     <td width="42%" valign="middle">
-      <h4>30 枚荣誉与趣事勋章 × 无门槛约局</h4>
-      <p>打开大厅即可免登录建桌或凭房号入局；通过右上角 <strong>6 位邮箱验证码</strong>登录即可跨设备同步个人中心，自动合并游客期解锁的本地成就。</p>
+      <h4>30 枚荣誉勋章 × 玩家性格雷达 × 无门槛约局</h4>
+      <p>不登录即可直接创建私人牌桌、输入房号约局或陪练实战；点击右上角通过 <strong>6 位纯邮箱验证码</strong>登录即可同步个人中心、六维雷达（VPIP / PFR / Agg% / C-Bet / 摊牌 / 纪律）与历史战绩，并自动合并游客期解锁的本地成就。</p>
       <p>勋章馆收录 <strong>30 枚</strong>铜 / 银 / 金 / 传奇黑金四档成就，囊括「传奇 10-2」「7-2 传说」「天选倒霉蛋」「大滑头绝杀」「火箭坠毁」「空气赢家」等经典牌局时刻；头像外圈随青铜至钻石段位实时流转光环。</p>
     </td>
   </tr>
@@ -159,9 +166,9 @@
 <br />
 
 <p align="center">
-  <img src="docs/media/analytics-panels.jpg" alt="牌局账簿与复盘五个面板" width="100%" />
+  <img src="docs/media/analytics-panels.jpg" alt="牌局账簿与复盘面板" width="100%" />
   <br />
-  <sub>牌局账簿与复盘 · 局内排行 · 玩家筹码走势 · 分街与历史底池 · 牌风洞察（胜率 / VPIP / 摊牌胜率） · 最近 20 手逐街动作回放</sub>
+  <sub>牌局账簿与复盘 · 局内排行 · 筹码走势 · 分街底池 · 六维雷达与对手画像 · 13×13 GTO 策略矩阵与 Node-Lock 推演</sub>
 </p>
 
 <table>
@@ -209,6 +216,19 @@
 
 <p align="center"><img src="docs/media/divider.svg" alt="" width="76%" /></p>
 
+## GTO 与安全剥削引擎
+
+围绕开源求解器与不完全信息博弈研究（`bupticybee/TexasSolver` DCFR、Johanson et al. NIPS 2007 *Restricted Nash Response*、Bard et al. 2013 *Data-Biased Robust Counter Strategies*、*Pluribus* 深度受限子博弈思想与 *PokerBench* 结构化推理），构建了四层协同的博弈与画像体系（详阅 [docs/GTO_EXPLOIT_ARCHITECTURE_SPEC.md](docs/GTO_EXPLOIT_ARCHITECTURE_SPEC.md)）：
+
+| 层次 | 核心机制 | 落地模块 |
+| :--- | :--- | :--- |
+| **GTO v3 均衡基线** | 6-max / HU 169 手牌翻前频率矩阵、≤15BB Nash 推/弃表、零分配 O(1) 7 张牌评估、范围加权蒙特卡洛胜率、范围/坚果优势估算、转牌惊悚牌二枪、河牌极化超池、MDF、阻断牌移除与几何下注尺度 | [server/gtoRanges.ts](server/gtoRanges.ts)<br>[server/botAi.ts](server/botAi.ts) |
+| **贝叶斯对手与玩家画像** | 对 VPIP、PFR、Limp、3-Bet、Fold-to-3Bet、C-Bet、Fold-to-CBet、Fold-to-Bet、WTSD、W$SD、Turn Barrel 实施 Beta-Binomial 先验收缩 $\hat{\theta}_{\text{post}} = \frac{\kappa \pi_{\text{GTO}} + c}{\kappa + n}$，识别 7 类牌风原型与具体漏损标签；支持历史战绩低权重冷启动 | [server/opponentProfiler.ts](server/opponentProfiler.ts)<br>[src/shared/playerInsights.ts](src/shared/playerInsights.ts) |
+| **RNR 安全剥削与 Node-Lock** | 采用 Restricted Nash Response 安全边际 $\sigma_{\text{RNR}} = (1 - \lambda w)\sigma_{\text{GTO}} + \lambda w\,\sigma_{\text{BR}}(\hat{\theta}_{\text{post}})$：小样本平滑回归 GTO 防反剥削，大样本精准惩罚过度弃牌、跟注站、疯狂偷鸡、高频 C-Bet 与被动平跟；服务端支持花色同构规范化（22,100 → 1,755 翻牌）LRU 缓存与可选 `TexasSolver` Worker 进程池 | [server/gtoSolver.ts](server/gtoSolver.ts)<br>[src/shared/gtoWorkbench.ts](src/shared/gtoWorkbench.ts) |
+| **AI 增强与双引擎画像** | 可选开启 `AI_BOT_ENHANCEMENT`（1.8s 硬超时 + 合法性与防送牌护栏，永不卡桌）；`/api/persona/analyze` 支持 Google Gemini 与 DeepSeek 双引擎自动回退生成六维雷达与改进计划；`/api/gto/evaluate` 融合实时对手画像生成中文复盘点评 | [server/botAiAdvisor.ts](server/botAiAdvisor.ts)<br>[server/personaAi.ts](server/personaAi.ts)<br>[server/gtoCoach.ts](server/gtoCoach.ts) |
+
+<p align="center"><img src="docs/media/divider.svg" alt="" width="76%" /></p>
+
 ## 系统架构
 
 <p align="center">
@@ -224,26 +244,35 @@
 
 ```text
 .
-├── server.ts                  # Express + WebSocket 主服务、房间生命周期与安全中间件
+├── server.ts                  # Express + WebSocket 主服务、房间生命周期、限流与安全中间件
 ├── server/
-│   ├── db.ts                  # Node 22 原生 SQLite (WAL) 初始化与 hand_history
-│   ├── authStore.ts           # 邮箱 6 位 OTP 鉴权、SMTP/Resend 发信与会话吊销
+│   ├── db.ts                  # Node 22 原生 SQLite (WAL) 初始化、迁移与 hand_history
+│   ├── authStore.ts           # 纯邮箱 6 位 OTP 鉴权、SMTP/Resend 发信与会话吊销
 │   ├── roomAuth.ts            # X-Seat-Secret 常量时间校验与房主删房鉴权
-│   ├── leaderboard.ts         # 排行榜与陪练局归一化统计
-│   ├── rateLimiter.ts         # 滑动窗口限流（HTTP / OTP / WebSocket）
-│   ├── gtoRanges.ts           # 6-max / HU 169 手牌 GTO 矩阵与 Nash 推/弃表
-│   ├── botAi.ts               # GTO v2 决策引擎、O(1) 7 张牌评估与蒙特卡洛胜率
-│   ├── gtoCoach.ts            # GTO 局面评估与可选 DeepSeek 复盘点评
-│   └── botChat.ts             # AI 陪练对话上下文与脱敏过滤
+│   ├── leaderboard.ts         # 排行榜、陪练局归一化与累计行为统计
+│   ├── rateLimiter.ts         # 滑动窗口限流（HTTP / OTP / GTO / Persona / WebSocket）
+│   ├── gtoRanges.ts           # 6-max / HU 169 手牌 GTO 矩阵、Nash 推弃与 O(1) 评估
+│   ├── botAi.ts               # GTO v3 + 范围/坚果优势 + RNR 剥削决策引擎
+│   ├── botAiAdvisor.ts        # 可选 LLM 高杠杆局面战术增强与安全护栏
+│   ├── opponentProfiler.ts    # 贝叶斯 Dirichlet-Beta 对手画像与 RNR 反制计划
+│   ├── gtoSolver.ts           # 三层混合求解器（Blueprint / MC / TexasSolver）、同构缓存与 Node-Lock
+│   ├── gtoCoach.ts            # GTO + 实时对手画像局面点评
+│   ├── handReview.ts          # 逐街决策证据与牌局复盘报告生成
+│   ├── personaAi.ts           # 六维性格雷达双引擎 AI 分析（Gemini / DeepSeek）
+│   └── botChat.ts             # AI 陪练对话上下文与底牌脱敏过滤
 ├── src/
-│   ├── shared/                # 前后端共享德州核心规则引擎、牌力评估、成就与段位
-│   ├── context/               # 邮箱登录会话与档案同步
-│   ├── components/            # 大厅、3D/2D 牌桌、个人中心、数据抽屉
+│   ├── shared/                # 德州核心引擎、牌力评估、GTO 工作台契约、玩家洞察与成就体系
+│   ├── context/               # 纯邮箱验证码会话与档案同步
+│   ├── components/            # 大厅、3D/2D 牌桌、复盘工作台、13×13 策略矩阵、性格雷达
 │   ├── three/                 # Three.js 牌桌、筹码物理与镜头过渡
-│   └── utils/                 # 物理筹码合成音效、爵士 BGM 与 Canvas 特效
-├── docs/media/                # 宣传片 (promo.mp4)、流程动图与实机截图
+│   └── utils/                 # 物理筹码合成音效、爵士 BGM 与 Canvas 打击特效
+├── docs/
+│   ├── ARCHITECTURE.md                   # 系统架构说明（英文，面向工程师与 AI Agent）
+│   ├── DEVELOPER_GUIDE.md                # 开发手册与贡献约定（英文，纯 CPU 规范）
+│   ├── GTO_EXPLOIT_ARCHITECTURE_SPEC.md  # GTO 求解与剥削博弈数学参考说明书
+│   └── media/                            # 宣传片 (promo.webp / promo.mp4)、流程动图、架构 SVG 与截图
 ├── deploy/nginx.conf.example  # Nginx HTTPS + WSS 反向代理参考配置
-├── Dockerfile                 # 多阶段构建（node:22-slim 非 root 镜像）
+├── Dockerfile                 # 多阶段构建（node:22-slim 非 root 生产镜像）
 ├── docker-compose.yml         # 一键编排与 ./data 持久化卷
 └── UI_CONTRACT.md             # 前后端 REST / WebSocket 协同契约
 ```
@@ -266,7 +295,7 @@ docker compose up -d --build</pre>
     </td>
     <td width="50%" valign="top">
       <strong>本地开发（Node.js &gt;= 22.5）</strong><br />
-      <sub>零配置即可本地启动完整联机、SQLite 与 GTO v2 陪练</sub>
+      <sub>零配置即可本地启动完整联机、SQLite 与 GTO v3 陪练</sub>
       <pre lang="bash">git clone https://github.com/jianghao-jianghao-jianghao/newHoldem.git
 cd newHoldem
 npm install
@@ -275,7 +304,7 @@ npm run dev</pre>
   </tr>
 </table>
 
-启动后访问 `http://localhost:3000`（健康检查 `GET /api/health`）。公网 HTTPS / WSS 部署参考 [deploy/nginx.conf.example](deploy/nginx.conf.example)，生产环境请在 `.env` 中配置 `TRUST_PROXY=1` 与强随机 `AUTH_SESSION_SECRET`。
+启动后访问 `http://localhost:3000`（健康探针 `GET /api/health`）。公网 HTTPS / WSS 部署参考 [deploy/nginx.conf.example](deploy/nginx.conf.example)，生产环境请在 `.env` 中配置 `TRUST_PROXY=1` 与强随机 `AUTH_SESSION_SECRET`。
 
 > Windows + WSL2 使用 Docker 时，建议在 `C:\Users\<用户名>\.wslconfig` 的 `[wsl2]` 下设置 `vmIdleTimeout=-1`，防止休眠中断本地端口。
 
@@ -307,27 +336,32 @@ npm run dev</pre>
 | `DATA_DIR` | `./data` | SQLite 数据库与会话密钥目录（Docker 内自动挂载至 `/app/data`） |
 | `AUTH_SESSION_SECRET` | 自动生成 | 会话 Token HMAC 签名密钥（公网部署建议设为 ≥32 位随机串） |
 | `ALLOW_OTP_PREVIEW` | `false` | 仅本地无邮件服务调试时设为 `true`，生产保持 `false` |
-| `SMTP_*` / `RESEND_API_KEY` | — | 邮箱验证码发信配置（Resend 优先级高于 SMTP） |
-| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | `deepseek-chat` | 可选服务端默认 DeepSeek 配置，用于 AI 陪练对话与 GTO 点评 |
+| `SMTP_*` / `RESEND_API_KEY` | — | 邮箱验证码发信配置（Resend 优先级高于 SMTP，支持 QQ 邮箱 `465`） |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | `deepseek-chat` | 可选服务端 DeepSeek 配置，用于 AI 陪练聊天、GTO 点评与性格雷达回退 |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | — | 可选 Google Gemini 配置，用于服务端六维性格雷达分析 |
+| `TEXASSOLVER_BIN` | 留空 | 可选 Layer-3 `console_solver` 可执行文件路径，未配置时自动降级至 Layer 1/2 |
+| `AI_BOT_ENHANCEMENT` | `false` | 设为 `true` 时在高杠杆翻后底池启用 DeepSeek 战术增强（带 1.8s 超时回退） |
 | `TRUST_PROXY` / `CORS_ORIGIN` | `0` / `*` | 反向代理跳数（Nginx 后置设 `1`）与跨域白名单 |
 | `VITE_SERVER_URL` | 留空 | 前后端分离部署时的后端地址 |
 
 ```bash
 npm run lint    # TypeScript 类型检查
-npm test        # 15 个测试套件，92 项单元测试
+npm test        # 22 个测试套件，129 项单元测试（纯 CPU，<2s）
 npm run build   # Vite 前端 + esbuild 后端生产构建
 npm start       # 启动生产产物
 ```
 
 | 接口 | 说明 |
 | :--- | :--- |
-| `GET /api/health` | 运行状态、在线桌数、持久化引擎与 `botEngine: "gto-v2"` 探针 |
-| `GET / POST / DELETE /api/rooms` | 房间列表、创建私人牌桌、凭 `X-Player-Id` + `X-Seat-Secret` 删房 |
-| `POST /api/auth/send-code` · `verify-code` | 邮箱 6 位 OTP 发送与登录（自动关联游客本地成就） |
-| `GET / PATCH /api/auth/session` · `profile` · `logout` | 会话查询、资料更新与服务端吊销 |
-| `POST /api/gto/evaluate` | GTO 局面分析（可选 `useLlm: true` 生成中文复盘点评） |
-| `GET /api/hands` · `GET /api/hands/:id` | SQLite 历史手牌查询与脱敏回放 |
-| `WS /ws` | 入座、下注、聊天、轻敲提醒、AI 陪练增减与实时广播 |
+| `GET /api/health` · `GET /api/metrics` | 运行状态、`botEngine: "gto-v3-rnr"`、SQLite 探针、求解器缓存与决策耗时指标 |
+| `GET / POST / DELETE /api/rooms` | 房间列表、免登录创建私人牌桌、凭 `X-Player-Id` + `X-Seat-Secret` 删房 |
+| `GET /api/rooms/:roomId/opponent-profiles` | 获取房间内实时贝叶斯对手画像、漏损标签与 RNR 反制计划（不含底牌） |
+| `POST /api/rooms/:roomId/hand-review` · `session-review` | 生成单手或整场逐街决策证据与牌局复盘报告 |
+| `POST /api/gto/spot-analysis` · `node-lock` · `session-audit` | 三层 GTO 13×13 策略矩阵求解、贝叶斯 Node-Lock 剥削推演与整场 EV 漏损审计 |
+| `POST /api/gto/evaluate` | 无状态 GTO + 实时对手画像局面分析（可选 `useLlm: true`） |
+| `POST /api/persona/analyze` | 玩家六维性格雷达与数据驱动改进计划（Gemini / DeepSeek 双引擎） |
+| `POST /api/auth/send-code` · `verify-code` · `logout` | 纯邮箱 6 位验证码登录（自动关联游客成就）与服务端会话吊销 |
+| `GET /api/hands` · `WS /ws` | SQLite 历史手牌脱敏回放与实时牌桌 WebSocket 通信 |
 
 </details>
 
@@ -339,8 +373,8 @@ npm start       # 启动生产产物
 
 - **纯虚拟积分**：桌面显示的筹码、盲注、底池、盈亏与排行均为无任何货币价值的虚拟演练积分，不具备兑换或财产属性。
 - **无资金通道**：不包含且不支持任何形式的充值、提现、抽水（Rake）或支付结算功能，严禁用于开设赌场、组织网络赌博或任何违反当地法律法规的活动。
-- **责任自负**：代码按 MIT 协议以「现状（AS IS）」开源提供；任何第三方二次开发、公网部署或运营行为的合规义务及法律责任均由实际部署方自行承担。
-- **密钥隐私**：DeepSeek 对话与邮箱验证码均为可选项；玩家在页面手动填入的密钥仅驻留于当前房间内存，不落盘、不回显，离桌或关闭房间即清除。
+- **责任自负**：代码按 MIT 协议以「现状（AS IS）」开源提供；任何第三方二次开发、公网部署或运营行为的合规义务及相应法律责任，均由实际部署方自行承担。
+- **密钥隐私**：DeepSeek / Gemini 对话与邮箱验证码均为可选项；玩家在页面手动填入的密钥仅驻留于当前房间内存，不落盘、不回显，离桌或关闭房间即清除。
 
 <br />
 

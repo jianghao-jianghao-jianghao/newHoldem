@@ -1,0 +1,26 @@
+name: Feature Request
+description: Propose a poker training, GTO/exploitation, UX, or backend enhancement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation & Use Case
+      description: What gameplay, training, or engineering need does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Behavior
+      description: Describe the desired UX, API contract, or algorithmic improvement (CPU-only compatible by default).
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Compatibility Check
+      options:
+        - label: Works on CPU-only environments without requiring a GPU
+        - label: Preserves zero-login guest play and room hosting

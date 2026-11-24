@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Architecture & Developer Guide (English)
+    url: https://github.com/jianghao-jianghao-jianghao/newHoldem/blob/main/docs/ARCHITECTURE.md
+    about: Read the system architecture, CPU-first solver design, and data contracts before opening an issue.

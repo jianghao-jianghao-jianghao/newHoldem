@@ -1,0 +1,41 @@
+name: Bug Report
+description: Report a gameplay rule bug, backend/persistence issue, or UI defect
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem Summary
+      description: Concisely describe what went wrong and what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction Steps
+      description: Provide exact steps, room settings, or hand sequence to reproduce.
+      placeholder: |
+        1. Create a table with blinds 10/20
+        2. Play 2 consecutive hands
+        3. Call GET /api/rooms/:roomId/history
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Component Area
+      options:
+        - Poker Engine / Side Pots / WSOP Rules
+        - GTO v3 Bot AI / RNR Exploitation / Profiler
+        - Backend API / WebSocket / SQLite Persistence
+        - Frontend 3D/2D Table / Hand Review Workbench
+        - Docker / Deployment
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, browser, Node.js version, or Docker version (CPU-only supported).
+      placeholder: "Windows 11 + WSL2 Docker / Chrome 131 / Node 22"
