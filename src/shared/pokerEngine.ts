@@ -27,9 +27,31 @@ import type {
 export const STARTING_CHIPS = 2000;
 export const DEFAULT_SMALL_BLIND = 10;
 export const DEFAULT_BIG_BLIND = 20;
-export const TURN_TIMEOUT_MS = 25000;
+export const DEFAULT_TURN_TIMEOUT_SEC = 30;
+export const MIN_TURN_TIMEOUT_SEC = 10;
+export const MAX_TURN_TIMEOUT_SEC = 180;
+export const TURN_TIMEOUT_MS = DEFAULT_TURN_TIMEOUT_SEC * 1000;
 export const AUTO_NEXT_HAND_DELAY_MS = 8000;
-export const MAX_HAND_HISTORY = 20;
+export const MAX_HAND_HISTORY = 50;
+
+/**
+ * Sanitizes per-turn countdown seconds.
+ * 0 disables turn countdown completely (unlimited thinking time, no auto-fold).
+ */
+export function sanitizeTurnTimeoutSec(raw?: number | null): number {
+  if (raw === 0) return 0;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return DEFAULT_TURN_TIMEOUT_SEC;
+  }
+  const floored = Math.floor(raw);
+  if (floored <= 0) return 0;
+  return Math.max(MIN_TURN_TIMEOUT_SEC, Math.min(MAX_TURN_TIMEOUT_SEC, floored));
+}
+
+function computeTurnDeadline(state: TableState, now: number): number | null {
+  if (state.turnTimeoutSec <= 0) return null;
+  return now + state.turnTimeoutSec * 1000;
+}
 
 const SUITS: Suit[] = ['spades', 'hearts', 'diamonds', 'clubs'];
 const RANKS: Rank[] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
@@ -56,9 +78,11 @@ export function createTableState(
   roomId: string,
   smallBlind: number = DEFAULT_SMALL_BLIND,
   bigBlind: number = DEFAULT_BIG_BLIND,
-  startingChips: number = STARTING_CHIPS
+  startingChips: number = STARTING_CHIPS,
+  turnTimeoutSec: number = DEFAULT_TURN_TIMEOUT_SEC
 ): TableState {
   const safeStarting = Math.max(bigBlind * 5, Math.floor(startingChips || STARTING_CHIPS));
+  const safeTurnTimeoutSec = sanitizeTurnTimeoutSec(turnTimeoutSec);
   return {
     roomId,
     hostId: null,
@@ -73,6 +97,7 @@ export function createTableState(
     manualBlindTarget: null,
     pendingBlinds: null,
     currentTurnPlayerId: null,
+    turnTimeoutSec: safeTurnTimeoutSec,
     turnDeadline: null,
     allInRunout: false,
     nextHandAt: null,
@@ -620,14 +645,14 @@ export function startNewHand(
 
   if (firstCandidate && !firstCandidate.allIn && countPlayersAbleToAct(state) >= 2) {
     state.currentTurnPlayerId = firstCandidate.id;
-    state.turnDeadline = now + TURN_TIMEOUT_MS;
+    state.turnDeadline = computeTurnDeadline(state, now);
   } else if (
     firstCandidate &&
     !firstCandidate.allIn &&
     firstCandidate.currentBet < state.currentBet
   ) {
     state.currentTurnPlayerId = firstCandidate.id;
-    state.turnDeadline = now + TURN_TIMEOUT_MS;
+    state.turnDeadline = computeTurnDeadline(state, now);
   } else if (options.stepAllIn) {
     state.allInRunout = true;
     state.currentTurnPlayerId = null;
@@ -944,7 +969,7 @@ function advanceAfterAction(
     );
     if (nextActor) {
       state.currentTurnPlayerId = nextActor.id;
-      state.turnDeadline = now + TURN_TIMEOUT_MS;
+      state.turnDeadline = computeTurnDeadline(state, now);
       return { ok: true, handFinished: false };
     }
   }
@@ -1023,7 +1048,7 @@ function advanceToNextStreet(
   }
 
   state.currentTurnPlayerId = firstPostflopActor.id;
-  state.turnDeadline = now + TURN_TIMEOUT_MS;
+  state.turnDeadline = computeTurnDeadline(state, now);
 }
 
 /**
@@ -1160,6 +1185,9 @@ function finalizeHandReplayAndStats(state: TableState, now: number): void {
     smallBlind: state.smallBlind,
     bigBlind: state.bigBlind,
     pot: state.pot,
+    dealerSeatIndex: state.dealerSeatIndex,
+    smallBlindSeatIndex: state.smallBlindSeatIndex,
+    bigBlindSeatIndex: state.bigBlindSeatIndex,
     communityCards: [...state.communityCards],
     winners: [...state.winners],
     players: getSortedPlayers(state)
@@ -1540,6 +1568,7 @@ export function sanitizeTableForPlayer(state: TableState, viewerId: string): Cli
     pendingBlinds: state.pendingBlinds,
     previewNextBlinds: resolveNextHandSeats(state),
     currentTurnPlayerId: state.currentTurnPlayerId,
+    turnTimeoutSec: state.turnTimeoutSec,
     turnDeadline: state.turnDeadline,
     allInRunout: state.allInRunout,
     nextHandAt: state.nextHandAt,

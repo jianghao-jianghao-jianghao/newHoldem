@@ -12,6 +12,7 @@ import type {
   AchievementId,
   EquippedAchievementPref,
 } from '../shared/achievements';
+import type { PlayerBehaviorStats } from '../shared/playerInsights';
 import type { LeaderboardEntry } from '../shared/types';
 
 export interface AccountProfile {
@@ -31,6 +32,7 @@ export interface AccountProfile {
   currentWinStreak: number;
   maxWinStreak: number;
   bgmEnabled: boolean;
+  behaviorStats?: PlayerBehaviorStats;
 }
 
 export interface SendOtpResponse {
@@ -44,6 +46,7 @@ export interface SendOtpResponse {
 
 interface AuthContextValue {
   authReady: boolean;
+  authToken: string | null;
   profile: AccountProfile | null;
   sendingCode: boolean;
   verifyingCode: boolean;
@@ -275,6 +278,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       authReady,
+      authToken: token,
       profile,
       sendingCode,
       verifyingCode,
@@ -288,6 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }),
     [
       authReady,
+      token,
       profile,
       sendingCode,
       verifyingCode,

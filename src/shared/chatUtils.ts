@@ -209,3 +209,38 @@ export function getActiveBubbleMap(
   }
   return map;
 }
+
+export interface ChatBubbleOffset {
+  /** Horizontal pixel shift in [-22, +22] to keep rapid/adjacent bubbles organic and non-overlapping */
+  offsetX: number;
+  /** Subtle playful rotation angle in [-2.4, +2.4] degrees */
+  tiltDeg: number;
+  /** Slight vertical lift variation in [0, 8] pixels */
+  liftY: number;
+}
+
+/**
+ * Deterministically derives lively horizontal displacement, slight tilt, and vertical lift
+ * for a chat/emote bubble based on its message ID and seat index.
+ * Deterministic per message ID so re-renders never cause visible jitter while consecutive
+ * messages pop in at fresh, non-overlapping offsets.
+ */
+export function computeChatBubbleOffset(
+  messageId: string,
+  seatIndex = 0
+): ChatBubbleOffset {
+  let hash = (2166136261 ^ (seatIndex * 2654435761)) >>> 0;
+  for (let i = 0; i < messageId.length; i++) {
+    hash ^= messageId.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  const h1 = (hash & 0xffff) / 0xffff;
+  const h2 = ((hash >>> 16) & 0xff) / 0xff;
+  const h3 = ((hash >>> 24) & 0xff) / 0xff;
+
+  const offsetX = Math.round((h1 * 2 - 1) * 22);
+  const tiltDeg = Number(((h2 * 2 - 1) * 2.4).toFixed(2));
+  const liftY = Math.round(h3 * 8);
+  return { offsetX, tiltDeg, liftY };
+}
+

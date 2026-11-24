@@ -37,11 +37,13 @@ interface TitleScreenProps {
     smallBlind: number;
     bigBlind: number;
     startingChips: number;
+    turnTimeoutSec: number;
   }) => Promise<RoomSummary | null>;
   onDeleteRoom: (roomId: string) => Promise<void> | void;
   onOpenPersonalCenter: (tab?: PersonalCenterTab) => void;
   onOpenEmailLogin: () => void;
   onOpenCardGallery: () => void;
+  fadingOut?: boolean;
 }
 
 const BLIND_PRESETS = [
@@ -52,6 +54,14 @@ const BLIND_PRESETS = [
 ] as const;
 
 const CHIP_PRESETS = [1000, 2000, 5000, 10000] as const;
+
+const TURN_TIMER_PRESETS = [
+  { label: '15s', sec: 15 },
+  { label: '30s', sec: 30 },
+  { label: '60s', sec: 60 },
+  { label: '120s', sec: 120 },
+  { label: '不限时', sec: 0 },
+] as const;
 
 export function TitleScreen({
   initialName,
@@ -70,6 +80,7 @@ export function TitleScreen({
   onOpenPersonalCenter,
   onOpenEmailLogin,
   onOpenCardGallery,
+  fadingOut = false,
 }: TitleScreenProps) {
   const { profile, authError, clearAuthError } = useAuth();
   const [customCodeOpen, setCustomCodeOpen] = useState(false);
@@ -84,6 +95,7 @@ export function TitleScreen({
   const [customSb, setCustomSb] = useState(10);
   const [customBb, setCustomBb] = useState(20);
   const [startingChips, setStartingChips] = useState<number>(2000);
+  const [turnTimeoutSec, setTurnTimeoutSec] = useState<number>(30);
   const [creating, setCreating] = useState(false);
 
   const avatar = sanitizeAvatar(initialAvatar);
@@ -130,12 +142,15 @@ export function TitleScreen({
       bb * 10,
       Math.min(200_000, Math.floor(Number(startingChips) || 2000))
     );
+    const safeTurnTimeout =
+      turnTimeoutSec <= 0 ? 0 : Math.max(10, Math.min(180, Math.floor(Number(turnTimeoutSec) || 30)));
     try {
       const created = await onCreateRoom({
         tableName: newTableName.trim(),
         smallBlind: sb,
         bigBlind: bb,
         startingChips: safeStarting,
+        turnTimeoutSec: safeTurnTimeout,
       });
       if (created) {
         setNewTableName('');
@@ -151,7 +166,13 @@ export function TitleScreen({
 
   return (
     <main
-      className={`relative z-10 flex min-h-dvh flex-col justify-between overflow-x-hidden ${
+      data-testid="title-screen"
+      aria-hidden={fadingOut || undefined}
+      className={`${
+        fadingOut
+          ? 'fixed inset-0 z-30 pointer-events-none animate-lobby-fade-out'
+          : 'relative z-10'
+      } flex min-h-dvh flex-col justify-between overflow-x-hidden ${
         isDesktop
           ? 'bg-gradient-to-b from-[#080A0B]/74 via-[#080A0B]/34 to-[#080A0B]/78 lg:bg-gradient-to-r lg:from-[#080A0B]/92 lg:via-[#080A0B]/58 lg:to-[#080A0B]/12'
           : 'bg-[radial-gradient(ellipse_at_top,#10261E_0%,#090B0C_68%)]'
@@ -430,8 +451,60 @@ export function TitleScreen({
                 </div>
               </div>
 
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-medium text-[#A1ABA6]">回合倒计时</span>
+                  <span className="font-mono-num text-[11px] text-[#8CC9AA]">
+                    {turnTimeoutSec === 0 ? '已取消倒计时' : `每回合 ${turnTimeoutSec} 秒`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {TURN_TIMER_PRESETS.map((preset) => {
+                    const active = turnTimeoutSec === preset.sec;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        data-testid={`turn-timer-preset-${preset.sec}`}
+                        onClick={() => setTurnTimeoutSec(preset.sec)}
+                        className={`touch-manipulation font-mono-num h-8 rounded border text-xs font-semibold transition-colors cursor-pointer ${
+                          active
+                            ? preset.sec === 0
+                              ? 'border-[#34D399]/75 bg-[#34D399]/16 text-[#8CE7C1]'
+                              : 'border-[#D4A853] bg-[#D4A853]/18 text-[#F5E4B8]'
+                            : 'border-white/[0.1] bg-[#080A0B] text-[#949E99] hover:text-white'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex items-center gap-3">
+                  <input
+                    id="create-turn-timeout-slider"
+                    data-testid="turn-timeout-slider"
+                    type="range"
+                    min={10}
+                    max={185}
+                    step={5}
+                    aria-label="回合倒计时滑块（拉至最右取消倒计时）"
+                    value={turnTimeoutSec === 0 ? 185 : turnTimeoutSec}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setTurnTimeoutSec(v > 180 ? 0 : v);
+                    }}
+                    className="poker-slider flex-1"
+                  />
+                  <span className="font-mono-num w-14 text-right text-[11px] text-[#C8D0CC] shrink-0">
+                    {turnTimeoutSec === 0 ? '不限时' : `${turnTimeoutSec}s`}
+                  </span>
+                </div>
+              </div>
+
               <button
                 type="submit"
+                data-testid="confirm-create-room-btn"
                 disabled={creating}
                 className="touch-manipulation flex h-9 w-full items-center justify-center gap-1.5 rounded bg-[#D4A853] px-4 text-xs font-bold text-[#0F1210] hover:bg-[#E1B968] disabled:opacity-50 transition-colors cursor-pointer"
               >
@@ -479,6 +552,14 @@ export function TitleScreen({
                       <span aria-hidden="true">·</span>
                       <span className="font-mono-num">
                         初始 {room.startingChips.toLocaleString()}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span
+                        className={`font-mono-num ${
+                          room.turnTimeoutSec === 0 ? 'text-[#8CC9AA]' : ''
+                        }`}
+                      >
+                        {room.turnTimeoutSec === 0 ? '不限时' : `${room.turnTimeoutSec ?? 30}s`}
                       </span>
                       <span aria-hidden="true">·</span>
                       <span className="inline-flex items-center gap-1 font-mono-num text-[#B5BEB9]">

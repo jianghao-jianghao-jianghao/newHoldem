@@ -15,6 +15,11 @@ import {
   type PlayerAchievementStats,
 } from '../src/shared/achievements';
 import { MAX_CUSTOM_AVATAR_BYTES, sanitizeAvatar } from '../src/shared/avatarUtils';
+import {
+  mergeBehaviorStats,
+  sanitizeBehaviorStats,
+  type PlayerBehaviorStats,
+} from '../src/shared/playerInsights';
 import type { Card, HandCategory, LeaderboardEntry } from '../src/shared/types';
 import { getSharedDatabase, resolveDataDir, type HoldemDatabase } from './db';
 
@@ -35,6 +40,7 @@ export interface EmailAccountProfile {
   currentWinStreak: number;
   maxWinStreak: number;
   bgmEnabled: boolean;
+  behaviorStats?: PlayerBehaviorStats;
   createdAt: number;
   updatedAt: number;
 }
@@ -144,6 +150,7 @@ function toPublicProfile(rec: InternalAccountRecord): EmailAccountProfile {
     currentWinStreak: rec.currentWinStreak,
     maxWinStreak: rec.maxWinStreak,
     bgmEnabled: rec.bgmEnabled,
+    behaviorStats: rec.behaviorStats,
     createdAt: rec.createdAt,
     updatedAt: rec.updatedAt,
   };
@@ -303,6 +310,7 @@ export class EmailAuthStore {
         let parsedAch: unknown = [];
         let parsedDates: unknown = {};
         let parsedStats: PlayerAchievementStats | null = null;
+        let parsedBehavior: PlayerBehaviorStats | undefined;
         try {
           parsedAch = JSON.parse(String(row.achievements_json ?? '[]'));
         } catch {
@@ -319,6 +327,13 @@ export class EmailAuthStore {
           }
         } catch {
           parsedStats = null;
+        }
+        try {
+          if (row.behavior_stats_json) {
+            parsedBehavior = sanitizeBehaviorStats(JSON.parse(String(row.behavior_stats_json)));
+          }
+        } catch {
+          parsedBehavior = undefined;
         }
 
         const handsPlayed = Number(row.hands_played) || 0;
@@ -344,6 +359,7 @@ export class EmailAuthStore {
           currentWinStreak,
           maxWinStreak,
           bgmEnabled: Number(row.bgm_enabled) !== 0,
+          behaviorStats: parsedBehavior,
           tokenVersion: Math.max(1, Number(row.token_version) || 1),
           stats: parsedStats ?? {
             ...createEmptyAchievementStats(),
@@ -423,9 +439,9 @@ export class EmailAuthStore {
             uid, email, display_name, avatar, points, net_chips,
             hands_played, hands_won, best_hand_name, best_hand_score,
             achievements_json, achievement_dates_json, equipped_achievement,
-            current_win_streak, max_win_streak, stats_json, bgm_enabled,
+            current_win_streak, max_win_streak, stats_json, behavior_stats_json, bgm_enabled,
             token_version, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(uid) DO UPDATE SET
             display_name = excluded.display_name,
             avatar = excluded.avatar,
@@ -441,6 +457,7 @@ export class EmailAuthStore {
             current_win_streak = excluded.current_win_streak,
             max_win_streak = excluded.max_win_streak,
             stats_json = excluded.stats_json,
+            behavior_stats_json = excluded.behavior_stats_json,
             bgm_enabled = excluded.bgm_enabled,
             token_version = excluded.token_version,
             updated_at = excluded.updated_at`
@@ -462,6 +479,7 @@ export class EmailAuthStore {
           rec.currentWinStreak,
           rec.maxWinStreak,
           JSON.stringify(rec.stats),
+          rec.behaviorStats ? JSON.stringify(rec.behaviorStats) : null,
           rec.bgmEnabled ? 1 : 0,
           rec.tokenVersion,
           rec.createdAt,
@@ -937,6 +955,7 @@ export class EmailAuthStore {
       isBigBlind?: boolean;
       startingHandChips?: number;
       reachedShowdown?: boolean;
+      behaviorDelta?: Partial<PlayerBehaviorStats>;
     },
     now: number = Date.now()
   ): { profile: EmailAccountProfile; newlyUnlocked: AchievementId[] } | null {
@@ -978,6 +997,9 @@ export class EmailAuthStore {
     }
 
     rec.stats = achResult.nextStats;
+    if (params.behaviorDelta) {
+      rec.behaviorStats = mergeBehaviorStats(rec.behaviorStats, params.behaviorDelta);
+    }
     rec.achievements = achResult.unlocked;
     rec.achievementDates = mergeAchievementDates(
       rec.achievementDates,

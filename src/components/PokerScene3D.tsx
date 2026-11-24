@@ -402,6 +402,7 @@ function PokerScene3DInner({
     controls.minDistance = 4.5;
     controls.maxDistance = 13.5;
     controls.enabled = !propsRef.current.ambientOnly;
+    renderer.domElement.style.cursor = propsRef.current.ambientOnly ? 'default' : 'grab';
 
     let cameraTransitionActive = false;
     const camGoalPos = initGoal.pos.clone();
@@ -412,6 +413,14 @@ function PokerScene3DInner({
 
     controls.addEventListener('start', () => {
       cameraTransitionActive = false;
+      if (!propsRef.current.ambientOnly) {
+        renderer.domElement.style.cursor = 'grabbing';
+      }
+    });
+    controls.addEventListener('end', () => {
+      if (!propsRef.current.ambientOnly) {
+        renderer.domElement.style.cursor = 'grab';
+      }
     });
     controls.addEventListener('change', () => {
       wakeSoftwareLoopFn?.();
@@ -937,6 +946,7 @@ function PokerScene3DInner({
         wasAmbient = isAmbient;
         clearDynamicTable();
         controls.enabled = !isAmbient;
+        renderer.domElement.style.cursor = isAmbient ? 'default' : 'grab';
         if (isAmbient) {
           buildAmbientTableState();
           return;

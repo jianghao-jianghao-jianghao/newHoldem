@@ -12,6 +12,11 @@ import {
   toCanonicalHandKey,
   type GtoPosition,
 } from './gtoRanges';
+import {
+  NEUTRAL_EXPLOIT_PLAN,
+  type ExploitPlan,
+  type SessionOpponentProfiler,
+} from './opponentProfiler';
 
 export interface BotPersonality {
   name: 'gto_pro' | 'tag' | 'lag' | 'balanced' | 'calling_station';
@@ -396,17 +401,46 @@ function wasPreflopAggressor(state: TableState, playerId: string): boolean {
   return lastAggressor === playerId;
 }
 
+function findPrimaryOpponentId(state: TableState, botId: string): string | null {
+  // Prefer the most recent aggressor on the current street
+  for (let i = state.currentPotTimeline.length - 1; i >= 0; i--) {
+    const pt = state.currentPotTimeline[i];
+    if (pt.street !== state.phase) break;
+    if (
+      pt.actorId !== botId &&
+      (pt.actionType === 'raise' || pt.actionType === 'bet' || pt.actionType === 'allin')
+    ) {
+      return pt.actorId;
+    }
+  }
+  // Otherwise prefer the last active non-folded human/opponent remaining in the hand
+  const activeOpponents = state.players.filter((p) => p.inHand && !p.folded && p.id !== botId);
+  const human = activeOpponents.find((p) => !p.isBot);
+  return human?.id ?? activeOpponents[0]?.id ?? null;
+}
+
+function flopCheckedThrough(state: TableState): boolean {
+  if (state.phase !== 'turn') return false;
+  const flopEvents = state.currentPotTimeline.filter((pt) => pt.street === 'flop');
+  return (
+    flopEvents.length > 0 &&
+    flopEvents.every((pt) => pt.actionType === 'check')
+  );
+}
+
 /**
- * GTO-driven Texas Hold'em AI Engine:
- * - Preflop: 6-max / Heads-Up 169-hand GTO frequency charts (RFI, vs-RFI, vs-3bet, vs-4bet, <=15BB Nash)
+ * GTO + Session-Exploitative Texas Hold'em AI Engine:
+ * - Preflop: 6-max / Heads-Up 169-hand GTO frequency charts + limp isolation + session exploit overlay
  * - Postflop: Zero-allocation Monte Carlo equity vs aggression-weighted range,
- *   board texture & range-advantage c-betting, MDF defense, blocker-driven river bluffs,
- *   river equilibrium bluff ratio alpha = B / (P + 2B), and geometric sizing.
+ *   board texture & range-advantage c-betting, turn probes, OOP check-raise traps/semi-bluffs,
+ *   MDF defense, blocker-driven river bluffs, geometric sizing, AND real-time session opponent
+ *   profiling & counter-exploitation (strictly scoped to current table session).
  */
 export function chooseBotAction(
   state: TableState,
   botId: string,
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  profiler?: SessionOpponentProfiler
 ): PlayerAction {
   const available = getAvailableActions(state, botId);
   if (!available) return { type: 'fold' };
@@ -415,6 +449,10 @@ export function chooseBotAction(
   if (!bot) return available.canCheck ? { type: 'check' } : { type: 'fold' };
 
   const personality = getBotPersonality(bot.name || bot.id);
+  const primaryOpponentId = findPrimaryOpponentId(state, botId);
+  const exploit: ExploitPlan = profiler
+    ? profiler.buildExploitPlan(primaryOpponentId)
+    : NEUTRAL_EXPLOIT_PLAN;
   const r = rng();
   const streetRaises = countStreetRaises(state);
   const activeOpponents = Math.max(
@@ -471,9 +509,40 @@ export function chooseBotAction(
     let raiseFreq = gtoMix.raise;
     let callFreq = gtoMix.call;
 
+    const limpersCount =
+      facingRaises === 0
+        ? state.players.filter(
+            (p) =>
+              p.inHand &&
+              !p.folded &&
+              p.id !== bot.id &&
+              p.currentBet === state.bigBlind &&
+              p.seatIndex !== state.bigBlindSeatIndex
+          ).length
+        : 0;
+
     if (raiseFreq > 0 || (facingRaises === 0 && personality.looseness > 0.04)) {
       raiseFreq = Math.max(0, Math.min(1, raiseFreq + personality.aggression * (0.35 + dev)));
     }
+    // Session exploitative preflop overlay:
+    // - Steal wider against over-folders/nits, punish passive limpers with isolation raises,
+    // - Adjust 3-bet bluff frequency vs over-folders vs calling stations
+    if (facingRaises === 0) {
+      const preStrength = evaluatePreflopStrength(bot.holeCards);
+      if (limpersCount > 0 && preStrength >= 0.48) {
+        raiseFreq = Math.max(0, Math.min(1, raiseFreq + 0.14 + exploit.isoLimpBonus));
+      } else if (preStrength >= 0.34) {
+        raiseFreq = Math.max(0, Math.min(1, raiseFreq + exploit.preflopOpenDelta));
+      }
+    } else if (facingRaises === 1) {
+      const preStrength = evaluatePreflopStrength(bot.holeCards);
+      if (preStrength >= 0.45 && preStrength < 0.72) {
+        raiseFreq = Math.max(0, Math.min(1, raiseFreq + exploit.threeBetBluffDelta));
+      } else if (preStrength >= 0.72 && exploit.targetArchetype === 'calling_station') {
+        raiseFreq = Math.min(1, raiseFreq + 0.15 * exploit.confidence);
+      }
+    }
+
     if (callFreq > 0 || personality.looseness > 0.05) {
       callFreq = Math.max(
         0,
@@ -591,33 +660,58 @@ export function chooseBotAction(
     if (rangeCbetSpot) {
       const rangeBetFreq =
         effectiveEquity >= 0.58
-          ? 0.88
+          ? Math.min(0.96, 0.88 + (exploit.targetArchetype === 'calling_station' ? 0.06 : 0))
           : drawBonus >= 0.06
-            ? 0.78
-            : 0.58 + personality.aggression;
+            ? Math.min(0.92, (0.78 + personality.aggression * 0.4) * Math.min(1.25, exploit.bluffFreqMult))
+            : Math.min(0.92, (0.58 + personality.aggression) * exploit.bluffFreqMult);
       if (r < rangeBetFreq) {
-        return { type: 'raise', amount: pickPotSizedBet(0.33) };
+        const cbetSize =
+          effectiveEquity >= 0.65 ? Math.min(0.75, 0.33 * exploit.valueSizeMult) : 0.33;
+        return { type: 'raise', amount: pickPotSizedBet(cbetSize) };
       }
       return { type: 'check' };
     }
 
+    // Turn Probe / Delayed C-Bet when flop checked through: attack capped opponent range
+    if (
+      state.phase === 'turn' &&
+      streetRaises === 0 &&
+      flopCheckedThrough(state) &&
+      activeOpponents <= 2
+    ) {
+      const probeThreshold = 0.56 + exploit.valueThresholdDelta;
+      if (effectiveEquity >= probeThreshold) {
+        return { type: 'raise', amount: pickPotSizedBet(Math.min(0.9, 0.58 * exploit.valueSizeMult)) };
+      }
+      if (
+        (drawBonus >= 0.08 || blockers.bluffScore >= 0.45) &&
+        r < Math.min(0.75, 0.34 * exploit.bluffFreqMult)
+      ) {
+        return { type: 'raise', amount: pickPotSizedBet(0.6) };
+      }
+    }
+
     if (state.phase === 'river') {
-      const valueThreshold = activeOpponents === 1 ? 0.68 : 0.74;
+      const valueThreshold = Math.max(
+        0.54,
+        (activeOpponents === 1 ? 0.68 : 0.74) + exploit.valueThresholdDelta
+      );
       if (effectiveEquity >= valueThreshold) {
-        const sizeMult =
+        const baseMult =
           effectiveEquity >= 0.88
             ? Math.min(1.25, Math.max(0.75, geoFrac))
             : effectiveEquity >= 0.78
               ? 0.66
               : 0.45;
-        return { type: 'raise', amount: pickPotSizedBet(sizeMult) };
+        const exploitedMult = Math.min(1.45, Math.max(0.35, baseMult * exploit.valueSizeMult));
+        return { type: 'raise', amount: pickPotSizedBet(exploitedMult) };
       }
       if (effectiveEquity <= 0.24 && blockers.bluffScore >= 0.45) {
         const bluffSize = 0.75;
         const gtoBluffAlpha = computeOptimalBluffRatio(bluffSize * state.pot, state.pot);
         const bluffChance = Math.min(
-          0.35,
-          gtoBluffAlpha * blockers.bluffScore * (1 + personality.aggression)
+          0.52,
+          gtoBluffAlpha * blockers.bluffScore * (1 + personality.aggression) * exploit.bluffFreqMult
         );
         if (r < bluffChance) {
           return { type: 'raise', amount: pickPotSizedBet(bluffSize) };
@@ -626,9 +720,17 @@ export function chooseBotAction(
       return { type: 'check' };
     }
 
-    const valueThreshold = (activeOpponents === 1 ? 0.62 : 0.68) - personality.aggression * 0.35;
+    const valueThreshold = Math.max(
+      0.52,
+      (activeOpponents === 1 ? 0.62 : 0.68) - personality.aggression * 0.35 + exploit.valueThresholdDelta
+    );
     if (effectiveEquity >= valueThreshold) {
-      if (effectiveEquity >= 0.9 && texture.wetness < 0.25 && inPosition && r < 0.12) {
+      // Trap/slowplay monsters more often against maniacs who will barrel off into us
+      const trapChance =
+        effectiveEquity >= 0.88 && texture.wetness < 0.32
+          ? (inPosition ? 0.12 : 0.08) + exploit.trapSlowplayBonus
+          : 0;
+      if (trapChance > 0 && r < Math.min(0.55, trapChance)) {
         return { type: 'check' };
       }
       const baseMult =
@@ -639,14 +741,20 @@ export function chooseBotAction(
             : effectiveEquity >= 0.82
               ? 0.66
               : 0.45;
-      return { type: 'raise', amount: pickPotSizedBet(baseMult) };
+      return {
+        type: 'raise',
+        amount: pickPotSizedBet(Math.min(1.3, baseMult * exploit.valueSizeMult)),
+      };
     }
 
     if (drawBonus >= 0.1 && streetRaises === 0) {
-      const semiBluffFreq =
-        (drawBonus >= 0.16 ? 0.72 : 0.48) +
-        (inPosition ? 0.08 : 0) +
-        personality.aggression * 0.5;
+      const semiBluffFreq = Math.min(
+        0.92,
+        ((drawBonus >= 0.16 ? 0.72 : 0.48) +
+          (inPosition ? 0.08 : 0) +
+          personality.aggression * 0.5) *
+          Math.max(0.55, exploit.bluffFreqMult)
+      );
       if (r < semiBluffFreq) {
         return { type: 'raise', amount: pickPotSizedBet(texture.wetness >= 0.45 ? 0.66 : 0.5) };
       }
@@ -657,7 +765,7 @@ export function chooseBotAction(
       inPosition &&
       effectiveEquity <= 0.32 &&
       blockers.bluffScore >= 0.45 &&
-      r < personality.bluffRate * 0.85
+      r < Math.min(0.45, personality.bluffRate * 0.85 * exploit.bluffFreqMult)
     ) {
       return { type: 'raise', amount: pickPotSizedBet(0.45) };
     }
@@ -670,28 +778,43 @@ export function chooseBotAction(
   const stackCommitment = callAmt / Math.max(1, bot.chips + callAmt);
   const raiseCapReached = streetRaises >= 3 && effectiveEquity < 0.9;
 
-  const raiseThreshold = (state.phase === 'river' ? 0.84 : 0.78) - personality.aggression * 0.3;
+  const raiseThreshold =
+    (state.phase === 'river' ? 0.84 : 0.78) -
+    personality.aggression * 0.3 +
+    exploit.valueThresholdDelta * 0.6;
   if (available.canRaise && !raiseCapReached && effectiveEquity >= raiseThreshold) {
     if (effectiveEquity >= 0.9 && (stackCommitment >= 0.45 || spr <= 1.8)) {
       return { type: 'raise', amount: available.maxRaiseTo };
     }
     const raiseFreq = effectiveEquity >= 0.88 ? 0.92 : 0.62 + personality.aggression;
     if (r < raiseFreq) {
-      const mult = state.phase === 'river' ? 0.75 : texture.wetness >= 0.45 ? 0.75 : 0.58;
+      const mult =
+        (state.phase === 'river' ? 0.75 : texture.wetness >= 0.45 ? 0.75 : 0.58) *
+        Math.min(1.25, exploit.valueSizeMult);
       return { type: 'raise', amount: pickPotSizedBet(mult) };
     }
   }
 
+  // Semi-bluff raise & anti-C-bet-spammer check-raise counter
+  const cbetCounterTrigger =
+    state.phase === 'flop' &&
+    !inPosition &&
+    streetRaises === 1 &&
+    exploit.floatCheckRaiseBonus > 0.08 &&
+    (drawBonus >= 0.06 || blockers.bluffScore >= 0.45 || effectiveEquity >= 0.42);
   if (
     available.canRaise &&
     !raiseCapReached &&
     state.phase !== 'river' &&
     streetRaises <= 1 &&
-    drawBonus >= 0.16 &&
     stackCommitment < 0.45 &&
-    r < 0.24 + personality.bluffRate * 0.6 + (blockers.hasNutFlushBlocker ? 0.12 : 0)
+    ((drawBonus >= 0.16 &&
+      r <
+        (0.24 + personality.bluffRate * 0.6 + (blockers.hasNutFlushBlocker ? 0.12 : 0)) *
+          Math.max(0.45, exploit.bluffFreqMult)) ||
+      (cbetCounterTrigger && r < exploit.floatCheckRaiseBonus))
   ) {
-    return { type: 'raise', amount: pickPotSizedBet(0.7) };
+    return { type: 'raise', amount: pickPotSizedBet(0.72) };
   }
 
   const impliedOddsCredit = state.phase === 'river' ? 0 : Math.min(0.08, drawBonus * 0.38);
@@ -703,13 +826,14 @@ export function chooseBotAction(
   const multiwayExtra = activeOpponents > 1 ? Math.min(0.07, (activeOpponents - 1) * 0.035) : 0;
 
   const requiredEquity = Math.max(
-    0.12,
+    0.1,
     Math.min(
-      0.78,
+      0.8,
       potOdds +
         0.02 +
         mdfShift +
-        multiwayExtra -
+        multiwayExtra +
+        exploit.callRequiredEquityDelta -
         impliedOddsCredit -
         blockerCallCredit -
         personality.looseness * 0.55 -
@@ -721,7 +845,10 @@ export function chooseBotAction(
     return { type: 'call' };
   }
 
-  if (effectiveEquity >= requiredEquity - 0.03 && r < 0.35 + Math.max(0, personality.looseness)) {
+  if (
+    effectiveEquity >= requiredEquity - 0.03 &&
+    r < 0.35 + Math.max(0, personality.looseness) - exploit.callRequiredEquityDelta
+  ) {
     return { type: 'call' };
   }
 

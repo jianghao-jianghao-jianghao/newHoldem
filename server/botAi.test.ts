@@ -469,3 +469,67 @@ test('postflop GTO bot value-bets nuts on river and folds pure air facing large 
   const foldAct = chooseBotAction(table, 'bot1', () => 0.5);
   assert.equal(foldAct.type, 'fold');
 });
+
+test('exploitative bot adapts sizing & bluffing vs calling_station and hero-calls wider vs maniac_bluffer using session profiler', async () => {
+  const { SessionOpponentProfiler } = await import('./opponentProfiler');
+
+  // Build a calling_station session profile on 'human'
+  const stationProfiler = new SessionOpponentProfiler();
+  for (let i = 0; i < 6; i++) {
+    const t = createTableState('EXPLOIT_ST', 10, 20, 2000);
+    addPlayerToTable(t, { id: 'human', name: 'Hero', chips: 2000 });
+    addPlayerToTable(t, { id: 'bot1', name: '陈默', chips: 2000, isBot: true });
+    t.handNumber = i;
+    startNewHand(t, () => 0.4, 1000 + i * 100);
+    const step = (id: string, a: { type: 'call' | 'raise' | 'check' | 'fold'; amount?: number }) => {
+      stationProfiler.observeAction(t, id, a);
+      applyPlayerAction(t, id, a, 1100 + i * 100);
+    };
+    step('human', { type: 'call' });
+    step('bot1', { type: 'raise', amount: 60 });
+    step('human', { type: 'call' });
+    step('bot1', { type: 'raise', amount: 60 });
+    step('human', { type: 'call' });
+    step('bot1', { type: 'raise', amount: 80 });
+    step('human', { type: 'call' });
+    step('bot1', { type: 'raise', amount: 100 });
+    step('human', { type: 'call' });
+    stationProfiler.observeHandEnd(t);
+  }
+  assert.equal(stationProfiler.getOpponentRead('human').archetype, 'calling_station');
+
+  // On river with nut flush, bot should size LARGER for value vs calling_station than neutral baseline
+  const riverTable = createTableState('EXPLOIT_VAL', 10, 20, 2000);
+  addPlayerToTable(riverTable, { id: 'human', name: 'Hero', chips: 2000 });
+  addPlayerToTable(riverTable, { id: 'bot1', name: '陈默', chips: 2000, isBot: true });
+  startNewHand(riverTable, () => 0.4, 1000);
+  applyPlayerAction(riverTable, 'human', { type: 'call' }, 1050);
+  applyPlayerAction(riverTable, 'bot1', { type: 'raise', amount: 80 }, 1100);
+  applyPlayerAction(riverTable, 'human', { type: 'call' }, 1150);
+  applyPlayerAction(riverTable, 'bot1', { type: 'check' }, 1200);
+  applyPlayerAction(riverTable, 'human', { type: 'check' }, 1250);
+  applyPlayerAction(riverTable, 'bot1', { type: 'check' }, 1300);
+  applyPlayerAction(riverTable, 'human', { type: 'check' }, 1350);
+  riverTable.communityCards = [
+    { suit: 'spades', rank: 13 },
+    { suit: 'spades', rank: 10 },
+    { suit: 'spades', rank: 5 },
+    { suit: 'hearts', rank: 2 },
+    { suit: 'diamonds', rank: 7 },
+  ];
+  const bot = riverTable.players.find((p) => p.id === 'bot1')!;
+  bot.holeCards = [
+    { suit: 'spades', rank: 14 },
+    { suit: 'spades', rank: 9 },
+  ];
+
+  const neutralAct = chooseBotAction(riverTable, 'bot1', () => 0.5);
+  const exploitAct = chooseBotAction(riverTable, 'bot1', () => 0.5, stationProfiler);
+  assert.equal(neutralAct.type, 'raise');
+  assert.equal(exploitAct.type, 'raise');
+  assert.ok(
+    (exploitAct.amount ?? 0) >= (neutralAct.amount ?? 0),
+    `Expected exploit value bet (${exploitAct.amount}) >= neutral (${neutralAct.amount}) vs calling_station`
+  );
+});
+

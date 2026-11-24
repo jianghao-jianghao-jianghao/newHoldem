@@ -5,12 +5,14 @@ import {
   advanceAllInRunoutStep,
   applyPlayerAction,
   createTableState,
+  DEFAULT_TURN_TIMEOUT_SEC,
   getAvailableActions,
   rebuyPlayerChips,
   removePlayerFromTable,
   resolveNextHandSeats,
   revealPlayerCards,
   sanitizeTableForPlayer,
+  sanitizeTurnTimeoutSec,
   startNewHand,
   updateTableBlindSettings,
 } from './pokerEngine';
@@ -555,6 +557,42 @@ test('rebuyPlayerChips allows top-up below startingChips and mid-hand rebuy when
   // Active player p1 cannot rebuy mid-hand
   assert.equal(rebuyPlayerChips(table, 'p1'), false);
 });
+
+test('sanitizeTurnTimeoutSec clamps finite values and treats <=0 as unlimited (0)', () => {
+  assert.equal(sanitizeTurnTimeoutSec(undefined), DEFAULT_TURN_TIMEOUT_SEC);
+  assert.equal(sanitizeTurnTimeoutSec(Number.NaN), DEFAULT_TURN_TIMEOUT_SEC);
+  assert.equal(sanitizeTurnTimeoutSec(0), 0);
+  assert.equal(sanitizeTurnTimeoutSec(-15), 0);
+  assert.equal(sanitizeTurnTimeoutSec(5), 10);
+  assert.equal(sanitizeTurnTimeoutSec(45), 45);
+  assert.equal(sanitizeTurnTimeoutSec(999), 180);
+});
+
+test('configurable turnTimeoutSec sets exact deadline and disables deadline when set to 0 (unlimited)', () => {
+  const unlimitedTable = createTableState('ROOM_UNLIM', 10, 20, 2000, 0);
+  assert.equal(unlimitedTable.turnTimeoutSec, 0);
+  addPlayerToTable(unlimitedTable, { id: 'p1', name: 'Alice', chips: 2000 });
+  addPlayerToTable(unlimitedTable, { id: 'p2', name: 'Bob', chips: 2000 });
+  startNewHand(unlimitedTable, () => 0.4, 5000);
+  assert.equal(unlimitedTable.turnDeadline, null);
+  const viewUnlim = sanitizeTableForPlayer(unlimitedTable, 'p1');
+  assert.equal(viewUnlim.turnTimeoutSec, 0);
+  assert.equal(viewUnlim.turnDeadline, null);
+
+  applyPlayerAction(unlimitedTable, 'p1', { type: 'call' }, 6000);
+  assert.equal(unlimitedTable.turnDeadline, null);
+
+  const customTable = createTableState('ROOM_60S', 10, 20, 2000, 60);
+  assert.equal(customTable.turnTimeoutSec, 60);
+  addPlayerToTable(customTable, { id: 'p1', name: 'Alice', chips: 2000 });
+  addPlayerToTable(customTable, { id: 'p2', name: 'Bob', chips: 2000 });
+  startNewHand(customTable, () => 0.4, 10_000);
+  assert.equal(customTable.turnDeadline, 70_000);
+  const view60 = sanitizeTableForPlayer(customTable, 'p1');
+  assert.equal(view60.turnTimeoutSec, 60);
+  assert.equal(view60.turnDeadline, 70_000);
+});
+
 
 
 

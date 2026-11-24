@@ -110,11 +110,13 @@ export class HoldemDatabase {
         ON hand_history(room_id, id DESC);
     `);
 
-    // Safe idempotent schema migrations for profile tier/avatar/equipped badge columns
+    // Safe idempotent schema migrations for profile tier/avatar/equipped badge & behavioral insight columns
     this.ensureColumn('accounts', 'equipped_achievement', 'TEXT');
+    this.ensureColumn('accounts', 'behavior_stats_json', 'TEXT');
     this.ensureColumn('leaderboard_entries', 'avatar', 'TEXT');
     this.ensureColumn('leaderboard_entries', 'equipped_achievement', 'TEXT');
     this.ensureColumn('leaderboard_entries', 'level', 'INTEGER NOT NULL DEFAULT 1');
+    this.ensureColumn('leaderboard_entries', 'behavior_stats_json', 'TEXT');
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {

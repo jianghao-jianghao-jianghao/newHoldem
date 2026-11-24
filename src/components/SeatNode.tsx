@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { BellRing, X } from 'lucide-react';
-import { isEmojiOnlyMessage } from '../shared/chatUtils';
+import { computeChatBubbleOffset, isEmojiOnlyMessage } from '../shared/chatUtils';
 import {
   resolvePlayerAvatarProfile,
   type ResolvedPlayerAvatarProfile,
@@ -30,6 +30,7 @@ interface SeatNodeProps {
   winAmount?: number;
   highlightedCards: Card[];
   secondsRemaining: number | null;
+  turnTimeoutSec?: number;
   chatBubble?: ChatMessage | null;
   impactFx?: AvatarImpactEvent | null;
   nudgeFx?: SeatNudgeFx | null;
@@ -59,6 +60,7 @@ export function SeatNode({
   winAmount,
   highlightedCards,
   secondsRemaining,
+  turnTimeoutSec = 30,
   chatBubble = null,
   impactFx = null,
   nudgeFx = null,
@@ -109,10 +111,22 @@ export function SeatNode({
   };
 
   const dimmed = player.folded || !player.inHand;
+  const hasTimedTurn = turnTimeoutSec > 0 && secondsRemaining !== null;
   const turnPct =
-    isTurn && secondsRemaining !== null
-      ? Math.max(0, Math.min(100, (secondsRemaining / 25) * 100))
+    isTurn && hasTimedTurn
+      ? Math.max(0, Math.min(100, (secondsRemaining / turnTimeoutSec) * 100))
       : 0;
+
+  const bubbleJitter = chatBubble
+    ? computeChatBubbleOffset(chatBubble.id, player.seatIndex)
+    : null;
+  const bubbleStyle: CSSProperties | undefined = bubbleJitter
+    ? ({
+        '--bubble-x': `${bubbleJitter.offsetX}px`,
+        '--bubble-y': `${-bubbleJitter.liftY}px`,
+        '--bubble-rot': `${bubbleJitter.tiltDeg}deg`,
+      } as CSSProperties)
+    : undefined;
 
   if (isSelf) {
     return (
@@ -177,7 +191,9 @@ export function SeatNode({
                 key={chatBubble.id}
                 role="status"
                 data-testid={`chat-bubble-${player.id}`}
-                className="pointer-events-none absolute bottom-full right-3 z-30 mb-2 select-none text-[30px] leading-none tracking-tight drop-shadow-[0_6px_14px_rgba(0,0,0,0.82)] animate-emote-pop"
+                data-bubble-offset-x={bubbleJitter?.offsetX ?? 0}
+                style={bubbleStyle}
+                className="pointer-events-none absolute bottom-full left-7 z-30 mb-2.5 select-none text-[32px] leading-none tracking-tight drop-shadow-[0_6px_14px_rgba(0,0,0,0.82)] animate-emote-pop"
               >
                 {chatBubble.text}
               </div>
@@ -186,12 +202,14 @@ export function SeatNode({
                 key={chatBubble.id}
                 role="status"
                 data-testid={`chat-bubble-${player.id}`}
-                className="pointer-events-none absolute bottom-full right-0 z-30 mb-2.5 max-w-[228px] rounded-xl border border-white/[0.15] bg-[#0D1114]/92 backdrop-blur-md px-3 py-1.5 text-xs font-medium text-[#F5F2EB] shadow-[0_10px_26px_rgba(0,0,0,0.62)] animate-chat-bubble"
+                data-bubble-offset-x={bubbleJitter?.offsetX ?? 0}
+                style={bubbleStyle}
+                className="pointer-events-none absolute bottom-full left-2 z-30 mb-3 w-max max-w-[228px] rounded-xl border border-white/[0.16] bg-[#0D1114]/94 backdrop-blur-md px-3 py-1.5 text-xs font-medium text-[#F5F2EB] shadow-[0_10px_28px_rgba(0,0,0,0.65)] animate-chat-bubble"
               >
                 <span className="block break-words leading-snug">{chatBubble.text}</span>
                 <span
                   aria-hidden="true"
-                  className="absolute -bottom-1 right-5 h-2 w-2 rotate-45 border-b border-r border-white/[0.15] bg-[#0D1114]"
+                  className="absolute -bottom-1 left-6 h-2 w-2 rotate-45 border-b border-r border-white/[0.16] bg-[#0D1114]"
                 />
               </div>
             ))}
@@ -322,7 +340,7 @@ export function SeatNode({
                 <span className="font-mono-num text-sm sm:text-base font-bold text-[#E8CF96]">
                   {player.chips.toLocaleString()}
                 </span>
-                {isTurn && secondsRemaining !== null ? (
+                {isTurn && hasTimedTurn ? (
                   <span className="inline-flex items-center gap-1.5 font-mono-num text-xs font-semibold">
                     {player.currentBet > 0 && (
                       <span className="text-[11px] font-normal text-[#9AA5A0]">
@@ -336,6 +354,15 @@ export function SeatNode({
                     >
                       行动 {secondsRemaining}s
                     </span>
+                  </span>
+                ) : isTurn ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#E8CF96]">
+                    {player.currentBet > 0 && (
+                      <span className="font-mono-num text-[11px] font-normal text-[#9AA5A0]">
+                        注 {player.currentBet}
+                      </span>
+                    )}
+                    <span>行动中</span>
                   </span>
                 ) : isWinner && winAmount ? (
                   <span className="font-mono-num text-xs font-semibold text-[#8CC9AA]">
@@ -355,13 +382,11 @@ export function SeatNode({
             </div>
           </div>
 
-          {isTurn && (
+          {isTurn && hasTimedTurn && (
             <div className="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-white/[0.08]">
               <div
                 className={`h-full transition-[width] duration-250 ease-linear ${
-                  secondsRemaining !== null && secondsRemaining <= 5
-                    ? 'bg-[#EF4444]'
-                    : 'bg-[#D4A853]'
+                  secondsRemaining <= 5 ? 'bg-[#EF4444]' : 'bg-[#D4A853]'
                 }`}
                 style={{ width: `${turnPct}%` }}
               />
@@ -586,13 +611,11 @@ export function SeatNode({
           </div>
         </div>
 
-        {isTurn && (
+        {isTurn && hasTimedTurn && (
           <div className="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-white/[0.08]">
             <div
               className={`h-full transition-[width] duration-250 ease-linear ${
-                secondsRemaining !== null && secondsRemaining <= 5
-                  ? 'bg-[#EF4444]'
-                  : 'bg-[#D4A853]'
+                secondsRemaining <= 5 ? 'bg-[#EF4444]' : 'bg-[#D4A853]'
               }`}
               style={{ width: `${turnPct}%` }}
             />
@@ -600,14 +623,16 @@ export function SeatNode({
         )}
       </div>
 
-      {/* Opponent Floating Chat Bubble / Emote Pop */}
+      {/* Opponent Floating Chat Bubble / Emote Pop emerging above avatar with bounce-in & random X jitter */}
       {chatBubble &&
         (isEmojiOnlyMessage(chatBubble.text) ? (
           <div
             key={chatBubble.id}
             role="status"
             data-testid={`chat-bubble-${player.id}`}
-            className="pointer-events-none absolute top-full left-1/2 z-30 mt-1.5 -translate-x-1/2 select-none text-[28px] leading-none tracking-tight drop-shadow-[0_6px_14px_rgba(0,0,0,0.82)] animate-emote-pop"
+            data-bubble-offset-x={bubbleJitter?.offsetX ?? 0}
+            style={bubbleStyle}
+            className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 select-none text-[30px] leading-none tracking-tight drop-shadow-[0_6px_14px_rgba(0,0,0,0.82)] animate-emote-pop"
           >
             {chatBubble.text}
           </div>
@@ -616,13 +641,15 @@ export function SeatNode({
             key={chatBubble.id}
             role="status"
             data-testid={`chat-bubble-${player.id}`}
-            className="pointer-events-none absolute top-full left-1/2 z-30 mt-2 w-max max-w-[196px] -translate-x-1/2 rounded-xl border border-white/[0.15] bg-[#0D1114]/92 backdrop-blur-md px-3 py-1.5 text-xs font-medium text-[#F5F2EB] shadow-[0_10px_26px_rgba(0,0,0,0.62)] animate-chat-bubble"
+            data-bubble-offset-x={bubbleJitter?.offsetX ?? 0}
+            style={bubbleStyle}
+            className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-max max-w-[200px] -translate-x-1/2 rounded-xl border border-white/[0.16] bg-[#0D1114]/94 backdrop-blur-md px-3 py-1.5 text-xs font-medium text-[#F5F2EB] shadow-[0_10px_28px_rgba(0,0,0,0.65)] animate-chat-bubble"
           >
+            <span className="block break-words leading-snug text-center">{chatBubble.text}</span>
             <span
               aria-hidden="true"
-              className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.15] bg-[#0D1114]"
+              className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-b border-r border-white/[0.16] bg-[#0D1114]"
             />
-            <span className="block break-words leading-snug text-center">{chatBubble.text}</span>
           </div>
         ))}
 

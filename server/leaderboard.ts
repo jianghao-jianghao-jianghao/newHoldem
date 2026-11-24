@@ -13,6 +13,13 @@ import {
   type PlayerAchievementStats,
 } from '../src/shared/achievements';
 import { sanitizeAvatar } from '../src/shared/avatarUtils';
+import {
+  createEmptyBehaviorStats,
+  createEmptyPatternCounts,
+  mergeBehaviorStats,
+  sanitizeBehaviorStats,
+  type PlayerBehaviorStats,
+} from '../src/shared/playerInsights';
 import { computePlayerLevel } from '../src/shared/playerProfile';
 import type { Card, HandCategory, LeaderboardEntry } from '../src/shared/types';
 import { getSharedDatabase, resolveDataDir, type HoldemDatabase } from './db';
@@ -63,6 +70,40 @@ const SEED_ENTRIES: LeaderboardEntry[] = [
       bestHandCategory: 6,
       doubledChips: false,
       netChips: 680,
+    },
+    behaviorStats: {
+      handsPlayed: 18,
+      vpipHands: 5,
+      pfrHands: 4,
+      limpHands: 1,
+      threeBetOpps: 4,
+      threeBetCount: 1,
+      foldToBetOpps: 11,
+      foldToBetCount: 4,
+      sawFlopHands: 10,
+      cbetOpps: 4,
+      cbetCount: 3,
+      postflopBetsRaises: 11,
+      postflopCalls: 4,
+      wtsdHands: 5,
+      wonAtShowdownHands: 3,
+      allInHands: 1,
+      allInWonHands: 1,
+      earlyPosHands: 6,
+      earlyPosVpip: 1,
+      latePosHands: 6,
+      latePosVpip: 3,
+      riverCalls: 2,
+      riverCallWins: 1,
+      bigPotHands: 3,
+      bigPotWins: 2,
+      totalNetBB: 34,
+      reviewOptimalDecisions: 19,
+      reviewAcceptableDecisions: 5,
+      reviewInaccuracies: 3,
+      reviewMistakes: 1,
+      patternExposureCounts: { ...createEmptyPatternCounts(), balanced: 14, cbet_spammer: 2 },
+      recentSnapshots: [],
     },
   },
   {
@@ -215,6 +256,7 @@ export class LeaderboardStore {
       currentWinStreak: entry.currentWinStreak,
       maxWinStreak: entry.maxWinStreak,
       stats: entry.stats,
+      behaviorStats: entry.behaviorStats,
     };
   }
 
@@ -233,6 +275,7 @@ export class LeaderboardStore {
             let ach: AchievementId[] = [];
             let dates: AchievementDatesMap = {};
             let stats: PlayerAchievementStats | undefined;
+            let behaviorStats: PlayerBehaviorStats | undefined;
             try {
               ach = sanitizeAchievementIds(JSON.parse(String(row.achievements_json ?? '[]')));
             } catch {
@@ -251,6 +294,13 @@ export class LeaderboardStore {
               }
             } catch {
               stats = undefined;
+            }
+            try {
+              if (row.behavior_stats_json) {
+                behaviorStats = sanitizeBehaviorStats(JSON.parse(String(row.behavior_stats_json)));
+              }
+            } catch {
+              behaviorStats = undefined;
             }
 
             const handsPlayed = Number(row.hands_played) || 0;
@@ -289,6 +339,7 @@ export class LeaderboardStore {
               currentWinStreak: Number(row.current_win_streak) || 0,
               maxWinStreak: Number(row.max_win_streak) || 0,
               stats,
+              behaviorStats,
             });
           }
           return;
@@ -375,8 +426,8 @@ export class LeaderboardStore {
             points, net_chips, hands_played, hands_won,
             best_hand_name, best_hand_score,
             achievements_json, achievement_dates_json,
-            current_win_streak, max_win_streak, stats_json, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            current_win_streak, max_win_streak, stats_json, behavior_stats_json, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(entry_key) DO UPDATE SET
             uid = excluded.uid,
             player_name = excluded.player_name,
@@ -396,6 +447,7 @@ export class LeaderboardStore {
             current_win_streak = excluded.current_win_streak,
             max_win_streak = excluded.max_win_streak,
             stats_json = excluded.stats_json,
+            behavior_stats_json = excluded.behavior_stats_json,
             updated_at = excluded.updated_at`
         )
         .run(
@@ -418,6 +470,7 @@ export class LeaderboardStore {
           entry.currentWinStreak ?? 0,
           entry.maxWinStreak ?? 0,
           entry.stats ? JSON.stringify(entry.stats) : null,
+          entry.behaviorStats ? JSON.stringify(entry.behaviorStats) : null,
           entry.updatedAt
         );
     } catch (err) {
@@ -501,6 +554,7 @@ export class LeaderboardStore {
     currentWinStreak: number;
     maxWinStreak: number;
     stats: PlayerAchievementStats;
+    behaviorStats: PlayerBehaviorStats;
   } {
     const existing = this.findExistingByNameOrUid(playerName, uid);
     if (!existing) {
@@ -517,6 +571,7 @@ export class LeaderboardStore {
         currentWinStreak: 0,
         maxWinStreak: 0,
         stats: createEmptyAchievementStats(),
+        behaviorStats: createEmptyBehaviorStats(),
       };
     }
     const achievements = existing.achievements ?? [];
@@ -549,6 +604,7 @@ export class LeaderboardStore {
         maxWinStreak: existing.maxWinStreak ?? 0,
         netChips: existing.netChips,
       },
+      behaviorStats: sanitizeBehaviorStats(existing.behaviorStats),
     };
   }
 
@@ -574,6 +630,7 @@ export class LeaderboardStore {
     isBigBlind?: boolean;
     startingHandChips?: number;
     reachedShowdown?: boolean;
+    behaviorDelta?: Partial<PlayerBehaviorStats>;
   }): { entry: LeaderboardEntry; newlyUnlocked: AchievementId[]; pointsDelta: number } {
     const cleanName = params.playerName.trim();
     if (!cleanName) {
@@ -679,6 +736,9 @@ export class LeaderboardStore {
     }
     const nowMs = Date.now();
     existing.stats = achResult.nextStats;
+    if (params.behaviorDelta) {
+      existing.behaviorStats = mergeBehaviorStats(existing.behaviorStats, params.behaviorDelta);
+    }
     existing.achievements = achResult.unlocked;
     existing.achievementDates = mergeAchievementDates(
       existing.achievementDates,

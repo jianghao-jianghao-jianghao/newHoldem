@@ -49,7 +49,7 @@ test('SQLite EmailAuthStore persists accounts, revokes tokens on logout, and blo
         bestHandName: '皇家同花顺',
         bestHandScore: 99_999_999,
         updatedAt: t0 + 2000,
-        achievements: ['royal_flush', 'mega_pot'],
+        achievements: ['royal_legend', 'mega_pot'],
       },
       'spade',
       t0 + 2000

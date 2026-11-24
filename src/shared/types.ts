@@ -4,6 +4,7 @@ import type {
   EquippedAchievementPref,
   PlayerAchievementStats,
 } from './achievements';
+import type { PlayerBehaviorStats } from './playerInsights';
 
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 
@@ -143,11 +144,130 @@ export interface HandReplayRecord {
   smallBlind: number;
   bigBlind: number;
   pot: number;
+  dealerSeatIndex?: number;
+  smallBlindSeatIndex?: number | null;
+  bigBlindSeatIndex?: number | null;
   communityCards: Card[];
   winners: WinnerInfo[];
   players: HandReplayPlayerSnapshot[];
   actions: HandReplayAction[];
   potTimeline: PotTimelinePoint[];
+}
+
+export type DecisionVerdict = 'optimal' | 'acceptable' | 'inaccuracy' | 'mistake';
+
+export interface HandReviewDecisionEvidence {
+  potBefore: number;
+  toCall: number;
+  potOddsPct: number;
+  mdfPct: number;
+  estimatedEquityPct: number | null;
+  preflopMix: { raise: number; call: number; fold: number } | null;
+  betToPotPct: number | null;
+  spr: number;
+}
+
+export interface HandReviewHeroDecision {
+  step: number;
+  street: StreetPhase;
+  actualActionType: string;
+  actualActionLabel: string;
+  recommendedAction: 'raise' | 'call' | 'check' | 'fold';
+  recommendedLabel: string;
+  verdict: DecisionVerdict;
+  verdictLabel: string;
+  evidence: HandReviewDecisionEvidence;
+  analysis: string;
+  suggestion: string;
+}
+
+export interface HandReviewStreetSection {
+  street: 'preflop' | 'flop' | 'turn' | 'river';
+  streetLabel: string;
+  boardCards: Card[];
+  boardSummary: string;
+  potStart: number;
+  potEnd: number;
+  events: Array<{
+    step: number;
+    actorId: string;
+    actorName: string;
+    isHero: boolean;
+    actionType: string;
+    actionLabel: string;
+    amountAdded: number;
+    potAfter: number;
+    betToPotPct: number | null;
+  }>;
+  heroDecisions: HandReviewHeroDecision[];
+}
+
+export interface HandReviewTeachingPoint {
+  topic: string;
+  principle: string;
+  formulaOrRule: string;
+  nextHandDrill: string;
+}
+
+export interface HandReviewSessionOpponentRead {
+  playerId: string;
+  playerName: string;
+  handsObserved: number;
+  archetypeLabel: string;
+  vpipPct: number;
+  pfrPct: number;
+  foldToBetPct: number;
+  aggressionFactor: number;
+  exploitativeAdvice: string;
+}
+
+export interface HandReviewHeroTableImage {
+  handsObserved: number;
+  archetype: string;
+  archetypeLabel: string;
+  confidencePct: number;
+  botCounterSummary: string;
+  antiExploitTip: string;
+}
+
+export interface HandReviewSessionContext {
+  heroTableImage: HandReviewHeroTableImage | null;
+  opponentReads: HandReviewSessionOpponentRead[];
+  exploitativeNotes: string[];
+}
+
+export interface HandReviewReport {
+  handNumber: number;
+  timestamp: number;
+  outcome: 'win' | 'loss' | 'split';
+  wonByFold: boolean;
+  netChips: number;
+  netBB: number;
+  pot: number;
+  smallBlind: number;
+  bigBlind: number;
+  heroId: string;
+  heroName: string;
+  heroPosition: string;
+  heroHoleCards: Card[] | null;
+  canonicalHand: string | null;
+  heroFinalHandName: string | null;
+  communityCards: Card[];
+  showdownOpponents: Array<{
+    id: string;
+    name: string;
+    holeCards: Card[];
+    handName: string;
+    netChange: number;
+    isWinner: boolean;
+  }>;
+  headline: string;
+  overallSummary: string;
+  streets: HandReviewStreetSection[];
+  strengthsFound: string[];
+  lessonsLearned: string[];
+  teaching: HandReviewTeachingPoint;
+  sessionProfileContext?: HandReviewSessionContext;
 }
 
 export interface PlayerMatchStats {
@@ -199,6 +319,7 @@ export interface TableState {
   manualBlindTarget: ManualBlindTarget | null;
   pendingBlinds: BlindPair | null;
   currentTurnPlayerId: string | null;
+  turnTimeoutSec: number;
   turnDeadline: number | null;
   allInRunout: boolean;
   nextHandAt: number | null;
@@ -263,6 +384,7 @@ export interface ClientTableView {
   pendingBlinds: BlindPair | null;
   previewNextBlinds: NextBlindPreview;
   currentTurnPlayerId: string | null;
+  turnTimeoutSec: number;
   turnDeadline: number | null;
   allInRunout: boolean;
   nextHandAt: number | null;
@@ -298,6 +420,7 @@ export interface LeaderboardEntry {
   currentWinStreak?: number;
   maxWinStreak?: number;
   stats?: PlayerAchievementStats;
+  behaviorStats?: PlayerBehaviorStats;
 }
 
 export interface RoomSummary {
@@ -308,6 +431,7 @@ export interface RoomSummary {
   smallBlind: number;
   bigBlind: number;
   startingChips: number;
+  turnTimeoutSec: number;
   createdAt: number;
 }
 
@@ -363,6 +487,7 @@ export type ClientWsMessage =
       smallBlind?: number;
       bigBlind?: number;
       startingChips?: number;
+      turnTimeoutSec?: number;
     }
   | { type: 'delete_room'; roomId: string }
   | { type: 'leave_room' }

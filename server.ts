@@ -16,9 +16,13 @@ import {
 } from './server/botChat';
 import { getSharedDatabase } from './server/db';
 import { evaluateGtoSpotWithCoach, type GtoCoachRequest } from './server/gtoCoach';
+import { generateHandReview } from './server/handReview';
 import { LeaderboardStore, type LeaderboardMode } from './server/leaderboard';
+import { SessionOpponentProfiler } from './server/opponentProfiler';
+import { analyzePlayerPersonaWithGemini } from './server/personaAi';
 import { SlidingWindowRateLimiter } from './server/rateLimiter';
 import { authorizeRoomDeletion, secretsMatch } from './server/roomAuth';
+import { buildSessionReviewSummary } from './src/shared/sessionReview';
 import {
   addPlayerToTable,
   advanceAllInRunoutStep,
@@ -59,6 +63,13 @@ import {
   computePlayerLevel,
   getBotClubPreset,
 } from './src/shared/playerProfile';
+import {
+  createEmptyPatternCounts,
+  extractHandBehaviorDeltas,
+  sanitizeBehaviorStats,
+  type PlayerBehaviorStats,
+  type SessionPatternTag,
+} from './src/shared/playerInsights';
 import type {
   BotChatStatus,
   ChatMessage,
@@ -141,6 +152,7 @@ interface RoomContext {
   lastBotChatSpeakerId: string | null;
   botChatInFlight: boolean;
   handRecordedForHandNumber: number;
+  opponentProfiler: SessionOpponentProfiler;
 }
 
 interface ClientSession {
@@ -169,6 +181,7 @@ const otpSendLimiter = new SlidingWindowRateLimiter({ maxRequests: 6, windowMs: 
 const otpVerifyLimiter = new SlidingWindowRateLimiter({ maxRequests: 15, windowMs: 10 * 60 * 1000 });
 const roomCreateLimiter = new SlidingWindowRateLimiter({ maxRequests: 10, windowMs: 10 * 60 * 1000 });
 const gtoEvalLimiter = new SlidingWindowRateLimiter({ maxRequests: 30, windowMs: 60 * 1000 });
+const personaAiLimiter = new SlidingWindowRateLimiter({ maxRequests: 12, windowMs: 60 * 1000 });
 const wsMessageLimiter = new SlidingWindowRateLimiter({ maxRequests: 45, windowMs: 10 * 1000 });
 
 const rooms = new Map<string, RoomContext>();
@@ -251,6 +264,7 @@ function ensureDefaultClubRoom(): RoomContext {
       lastBotChatSpeakerId: null,
       botChatInFlight: false,
       handRecordedForHandNumber: 0,
+      opponentProfiler: new SessionOpponentProfiler(),
     };
     rooms.set('CLUB01', ctx);
   }
@@ -265,6 +279,7 @@ function createCustomRoom(params: {
   smallBlind?: number;
   bigBlind?: number;
   startingChips?: number;
+  turnTimeoutSec?: number;
   creatorId?: string | null;
   creatorSecret?: string | null;
 }): { ok: true; ctx: RoomContext } | { ok: false; error: string } {
@@ -313,7 +328,13 @@ function createCustomRoom(params: {
     isDefault: id === 'CLUB01',
     creatorId: cleanCreatorId && cleanCreatorSecret ? cleanCreatorId : null,
     creatorSecret: cleanCreatorId && cleanCreatorSecret ? cleanCreatorSecret : null,
-    state: createTableState(id, sb, bb, startingChips),
+    state: createTableState(
+      id,
+      sb,
+      bb,
+      startingChips,
+      typeof params.turnTimeoutSec === 'number' ? params.turnTimeoutSec : undefined
+    ),
     chatHistory: [],
     seatSecrets: new Map(),
     playerUids: new Map(),
@@ -330,6 +351,7 @@ function createCustomRoom(params: {
     lastBotChatSpeakerId: null,
     botChatInFlight: false,
     handRecordedForHandNumber: 0,
+    opponentProfiler: new SessionOpponentProfiler(),
   };
   rooms.set(id, ctx);
   return { ok: true, ctx };
@@ -442,6 +464,7 @@ function toRoomSummary(ctx: RoomContext): RoomSummary {
     smallBlind: ctx.state.smallBlind,
     bigBlind: ctx.state.bigBlind,
     startingChips: ctx.state.startingChips,
+    turnTimeoutSec: ctx.state.turnTimeoutSec,
     createdAt: ctx.createdAt,
   };
 }
@@ -616,9 +639,20 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
   const isPracticeWithBots = state.players.some((p) => p.isBot && p.inHand);
   const newlyUnlockedToNotify: Array<{ playerId: string; ids: AchievementId[] }> = [];
 
+  // Update strictly session-scoped opponent profiler with showdown reveals & hand completion
+  ctx.opponentProfiler.observeHandEnd(state);
+
+  const latestHandRecord =
+    state.handHistory.length > 0 ? state.handHistory[state.handHistory.length - 1] : null;
+  const matchedHandRecord =
+    latestHandRecord && latestHandRecord.handNumber === state.handNumber ? latestHandRecord : null;
+  const rawBehaviorDeltas = matchedHandRecord
+    ? extractHandBehaviorDeltas(matchedHandRecord)
+    : {};
+
   leaderboard.runBatch(() => {
-    if (state.handHistory.length > 0 && state.handHistory[0].handNumber === state.handNumber) {
-      sharedDb.recordHandHistory(state.roomId, state.handHistory[0]);
+    if (matchedHandRecord) {
+      sharedDb.recordHandHistory(state.roomId, matchedHandRecord);
     }
 
     const handDeparted = ctx.departedContributors.filter(
@@ -720,6 +754,61 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
       }
 
       const verifiedUid = ctx.playerUids.get(p.id) ?? null;
+
+      // Link per-hand evidence review verdicts & session profiler table-image reads into cumulative behaviorStats
+      let behaviorDelta: Partial<PlayerBehaviorStats> | undefined = rawBehaviorDeltas[p.id]
+        ? { ...rawBehaviorDeltas[p.id] }
+        : undefined;
+      if (matchedHandRecord && behaviorDelta) {
+        const handReview = generateHandReview({
+          record: matchedHandRecord,
+          heroId: p.id,
+          startingChips: state.startingChips,
+          profiler: ctx.opponentProfiler,
+        });
+        let optimalCount = 0;
+        let acceptableCount = 0;
+        let inaccuracyCount = 0;
+        let mistakeCount = 0;
+        if (handReview) {
+          for (const st of handReview.streets) {
+            for (const dec of st.heroDecisions) {
+              if (dec.verdict === 'optimal') optimalCount += 1;
+              else if (dec.verdict === 'acceptable') acceptableCount += 1;
+              else if (dec.verdict === 'inaccuracy') inaccuracyCount += 1;
+              else if (dec.verdict === 'mistake') mistakeCount += 1;
+            }
+          }
+        }
+        const sessionRead = ctx.opponentProfiler.getOpponentRead(p.id);
+        const detectedPattern: SessionPatternTag =
+          sessionRead.archetype !== 'unknown' ? sessionRead.archetype : 'balanced';
+        const patternCounts = createEmptyPatternCounts();
+        if (sessionRead.handsObserved >= 2 && sessionRead.archetype !== 'unknown') {
+          patternCounts[detectedPattern] = 1;
+        }
+        const netBB =
+          state.bigBlind > 0 ? Number((netChips / state.bigBlind).toFixed(2)) : 0;
+        behaviorDelta = {
+          ...behaviorDelta,
+          reviewOptimalDecisions: optimalCount,
+          reviewAcceptableDecisions: acceptableCount,
+          reviewInaccuracies: inaccuracyCount,
+          reviewMistakes: mistakeCount,
+          patternExposureCounts: patternCounts,
+          recentSnapshots: [
+            {
+              handNumber: matchedHandRecord.handNumber,
+              timestamp: matchedHandRecord.timestamp,
+              netBB,
+              detectedPattern,
+              optimalCount,
+              mistakeCount,
+            },
+          ],
+        };
+      }
+
       const outcome = leaderboard.recordHandOutcome({
         playerName: p.name,
         avatar: p.avatar,
@@ -742,6 +831,7 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
         isBigBlind,
         startingHandChips,
         reachedShowdown,
+        behaviorDelta,
       });
 
       let authoritativeAch = outcome.entry.achievements ?? [];
@@ -769,6 +859,7 @@ function recordShowdownIfNeeded(ctx: RoomContext): void {
           isBigBlind,
           startingHandChips,
           reachedShowdown,
+          behaviorDelta,
         });
         if (authRes) {
           authoritativeAch = authRes.profile.achievements;
@@ -951,11 +1042,12 @@ function scheduleBotTurnIfNeeded(ctx: RoomContext): void {
     if (!state.players.some((p) => !p.isBot && p.connected)) return;
 
     const t0 = performance.now();
-    const action = chooseBotAction(state, activePlayer.id, cryptoRng);
+    const action = chooseBotAction(state, activePlayer.id, cryptoRng, ctx.opponentProfiler);
     const elapsed = performance.now() - t0;
     runtimeMetrics.botDecisionsCount += 1;
     runtimeMetrics.botDecisionTotalMs += elapsed;
 
+    ctx.opponentProfiler.observeAction(state, activePlayer.id, action);
     const res = applyPlayerAction(state, activePlayer.id, action, Date.now(), { stepAllIn: true });
     if (res.ok) {
       broadcastRoomState(ctx);
@@ -995,6 +1087,7 @@ function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean
     ctx.seatSecrets.delete(playerId);
     ctx.playerUids.delete(playerId);
     ctx.consecutiveTimeouts.delete(playerId);
+    ctx.opponentProfiler.resetPlayer(playerId);
     if (ctx.state.players.every((p) => p.isBot) && ctx.botTimer) {
       clearTimeout(ctx.botTimer);
       ctx.botTimer = null;
@@ -1024,6 +1117,7 @@ function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean
         ctx.seatSecrets.delete(playerId);
         ctx.playerUids.delete(playerId);
         ctx.consecutiveTimeouts.delete(playerId);
+        ctx.opponentProfiler.resetPlayer(playerId);
         broadcastRoomState(ctx);
         broadcastRoomsList();
       }
@@ -1131,6 +1225,63 @@ async function startServer() {
     if (!raw || !raw.startsWith('Bearer ')) return null;
     return raw.slice(7).trim() || null;
   };
+
+  app.post('/api/persona/analyze', async (req, res) => {
+    const ip = getClientIp(req);
+    const rate = personaAiLimiter.consume(ip);
+    if (!rate.allowed) {
+      runtimeMetrics.rateLimitRejections += 1;
+      res.status(429).json({
+        ok: false,
+        code: 'RATE_LIMITED',
+        error: `AI 画像分析请求过于频繁，请 ${rate.retryAfterSec} 秒后再试`,
+      });
+      return;
+    }
+
+    const token = extractBearerToken(req);
+    const authProfile = token ? authStore.verifySessionToken(token) : null;
+    const rawName =
+      typeof req.body?.playerName === 'string'
+        ? req.body.playerName.trim().slice(0, 24)
+        : '';
+    const resolvedName = rawName || authProfile?.displayName || '牌手';
+    const lbProfile = resolvedName ? leaderboard.getPlayerProfile(resolvedName) : null;
+    const bodyStats = req.body?.behaviorStats
+      ? sanitizeBehaviorStats(req.body.behaviorStats)
+      : null;
+
+    const candidates = [
+      authProfile?.behaviorStats ? sanitizeBehaviorStats(authProfile.behaviorStats) : null,
+      lbProfile?.behaviorStats ? sanitizeBehaviorStats(lbProfile.behaviorStats) : null,
+      bodyStats,
+    ].filter((x): x is PlayerBehaviorStats => Boolean(x));
+
+    const bestStats =
+      candidates.sort((a, b) => b.handsPlayed - a.handsPlayed)[0] ?? null;
+
+    const result = await analyzePlayerPersonaWithGemini({
+      playerName: resolvedName,
+      behaviorStats: bestStats,
+    });
+
+    if (!result.ok) {
+      const statusCode =
+        result.code === 'NO_DATA'
+          ? 400
+          : result.code === 'RATE_LIMITED'
+            ? 429
+            : result.code === 'MISSING_API_KEY' ||
+                result.code === 'API_KEY_INVALID' ||
+                result.code === 'UPSTREAM_ERROR'
+              ? 503
+              : 500;
+      res.status(statusCode).json(result);
+      return;
+    }
+
+    res.json(result);
+  });
 
   const buildLinkedProfile = (
     lookupName: string | undefined,
@@ -1318,6 +1469,205 @@ async function startServer() {
     res.json({ roomId: id, history });
   });
 
+  app.post('/api/rooms/:roomId/hand-review', (req, res) => {
+    const id = normalizeRoomId(req.params.roomId);
+    const ctx = rooms.get(id);
+    if (!ctx) {
+      res.status(404).json({ ok: false, error: '牌桌不存在或已关闭' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      playerId?: unknown;
+      handNumber?: unknown;
+      seatSecret?: unknown;
+    };
+    const headerPlayerId =
+      typeof req.headers['x-player-id'] === 'string' ? req.headers['x-player-id'].trim() : '';
+    const headerSeatSecret =
+      typeof req.headers['x-seat-secret'] === 'string'
+        ? req.headers['x-seat-secret'].trim().slice(0, 64)
+        : '';
+    const playerId =
+      typeof body.playerId === 'string' && body.playerId.trim()
+        ? body.playerId.trim().slice(0, 48)
+        : headerPlayerId.slice(0, 48);
+    const providedSecret =
+      typeof body.seatSecret === 'string' && body.seatSecret.trim()
+        ? body.seatSecret.trim().slice(0, 64)
+        : headerSeatSecret;
+
+    if (!playerId) {
+      res.status(400).json({ ok: false, error: '缺少玩家标识，无法生成复盘报告' });
+      return;
+    }
+
+    const heroHands = ctx.state.handHistory.filter((h) =>
+      h.players.some((pl) => pl.id === playerId)
+    );
+    if (heroHands.length === 0) {
+      res.status(404).json({ ok: false, error: '当前房间暂无你参与的已结束牌局记录' });
+      return;
+    }
+
+    const requestedHandNumber =
+      typeof body.handNumber === 'number' && Number.isFinite(body.handNumber)
+        ? Math.floor(body.handNumber)
+        : null;
+    const targetRecord =
+      requestedHandNumber !== null
+        ? heroHands.find((h) => h.handNumber === requestedHandNumber) ?? null
+        : heroHands[heroHands.length - 1];
+
+    if (!targetRecord) {
+      res.status(404).json({ ok: false, error: '未找到指定局号的历史记录' });
+      return;
+    }
+
+    const storedSecret = ctx.seatSecrets.get(playerId) ?? null;
+    const isVerifiedOwner = !storedSecret || secretsMatch(storedSecret, providedSecret);
+
+    // Strictly sanitize unrevealed opponent cards and protect private hero cards if secret mismatch
+    const safeRecord = {
+      ...targetRecord,
+      players: targetRecord.players.map((pl) => {
+        if (pl.id === playerId) {
+          return {
+            ...pl,
+            holeCards: isVerifiedOwner || pl.revealed ? pl.holeCards : null,
+          };
+        }
+        return {
+          ...pl,
+          holeCards: pl.revealed ? pl.holeCards : null,
+        };
+      }),
+    };
+
+    const report = generateHandReview({
+      record: safeRecord,
+      heroId: playerId,
+      startingChips: ctx.state.startingChips,
+      profiler: ctx.opponentProfiler,
+    });
+    if (!report) {
+      res.status(400).json({ ok: false, error: '该局记录缺少有效数据，暂无法复盘' });
+      return;
+    }
+
+    const availableHandNumbers = heroHands.map((h) => h.handNumber).reverse();
+    res.json({ ok: true, report, availableHandNumbers });
+  });
+
+  app.post('/api/rooms/:roomId/session-review', (req, res) => {
+    const id = normalizeRoomId(req.params.roomId);
+    const ctx = rooms.get(id);
+    if (!ctx) {
+      res.status(404).json({ ok: false, error: '牌桌不存在或已关闭' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      playerId?: unknown;
+      seatSecret?: unknown;
+      bookmarkedHandNumbers?: unknown;
+    };
+    const headerPlayerId =
+      typeof req.headers['x-player-id'] === 'string' ? req.headers['x-player-id'].trim() : '';
+    const headerSeatSecret =
+      typeof req.headers['x-seat-secret'] === 'string'
+        ? req.headers['x-seat-secret'].trim().slice(0, 64)
+        : '';
+    const playerId =
+      typeof body.playerId === 'string' && body.playerId.trim()
+        ? body.playerId.trim().slice(0, 48)
+        : headerPlayerId.slice(0, 48);
+    const providedSecret =
+      typeof body.seatSecret === 'string' && body.seatSecret.trim()
+        ? body.seatSecret.trim().slice(0, 64)
+        : headerSeatSecret;
+
+    if (!playerId) {
+      res.status(400).json({ ok: false, error: '缺少玩家标识，无法生成整场复盘' });
+      return;
+    }
+
+    const heroHands = ctx.state.handHistory.filter((h) =>
+      h.players.some((pl) => pl.id === playerId)
+    );
+    if (heroHands.length === 0) {
+      res.status(404).json({ ok: false, error: '当前房间暂无你参与的已结束牌局记录' });
+      return;
+    }
+
+    const bookmarkedHandNumbers: number[] = Array.isArray(body.bookmarkedHandNumbers)
+      ? body.bookmarkedHandNumbers
+          .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+          .map((n) => Math.floor(n))
+          .slice(0, 60)
+      : [];
+
+    const storedSecret = ctx.seatSecrets.get(playerId) ?? null;
+    const isVerifiedOwner = !storedSecret || secretsMatch(storedSecret, providedSecret);
+
+    const reports: Array<NonNullable<ReturnType<typeof generateHandReview>>> = [];
+    const reportsByHand: Record<number, NonNullable<ReturnType<typeof generateHandReview>>> = {};
+
+    for (const record of heroHands) {
+      const safeRecord = {
+        ...record,
+        players: record.players.map((pl) => {
+          if (pl.id === playerId) {
+            return {
+              ...pl,
+              holeCards: isVerifiedOwner || pl.revealed ? pl.holeCards : null,
+            };
+          }
+          return {
+            ...pl,
+            holeCards: pl.revealed ? pl.holeCards : null,
+          };
+        }),
+      };
+
+      const report = generateHandReview({
+        record: safeRecord,
+        heroId: playerId,
+        startingChips: ctx.state.startingChips,
+        profiler: ctx.opponentProfiler,
+      });
+      if (report) {
+        reports.push(report);
+        reportsByHand[report.handNumber] = report;
+      }
+    }
+
+    if (reports.length === 0) {
+      res.status(400).json({ ok: false, error: '本场记录缺少有效数据，暂无法复盘' });
+      return;
+    }
+
+    const profilerRead = ctx.opponentProfiler.getOpponentRead(playerId);
+    const matchStat = ctx.state.playerStats[playerId];
+    const vpipPct =
+      profilerRead.handsObserved > 0
+        ? Math.round(profilerRead.vpipRate * 100)
+        : matchStat && matchStat.handsPlayed > 0
+          ? Math.round((matchStat.vpipHands / matchStat.handsPlayed) * 100)
+          : null;
+    const pfrPct =
+      profilerRead.handsObserved > 0 ? Math.round(profilerRead.pfrRate * 100) : null;
+
+    const summary = buildSessionReviewSummary({
+      reports,
+      bookmarkedHandNumbers,
+      vpipPct,
+      pfrPct,
+    });
+
+    res.json({ ok: true, summary, reportsByHand });
+  });
+
   app.post('/api/rooms', (req, res) => {
     const ip = getClientIp(req);
     const rate = roomCreateLimiter.consume(ip);
@@ -1334,13 +1684,15 @@ async function startServer() {
       typeof req.headers['x-seat-secret'] === 'string'
         ? req.headers['x-seat-secret'].trim().slice(0, 64)
         : null;
-    const { tableName, roomId, smallBlind, bigBlind, startingChips } = req.body ?? {};
+    const { tableName, roomId, smallBlind, bigBlind, startingChips, turnTimeoutSec } =
+      req.body ?? {};
     const created = createCustomRoom({
       tableName,
       roomId,
       smallBlind,
       bigBlind,
       startingChips,
+      turnTimeoutSec: typeof turnTimeoutSec === 'number' ? turnTimeoutSec : undefined,
       creatorId,
       creatorSecret,
     });
@@ -1560,6 +1912,7 @@ async function startServer() {
             smallBlind: typeof msg.smallBlind === 'number' ? msg.smallBlind : undefined,
             bigBlind: typeof msg.bigBlind === 'number' ? msg.bigBlind : undefined,
             startingChips: typeof msg.startingChips === 'number' ? msg.startingChips : undefined,
+            turnTimeoutSec: typeof msg.turnTimeoutSec === 'number' ? msg.turnTimeoutSec : undefined,
             creatorId: session.playerId,
           });
           if (!created.ok) {
@@ -1863,6 +2216,13 @@ async function startServer() {
             sendJson(ws, { type: 'error', message: '操作格式无效' });
             return;
           }
+          const isTurnActor =
+            ctx.state.phase !== 'waiting' &&
+            ctx.state.phase !== 'showdown' &&
+            ctx.state.currentTurnPlayerId === session.playerId;
+          if (isTurnActor) {
+            ctx.opponentProfiler.observeAction(ctx.state, session.playerId, msg.action);
+          }
           const res = applyPlayerAction(ctx.state, session.playerId, msg.action, Date.now(), {
             stepAllIn: true,
           });
@@ -2006,6 +2366,7 @@ async function startServer() {
           const target = ctx.state.players.find((p) => p.id === msg.botId && p.isBot);
           if (!target) return;
           removePlayerFromTable(ctx.state, target.id);
+          ctx.opponentProfiler.resetPlayer(target.id);
           broadcastRoomState(ctx);
           broadcastRoomsList();
           return;
@@ -2132,10 +2493,12 @@ async function startServer() {
         const turnPlayer = state.players.find((p) => p.id === state.currentTurnPlayerId);
         if (!turnPlayer) continue;
         const canCheck = state.currentBet <= turnPlayer.currentBet;
+        const timeoutAction = { type: canCheck ? 'check' : 'fold' } as const;
+        ctx.opponentProfiler.observeAction(state, turnPlayer.id, timeoutAction);
         const res = applyPlayerAction(
           state,
           turnPlayer.id,
-          { type: canCheck ? 'check' : 'fold' },
+          timeoutAction,
           now,
           { stepAllIn: true }
         );

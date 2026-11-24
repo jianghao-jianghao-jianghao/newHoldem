@@ -105,9 +105,8 @@ export function computeChipRestingPose(opts: ChipRestingPoseOptions): ChipRestin
   const yaw = h3 * Math.PI * 2;
 
   // Level 0 rests completely flat in felt; upper chips carry imperceptible micro-settle tilt
-  const microTiltScale = levelIndex === 0 ? 0 : 0.0042;
-  const microTiltX = (h4 - 0.5) * 2 * microTiltScale;
-  const microTiltZ = (h5 - 0.5) * 2 * microTiltScale;
+  const microTiltX = levelIndex === 0 ? 0 : (h4 - 0.5) * 2 * 0.0042;
+  const microTiltZ = levelIndex === 0 ? 0 : (h5 - 0.5) * 2 * 0.0042;
 
   // Friction-damped landing rotational & tangential micro-settle for freshly dropped chips
   const landingYawDelta = (h6 - 0.5) * 0.42;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Bookmark,
   Check,
   Copy,
   Eye,
@@ -11,6 +12,7 @@ import {
   UserPlus,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react';
 import {
   CHAT_BUBBLE_TTL_MS,
@@ -41,6 +43,7 @@ import type { AvatarImpactEvent, ImpactBubbleKind } from '../utils/avatarImpactF
 import { ActionDock } from './ActionDock';
 import { BlindSettingsModal, type BotChatConfigRequest } from './BlindSettingsModal';
 import { ChipStackVisual2D } from './ChipStack2D';
+import { type SessionReviewFetchResult, HandReviewModal } from './HandReviewModal';
 import { PlayerProfileModal } from './PlayerProfileModal';
 import { PlayingCard } from './PlayingCard';
 import type { CameraPreset } from './PokerScene3D';
@@ -71,6 +74,8 @@ interface PokerTableProps {
   onToggleMute: () => void;
   onToggleBgm: () => void;
   onOpenAchievements: () => void;
+  onOpenPersonalInsights: () => void;
+  onFetchSessionReview: (bookmarkedHandNumbers: number[]) => Promise<SessionReviewFetchResult>;
   onLeaveRoom: () => void;
   onStartHand: () => void;
   onRevealCards: () => void;
@@ -127,6 +132,8 @@ export function PokerTable({
   onToggleMute,
   onToggleBgm,
   onOpenAchievements,
+  onOpenPersonalInsights,
+  onFetchSessionReview,
   onLeaveRoom,
   onStartHand,
   onRevealCards,
@@ -146,6 +153,10 @@ export function PokerTable({
   const [inspectedPlayerId, setInspectedPlayerId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [blindModalOpen, setBlindModalOpen] = useState(false);
+  const [handReviewOpen, setHandReviewOpen] = useState(false);
+  const [handReviewMode, setHandReviewMode] = useState<'browse' | 'leaving'>('browse');
+  const [leavePromptOpen, setLeavePromptOpen] = useState(false);
+  const [bookmarkedHands, setBookmarkedHands] = useState<number[]>([]);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [requestedAnalyticsTab, setRequestedAnalyticsTab] = useState<{
     tab: AnalyticsTab;
@@ -180,6 +191,25 @@ export function PokerTable({
       joinedTimers.clear();
     };
   }, []);
+
+  // Reset per-room bookmarked hands when switching rooms
+  useEffect(() => {
+    setBookmarkedHands([]);
+    setLeavePromptOpen(false);
+    setHandReviewOpen(false);
+  }, [table.roomId]);
+
+  useEffect(() => {
+    if (!leavePromptOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setLeavePromptOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [leavePromptOpen]);
 
   // Tick timer for turn countdown AND next-hand countdown
   useEffect(() => {
@@ -423,7 +453,7 @@ export function PokerTable({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (externalModalOpen || blindModalOpen || inspectedPlayerId !== null) return;
+      if (externalModalOpen || blindModalOpen || handReviewOpen || inspectedPlayerId !== null) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -442,7 +472,7 @@ export function PokerTable({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [externalModalOpen, blindModalOpen, inspectedPlayerId]);
+  }, [externalModalOpen, blindModalOpen, handReviewOpen, inspectedPlayerId]);
 
   const activeBubbles = useMemo(
     () => getActiveBubbleMap(chatMessages, chatNow, CHAT_BUBBLE_TTL_MS),
@@ -503,6 +533,33 @@ export function PokerTable({
     isSelfIdleForRebuy;
 
   const canRemoveBots = isHost && (table.phase === 'waiting' || table.phase === 'showdown');
+  const completedHeroHands = useMemo(
+    () =>
+      table.analytics.handHistory.filter((h) => h.players.some((p) => p.id === myPlayerId)).length,
+    [table.analytics.handHistory, myPlayerId]
+  );
+  const myMatchStats = table.analytics.playerStats[myPlayerId] ?? null;
+  const hasCompletedHands = completedHeroHands > 0;
+  const isCurrentHandBookmarked =
+    table.handNumber > 0 && bookmarkedHands.includes(table.handNumber);
+
+  const handleToggleBookmarkHand = (handNumber: number) => {
+    if (!Number.isFinite(handNumber) || handNumber <= 0) return;
+    setBookmarkedHands((prev) =>
+      prev.includes(handNumber)
+        ? prev.filter((n) => n !== handNumber)
+        : [...prev, handNumber]
+    );
+  };
+
+  const handleRequestLeave = () => {
+    if (hasCompletedHands) {
+      setLeavePromptOpen(true);
+    } else {
+      onLeaveRoom();
+    }
+  };
+
   const compactOpponents = opponents.length >= 4;
   const usePreviewBlinds = table.phase === 'waiting';
   const displayDealerSeat = usePreviewBlinds
@@ -573,9 +630,10 @@ export function PokerTable({
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
-            onClick={onLeaveRoom}
+            data-testid="leave-table-btn"
+            onClick={handleRequestLeave}
             aria-label="退出房间"
-            className="touch-manipulation flex h-8 items-center gap-1.5 px-1.5 text-xs text-[#9BA6A1] hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="touch-manipulation flex h-8 items-center gap-1.5 px-1.5 text-xs text-[#9BA6A1] hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">离桌</span>
@@ -605,6 +663,15 @@ export function PokerTable({
                 </span>
               )}
             </button>
+            <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
+            <span
+              data-testid="table-turn-timer-label"
+              className={`font-mono-num text-[11px] sm:text-xs whitespace-nowrap hidden sm:inline ${
+                table.turnTimeoutSec === 0 ? 'text-[#8CC9AA]' : 'text-[#7D8883]'
+              }`}
+            >
+              {table.turnTimeoutSec === 0 ? '不限时' : `${table.turnTimeoutSec}s`}
+            </span>
             {table.handNumber > 0 && (
               <>
                 <span aria-hidden="true" className="text-white/15 hidden md:inline">·</span>
@@ -650,6 +717,25 @@ export function PokerTable({
               className="touch-manipulation h-8 px-2 text-xs text-[#B5C0BA] hover:text-white transition-colors whitespace-nowrap"
             >
               {cameraPreset === 'classic' ? '俯瞰视角' : '经典视角'}
+            </button>
+          )}
+
+          {hasCompletedHands && (
+            <button
+              type="button"
+              data-testid="open-hand-review-btn"
+              disabled={isReconnecting}
+              onClick={() => {
+                setHandReviewMode('browse');
+                setHandReviewOpen(true);
+              }}
+              aria-label="打开本场复盘"
+              className="touch-manipulation h-8 px-2 text-xs text-[#E4CB96] hover:text-[#F5E4B8] transition-colors whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              复盘
+              <span className="ml-1 font-mono-num text-[11px] text-[#9A9388]">
+                {completedHeroHands}
+              </span>
             </button>
           )}
 
@@ -764,6 +850,36 @@ export function PokerTable({
                     ? `${overview.remainingPlayers}/${overview.totalPlayers} 人`
                     : `${overview.remainingPlayers} 人`}
                 </div>
+
+                {table.handNumber > 0 && (
+                  <>
+                    <span aria-hidden="true" className="h-3 w-px bg-white/[0.1]" />
+                    <button
+                      type="button"
+                      data-testid="bookmark-hand-btn"
+                      aria-pressed={isCurrentHandBookmarked}
+                      title={
+                        isCurrentHandBookmarked
+                          ? '取消标记本手（整场复盘时优先展示）'
+                          : '标记本手，打完后置顶复盘'
+                      }
+                      onClick={() => handleToggleBookmarkHand(table.handNumber)}
+                      className={`touch-manipulation inline-flex items-center gap-1 text-[11px] transition-colors whitespace-nowrap cursor-pointer ${
+                        isCurrentHandBookmarked
+                          ? 'font-medium text-[#E4CB96]'
+                          : 'text-[#8C9590] hover:text-[#EFECE4]'
+                      }`}
+                    >
+                      <Bookmark
+                        className={`h-3 w-3 ${
+                          isCurrentHandBookmarked ? 'fill-[#C9A25B] text-[#C9A25B]' : ''
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <span>{isCurrentHandBookmarked ? '已标记' : '标记本手'}</span>
+                    </button>
+                  </>
+                )}
               </section>
             );
           })()}
@@ -795,6 +911,7 @@ export function PokerTable({
                     winAmount={win?.amount}
                     highlightedCards={highlightedCards}
                     secondsRemaining={getSecondsLeft(opp.id)}
+                    turnTimeoutSec={table.turnTimeoutSec}
                     chatBubble={activeBubbles.get(opp.id) ?? null}
                     impactFx={impactFxMap[opp.id] ?? null}
                     nudgeFx={nudgeFxMap[opp.id] ?? null}
@@ -1010,11 +1127,25 @@ export function PokerTable({
                 data-testid="rebuy-chips-btn"
                 disabled={isReconnecting}
                 onClick={onRebuy}
-                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>立即补充筹码 ({table.startingChips.toLocaleString()})</span>
               </button>
+              {hasCompletedHands && (
+                <button
+                  type="button"
+                  data-testid="busted-review-session-btn"
+                  disabled={isReconnecting}
+                  onClick={() => {
+                    setHandReviewMode('leaving');
+                    setHandReviewOpen(true);
+                  }}
+                  className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded border border-[#C9A25B]/55 bg-[#16130E]/92 px-3.5 text-xs font-medium text-[#EFE3C4] hover:bg-[#221D15] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span>结束并复盘</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -1048,6 +1179,7 @@ export function PokerTable({
               winAmount={winnerMap.get(selfPlayer.id)?.amount}
               highlightedCards={highlightedCards}
               secondsRemaining={getSecondsLeft(selfPlayer.id)}
+              turnTimeoutSec={table.turnTimeoutSec}
               chatBubble={activeBubbles.get(selfPlayer.id) ?? null}
               impactFx={impactFxMap[selfPlayer.id] ?? null}
               nudgeFx={nudgeFxMap[selfPlayer.id] ?? null}
@@ -1072,6 +1204,8 @@ export function PokerTable({
               inspectedPlayerId !== null ||
               chatOpen ||
               blindModalOpen ||
+              handReviewOpen ||
+              leavePromptOpen ||
               analyticsOpen
             }
             onAction={onAction}
@@ -1109,6 +1243,112 @@ export function PokerTable({
         onSave={onUpdateBlindSettings}
         onConfigureBotChat={onConfigureBotChat}
         onClose={() => setBlindModalOpen(false)}
+      />
+
+      {/* End-of-Session Leave Prompt */}
+      {leavePromptOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="离开牌桌确认"
+          data-testid="leave-session-prompt"
+          className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/72 backdrop-blur-sm p-4"
+          onClick={() => setLeavePromptOpen(false)}
+        >
+          <div
+            className="w-full max-w-[420px] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141310] text-[#EFECE4] shadow-[0_28px_80px_rgba(0,0,0,0.85)] ring-1 ring-white/[0.04]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4">
+              <div>
+                <h2 className="font-display text-base font-semibold tracking-tight text-[#F5F1E8]">
+                  离开前，要复盘本场吗？
+                </h2>
+                <div className="mt-2 flex flex-wrap items-baseline gap-2 text-xs text-[#9A9388]">
+                  <span className="font-mono-num text-[#E4CB96]">
+                    共 {completedHeroHands} 手
+                  </span>
+                  {myMatchStats && (
+                    <>
+                      <span aria-hidden="true" className="text-white/20">·</span>
+                      <span
+                        className={`font-mono-num font-medium ${
+                          myMatchStats.sessionNetChips > 0
+                            ? 'text-[#7BB598]'
+                            : myMatchStats.sessionNetChips < 0
+                              ? 'text-[#D97C72]'
+                              : 'text-[#C8C1B6]'
+                        }`}
+                      >
+                        净盈亏{' '}
+                        {myMatchStats.sessionNetChips >= 0
+                          ? `+${myMatchStats.sessionNetChips.toLocaleString()}`
+                          : myMatchStats.sessionNetChips.toLocaleString()}
+                      </span>
+                    </>
+                  )}
+                  {bookmarkedHands.length > 0 && (
+                    <>
+                      <span aria-hidden="true" className="text-white/20">·</span>
+                      <span className="font-mono-num text-[#E4CB96]">
+                        已标记 {bookmarkedHands.length} 手
+                      </span>
+                    </>
+                  )}
+                </div>
+                <p className="mt-2.5 text-xs leading-relaxed text-[#8E877D]">
+                  系统已自动整理本场盈亏走势与关键转折手牌，复盘后再离桌即可直接返回大厅。
+                </p>
+              </div>
+
+              <button
+                type="button"
+                aria-label="留在牌桌"
+                onClick={() => setLeavePromptOpen(false)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#898277] hover:bg-white/[0.06] hover:text-[#F4F0E8] transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 border-t border-white/[0.06] bg-[#0F0E0C] px-6 py-3.5">
+              <button
+                type="button"
+                data-testid="prompt-leave-direct-btn"
+                onClick={() => {
+                  setLeavePromptOpen(false);
+                  onLeaveRoom();
+                }}
+                className="h-9 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 text-xs text-[#BDB7AC] hover:border-white/[0.16] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+              >
+                直接离开
+              </button>
+              <button
+                type="button"
+                data-testid="prompt-review-session-btn"
+                onClick={() => {
+                  setLeavePromptOpen(false);
+                  setHandReviewMode('leaving');
+                  setHandReviewOpen(true);
+                }}
+                className="h-9 rounded-xl bg-[#C9A25B] px-4 text-xs font-semibold text-[#12110F] hover:bg-[#D8B46D] transition-colors cursor-pointer whitespace-nowrap"
+              >
+                复盘本场
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <HandReviewModal
+        open={handReviewOpen}
+        mode={handReviewMode}
+        bookmarkedHands={bookmarkedHands}
+        onToggleBookmark={handleToggleBookmarkHand}
+        onFetchSessionReview={onFetchSessionReview}
+        onOpenPersonalInsights={onOpenPersonalInsights}
+        onConfirmLeave={onLeaveRoom}
+        onClose={() => setHandReviewOpen(false)}
       />
 
       {(() => {

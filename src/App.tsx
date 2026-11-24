@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AchievementUnlockBanner } from './components/AchievementUnlockBanner';
 import { EmailOtpModal } from './components/EmailOtpModal';
 import { HandRankingsModal } from './components/HandRankingsModal';
+import type { SessionReviewFetchResult } from './components/HandReviewModal';
 import {
   PersonalCenterModal,
   type PersonalCenterTab,
@@ -116,9 +117,11 @@ export default function App() {
       smallBlind: 10,
       bigBlind: 20,
       startingChips: 2000,
+      turnTimeoutSec: 30,
       createdAt: Date.now(),
     },
   ]);
+  const [lobbyFadingOut, setLobbyFadingOut] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [personalCenterOpen, setPersonalCenterOpen] = useState(false);
@@ -149,6 +152,8 @@ export default function App() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const joinedRoomRef = useRef<{ roomId: string; name: string; avatar: string } | null>(null);
+  const lobbyFadeTimerRef = useRef<number | null>(null);
+  const prevIsLobbyRef = useRef<boolean>(true);
   const prevPhaseRef = useRef<string>('waiting');
   const prev2dDealRef = useRef<{ roomId: string; handNumber: number; communityCount: number } | null>(null);
   const lastAudioPotStepRef = useRef<{
@@ -779,6 +784,7 @@ export default function App() {
       smallBlind: number;
       bigBlind: number;
       startingChips: number;
+      turnTimeoutSec: number;
     }): Promise<RoomSummary | null> => {
       try {
         const res = await fetch(getApiUrl('/api/rooms'), {
@@ -836,6 +842,11 @@ export default function App() {
   );
 
   const handleLeaveRoom = useCallback(() => {
+    if (lobbyFadeTimerRef.current !== null) {
+      window.clearTimeout(lobbyFadeTimerRef.current);
+      lobbyFadeTimerRef.current = null;
+    }
+    setLobbyFadingOut(false);
     joinedRoomRef.current = null;
     sendWs({ type: 'leave_room' });
     setTable(null);
@@ -876,6 +887,41 @@ export default function App() {
         }
         setBotChatStatus(data.status);
         return { ok: true, status: data.status };
+      } catch {
+        return { ok: false, error: '无法连接服务器，请稍后重试' };
+      }
+    },
+    [table?.roomId, playerId, seatSecret]
+  );
+
+  const handleFetchSessionReview = useCallback(
+    async (bookmarkedHandNumbers: number[]): Promise<SessionReviewFetchResult> => {
+      const targetRoomId = table?.roomId ?? joinedRoomRef.current?.roomId;
+      if (!targetRoomId) {
+        return { ok: false, error: '当前未加入牌桌' };
+      }
+      try {
+        const res = await fetch(
+          getApiUrl(`/api/rooms/${encodeURIComponent(targetRoomId)}/session-review`),
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Player-Id': playerId,
+              'X-Seat-Secret': seatSecret,
+            },
+            body: JSON.stringify({
+              playerId,
+              seatSecret,
+              bookmarkedHandNumbers,
+            }),
+          }
+        );
+        const data = (await res.json().catch(() => ({}))) as SessionReviewFetchResult;
+        if (!res.ok || !data.ok || !data.summary || !data.reportsByHand) {
+          return { ok: false, error: data.error ?? '生成整场复盘失败' };
+        }
+        return data;
       } catch {
         return { ok: false, error: '无法连接服务器，请稍后重试' };
       }
@@ -943,6 +989,37 @@ export default function App() {
   }, []);
 
   const isLobby = screen === 'title' || !table;
+
+  // Trigger smooth fade-out transition whenever transitioning from TitleScreen into the live table
+  useEffect(() => {
+    const wasLobby = prevIsLobbyRef.current;
+    prevIsLobbyRef.current = isLobby;
+    if (wasLobby && !isLobby) {
+      if (lobbyFadeTimerRef.current !== null) {
+        window.clearTimeout(lobbyFadeTimerRef.current);
+      }
+      setLobbyFadingOut(true);
+      lobbyFadeTimerRef.current = window.setTimeout(() => {
+        lobbyFadeTimerRef.current = null;
+        setLobbyFadingOut(false);
+      }, 440);
+    } else if (isLobby) {
+      if (lobbyFadeTimerRef.current !== null) {
+        window.clearTimeout(lobbyFadeTimerRef.current);
+        lobbyFadeTimerRef.current = null;
+      }
+      setLobbyFadingOut(false);
+    }
+  }, [isLobby]);
+
+  useEffect(() => {
+    return () => {
+      if (lobbyFadeTimerRef.current !== null) {
+        window.clearTimeout(lobbyFadeTimerRef.current);
+      }
+    };
+  }, []);
+
   const selfTablePlayer = table?.players.find((p) => p.id === playerId) ?? null;
 
   const matchedLeaderboardEntry =
@@ -970,6 +1047,13 @@ export default function App() {
     sanitizeEquippedAchievement(profile?.equippedAchievement) ??
     sanitizeEquippedAchievement(matchedLeaderboardEntry?.equippedAchievement);
 
+  const currentBehaviorStats = (() => {
+    const a = profile?.behaviorStats ?? null;
+    const b = matchedLeaderboardEntry?.behaviorStats ?? null;
+    if (a && b) return a.handsPlayed >= b.handsPlayed ? a : b;
+    return a ?? b ?? null;
+  })();
+
   latestAchievementsRef.current = {
     achievements: currentAchievements.length > 0 ? currentAchievements : undefined,
     achievementDates:
@@ -978,6 +1062,31 @@ export default function App() {
   };
 
   const use3D = isDesktop && !webglFailed;
+
+  const titleScreenElement = (fadingOut: boolean) => (
+    <TitleScreen
+      initialName={playerName}
+      initialRoom={activeRoomId}
+      initialAvatar={playerAvatar}
+      achievements={currentAchievements}
+      achievementDates={currentAchievementDates}
+      equippedPref={effectiveEquippedPref}
+      isDesktop={use3D}
+      rooms={rooms}
+      leaderboard={leaderboard}
+      errorMessage={errorMsg}
+      fadingOut={fadingOut}
+      onEnterTable={handleEnterTable}
+      onCreateRoom={handleCreateRoom}
+      onDeleteRoom={handleDeleteRoom}
+      onOpenPersonalCenter={handleOpenPersonalCenter}
+      onOpenEmailLogin={() => setEmailModalOpen(true)}
+      onOpenCardGallery={() => {
+        setRankingsTab('gallery');
+        setRankingsOpen(true);
+      }}
+    />
+  );
 
   return (
     <div className="relative min-h-dvh bg-[#090B0C]">
@@ -996,29 +1105,10 @@ export default function App() {
       )}
 
       {isLobby ? (
-        <TitleScreen
-          initialName={playerName}
-          initialRoom={activeRoomId}
-          initialAvatar={playerAvatar}
-          achievements={currentAchievements}
-          achievementDates={currentAchievementDates}
-          equippedPref={effectiveEquippedPref}
-          isDesktop={use3D}
-          rooms={rooms}
-          leaderboard={leaderboard}
-          errorMessage={errorMsg}
-          onEnterTable={handleEnterTable}
-          onCreateRoom={handleCreateRoom}
-          onDeleteRoom={handleDeleteRoom}
-          onOpenPersonalCenter={handleOpenPersonalCenter}
-          onOpenEmailLogin={() => setEmailModalOpen(true)}
-          onOpenCardGallery={() => {
-            setRankingsTab('gallery');
-            setRankingsOpen(true);
-          }}
-        />
+        titleScreenElement(false)
       ) : (
-        <PokerTable
+        <div className="pointer-events-none animate-table-enter">
+          <PokerTable
           table={table}
           myPlayerId={playerId}
           leaderboard={leaderboard}
@@ -1041,6 +1131,8 @@ export default function App() {
           onToggleMute={handleToggleMute}
           onToggleBgm={handleToggleBgm}
           onOpenAchievements={() => handleOpenPersonalCenter('achievements')}
+          onOpenPersonalInsights={() => handleOpenPersonalCenter('insights')}
+          onFetchSessionReview={handleFetchSessionReview}
           onLeaveRoom={handleLeaveRoom}
           onStartHand={() => sendWs({ type: 'start_hand' })}
           onRevealCards={handleRevealCards}
@@ -1061,7 +1153,11 @@ export default function App() {
           onSendChat={(text) => sendWs({ type: 'send_chat', text })}
           onConfigureBotChat={handleConfigureBotChat}
         />
+        </div>
       )}
+
+      {/* Smooth Fade-Out Veil of TitleScreen into the Live Table */}
+      {!isLobby && lobbyFadingOut && titleScreenElement(true)}
 
       {/* Dynamic Achievement Unlocked Celebration Banner */}
       <AchievementUnlockBanner
@@ -1108,6 +1204,7 @@ export default function App() {
         equippedPref={effectiveEquippedPref}
         winStreak={currentWinStreak}
         stats={matchedLeaderboardEntry?.stats ?? null}
+        behaviorStats={currentBehaviorStats}
         leaderboard={leaderboard}
         onUpdateName={handleUpdateName}
         onUpdateAvatar={handleUpdateAvatar}

@@ -4,6 +4,7 @@ import {
   appendChatHistory,
   CHAT_BUBBLE_TTL_MS,
   CHAT_EMOJIS,
+  computeChatBubbleOffset,
   EMOJI_CATEGORIES,
   getActiveBubbleMap,
   isEmojiOnlyMessage,
@@ -110,3 +111,20 @@ test('getActiveBubbleMap returns only non-expired latest message per player', ()
   assert.equal(active.get('p1')?.id, 'latest');
   assert.equal(active.get('p2')?.text, '跟注！');
 });
+
+test('computeChatBubbleOffset produces deterministic, bounded, and varied offsets across messages', () => {
+  const first = computeChatBubbleOffset('msg-alpha-1', 0);
+  const repeat = computeChatBubbleOffset('msg-alpha-1', 0);
+  assert.deepEqual(first, repeat);
+
+  const xs = new Set<number>();
+  for (let i = 0; i < 20; i++) {
+    const res = computeChatBubbleOffset(`msg-id-${i}`, i % 6);
+    assert.ok(res.offsetX >= -22 && res.offsetX <= 22, `offsetX out of bounds: ${res.offsetX}`);
+    assert.ok(res.tiltDeg >= -2.4 && res.tiltDeg <= 2.4, `tiltDeg out of bounds: ${res.tiltDeg}`);
+    assert.ok(res.liftY >= 0 && res.liftY <= 8, `liftY out of bounds: ${res.liftY}`);
+    xs.add(res.offsetX);
+  }
+  assert.ok(xs.size >= 8, `expected varied horizontal offsets, got only ${xs.size} distinct values`);
+});
+
