@@ -135,6 +135,7 @@ interface RoomContext {
   chatHistory: ChatMessage[];
   seatSecrets: Map<string, string>;
   playerUids: Map<string, string>;
+  departedChips: Map<string, number>;
   departedContributors: DepartedHandContributor[];
   consecutiveTimeouts: Map<string, number>;
   botStats: Map<
@@ -254,6 +255,7 @@ function ensureDefaultClubRoom(): RoomContext {
       chatHistory: [],
       seatSecrets: new Map(),
       playerUids: new Map(),
+      departedChips: new Map(),
       departedContributors: [],
       consecutiveTimeouts: new Map(),
       botStats: new Map(),
@@ -283,6 +285,7 @@ function createCustomRoom(params: {
   bigBlind?: number;
   startingChips?: number;
   turnTimeoutSec?: number;
+  allowRebuy?: boolean;
   creatorId?: string | null;
   creatorSecret?: string | null;
 }): { ok: true; ctx: RoomContext } | { ok: false; error: string } {
@@ -336,11 +339,13 @@ function createCustomRoom(params: {
       sb,
       bb,
       startingChips,
-      typeof params.turnTimeoutSec === 'number' ? params.turnTimeoutSec : undefined
+      typeof params.turnTimeoutSec === 'number' ? params.turnTimeoutSec : undefined,
+      params.allowRebuy !== false
     ),
     chatHistory: [],
     seatSecrets: new Map(),
     playerUids: new Map(),
+    departedChips: new Map(),
     departedContributors: [],
     consecutiveTimeouts: new Map(),
     botStats: new Map(),
@@ -468,6 +473,7 @@ function toRoomSummary(ctx: RoomContext): RoomSummary {
     bigBlind: ctx.state.bigBlind,
     startingChips: ctx.state.startingChips,
     turnTimeoutSec: ctx.state.turnTimeoutSec,
+    allowRebuy: ctx.state.allowRebuy,
     createdAt: ctx.createdAt,
   };
 }
@@ -1091,6 +1097,18 @@ function recordMidHandDeparture(ctx: RoomContext, playerId: string): void {
   });
 }
 
+function rememberDepartedPlayerChips(ctx: RoomContext, playerId: string): void {
+  if (ctx.state.allowRebuy) return;
+  const player = ctx.state.players.find((p) => p.id === playerId);
+  if (!player || player.isBot) return;
+  const remaining = Math.max(0, Math.floor(player.chips));
+  ctx.departedChips.set(playerId, remaining);
+  const uid = ctx.playerUids.get(playerId);
+  if (uid) {
+    ctx.departedChips.set(`uid:${uid}`, remaining);
+  }
+}
+
 function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean): void {
   if (!session.roomId || !session.playerId) return;
   const ctx = rooms.get(session.roomId);
@@ -1105,6 +1123,7 @@ function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean
 
   if (immediate) {
     recordMidHandDeparture(ctx, playerId);
+    rememberDepartedPlayerChips(ctx, playerId);
     removePlayerFromTable(ctx.state, playerId);
     ctx.seatSecrets.delete(playerId);
     ctx.playerUids.delete(playerId);
@@ -1135,6 +1154,7 @@ function cleanupPlayerFromCurrentRoom(session: ClientSession, immediate: boolean
       );
       if (stillDisconnected) {
         recordMidHandDeparture(ctx, playerId);
+        rememberDepartedPlayerChips(ctx, playerId);
         removePlayerFromTable(ctx.state, playerId);
         ctx.seatSecrets.delete(playerId);
         ctx.playerUids.delete(playerId);
@@ -1509,7 +1529,7 @@ async function startServer() {
       typeof req.headers['x-seat-secret'] === 'string'
         ? req.headers['x-seat-secret'].trim().slice(0, 64)
         : null;
-    const { tableName, roomId, smallBlind, bigBlind, startingChips, turnTimeoutSec } =
+    const { tableName, roomId, smallBlind, bigBlind, startingChips, turnTimeoutSec, allowRebuy } =
       req.body ?? {};
     const created = createCustomRoom({
       tableName,
@@ -1518,6 +1538,7 @@ async function startServer() {
       bigBlind,
       startingChips,
       turnTimeoutSec: typeof turnTimeoutSec === 'number' ? turnTimeoutSec : undefined,
+      allowRebuy: typeof allowRebuy === 'boolean' ? allowRebuy : undefined,
       creatorId,
       creatorSecret,
     });
@@ -1738,6 +1759,7 @@ async function startServer() {
             bigBlind: typeof msg.bigBlind === 'number' ? msg.bigBlind : undefined,
             startingChips: typeof msg.startingChips === 'number' ? msg.startingChips : undefined,
             turnTimeoutSec: typeof msg.turnTimeoutSec === 'number' ? msg.turnTimeoutSec : undefined,
+            allowRebuy: typeof msg.allowRebuy === 'boolean' ? msg.allowRebuy : undefined,
             creatorId: session.playerId,
           });
           if (!created.ok) {
@@ -1917,9 +1939,15 @@ async function startServer() {
             explicitLevel: lbProfile.level,
           }).level;
 
+          const rememberedChips = !ctx.state.allowRebuy
+            ? (ctx.departedChips.get(cleanId) ??
+              (verifiedUid ? ctx.departedChips.get(`uid:${verifiedUid}`) : undefined))
+            : undefined;
+
           const res = addPlayerToTable(ctx.state, {
             id: cleanId,
             name: cleanName,
+            chips: rememberedChips,
             avatar: resolvedAvatar,
             achievements: authoritativeAch,
             achievementDates: authoritativeDates,
@@ -2208,6 +2236,10 @@ async function startServer() {
         }
 
         if (msg.type === 'rebuy') {
+          if (!ctx.state.allowRebuy) {
+            sendJson(ws, { type: 'error', message: '本牌桌已禁止补充筹码' });
+            return;
+          }
           const ok = rebuyPlayerChips(ctx.state, session.playerId);
           if (!ok) {
             sendJson(ws, { type: 'error', message: '当前筹码已满或本局进行中，暂不可补充' });

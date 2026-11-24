@@ -118,6 +118,7 @@ export default function App() {
       bigBlind: 20,
       startingChips: 2000,
       turnTimeoutSec: 30,
+      allowRebuy: true,
       createdAt: Date.now(),
     },
   ]);
@@ -785,6 +786,7 @@ export default function App() {
       bigBlind: number;
       startingChips: number;
       turnTimeoutSec: number;
+      allowRebuy?: boolean;
     }): Promise<RoomSummary | null> => {
       try {
         const res = await fetch(getApiUrl('/api/rooms'), {

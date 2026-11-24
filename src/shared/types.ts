@@ -313,6 +313,7 @@ export interface TableState {
   smallBlind: number;
   bigBlind: number;
   startingChips: number;
+  allowRebuy: boolean;
   dealerSeatIndex: number;
   smallBlindSeatIndex: number | null;
   bigBlindSeatIndex: number | null;
@@ -377,6 +378,7 @@ export interface ClientTableView {
   smallBlind: number;
   bigBlind: number;
   startingChips: number;
+  allowRebuy: boolean;
   dealerSeatIndex: number;
   smallBlindSeatIndex: number | null;
   bigBlindSeatIndex: number | null;
@@ -432,6 +434,7 @@ export interface RoomSummary {
   bigBlind: number;
   startingChips: number;
   turnTimeoutSec: number;
+  allowRebuy: boolean;
   createdAt: number;
 }
 
@@ -488,6 +491,7 @@ export type ClientWsMessage =
       bigBlind?: number;
       startingChips?: number;
       turnTimeoutSec?: number;
+      allowRebuy?: boolean;
     }
   | { type: 'delete_room'; roomId: string }
   | { type: 'leave_room' }

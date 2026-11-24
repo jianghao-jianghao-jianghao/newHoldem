@@ -38,6 +38,7 @@ interface TitleScreenProps {
     bigBlind: number;
     startingChips: number;
     turnTimeoutSec: number;
+    allowRebuy?: boolean;
   }) => Promise<RoomSummary | null>;
   onDeleteRoom: (roomId: string) => Promise<void> | void;
   onOpenPersonalCenter: (tab?: PersonalCenterTab) => void;
@@ -96,6 +97,7 @@ export function TitleScreen({
   const [customBb, setCustomBb] = useState(20);
   const [startingChips, setStartingChips] = useState<number>(2000);
   const [turnTimeoutSec, setTurnTimeoutSec] = useState<number>(30);
+  const [allowRebuy, setAllowRebuy] = useState<boolean>(true);
   const [creating, setCreating] = useState(false);
 
   const avatar = sanitizeAvatar(initialAvatar);
@@ -151,9 +153,11 @@ export function TitleScreen({
         bigBlind: bb,
         startingChips: safeStarting,
         turnTimeoutSec: safeTurnTimeout,
+        allowRebuy,
       });
       if (created) {
         setNewTableName('');
+        setAllowRebuy(true);
         setCreateOpen(false);
         openSeatModalForRoom(created.roomId, created.tableName);
       }
@@ -502,6 +506,35 @@ export function TitleScreen({
                 </div>
               </div>
 
+              <label
+                htmlFor="create-allow-rebuy-checkbox"
+                className="flex items-start gap-2.5 rounded border border-white/[0.08] bg-[#080A0B]/70 px-3 py-2.5 cursor-pointer hover:border-white/[0.16] transition-colors select-none"
+              >
+                <input
+                  id="create-allow-rebuy-checkbox"
+                  data-testid="allow-rebuy-checkbox"
+                  type="checkbox"
+                  checked={allowRebuy}
+                  onChange={(e) => setAllowRebuy(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/25 bg-[#101416] accent-[#D4A853] cursor-pointer"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2 text-xs font-medium text-[#E8EDE9]">
+                    <span>允许玩家随意补充筹码</span>
+                    <span
+                      className={`text-[10px] font-semibold ${
+                        allowRebuy ? 'text-[#8CC9AA]' : 'text-[#F59E0B]'
+                      }`}
+                    >
+                      {allowRebuy ? '可补码' : '禁补码'}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-[#838D88]">
+                    开启后玩家可在局间或出局时补满至初始筹码；取消勾选则本桌禁止补码（淘汰制）
+                  </span>
+                </span>
+              </label>
+
               <button
                 type="submit"
                 data-testid="confirm-create-room-btn"
@@ -560,6 +593,14 @@ export function TitleScreen({
                         }`}
                       >
                         {room.turnTimeoutSec === 0 ? '不限时' : `${room.turnTimeoutSec ?? 30}s`}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span
+                        className={
+                          room.allowRebuy === false ? 'text-[#F59E0B] font-medium' : 'text-[#8D9792]'
+                        }
+                      >
+                        {room.allowRebuy === false ? '禁补码' : '可补码'}
                       </span>
                       <span aria-hidden="true">·</span>
                       <span className="inline-flex items-center gap-1 font-mono-num text-[#B5BEB9]">

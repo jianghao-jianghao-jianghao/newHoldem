@@ -556,6 +556,8 @@ export function PokerTable({
     (table.phase === 'waiting' || table.phase === 'showdown') &&
     table.players.length < 22;
 
+  const allowRebuy = table.allowRebuy !== false;
+
   const isSelfIdleForRebuy =
     Boolean(selfPlayer) &&
     (table.phase === 'waiting' ||
@@ -567,6 +569,7 @@ export function PokerTable({
     Boolean(selfPlayer) && selfPlayer!.chips < table.bigBlind && isSelfIdleForRebuy;
 
   const canTopUp =
+    allowRebuy &&
     Boolean(selfPlayer) &&
     selfPlayer!.chips < table.startingChips &&
     isSelfIdleForRebuy;
@@ -711,6 +714,18 @@ export function PokerTable({
             >
               {table.turnTimeoutSec === 0 ? '不限时' : `${table.turnTimeoutSec}s`}
             </span>
+            {!allowRebuy && (
+              <>
+                <span aria-hidden="true" className="text-white/15 hidden sm:inline">·</span>
+                <span
+                  data-testid="table-no-rebuy-badge"
+                  title="本牌桌已禁止玩家补充筹码（淘汰制）"
+                  className="rounded border border-[#F59E0B]/35 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#FBBF24] whitespace-nowrap"
+                >
+                  禁补码
+                </span>
+              </>
+            )}
             {table.handNumber > 0 && (
               <>
                 <span aria-hidden="true" className="text-white/15 hidden md:inline">·</span>
@@ -1156,23 +1171,33 @@ export function PokerTable({
             </div>
           )}
 
-          {/* Always-Accessible Busted Rebuy Banner (works even mid-hand when auto-next moved on) */}
+          {/* Always-Accessible Busted Rebuy / Freezeout Banner */}
           {isSelfBusted && (
             <div
               data-testid="busted-rebuy-banner"
-              className="pointer-events-auto flex flex-wrap items-center justify-center gap-2.5 rounded-lg border border-[#34D399]/40 bg-[#0C1D16]/94 px-4 py-2 text-xs sm:text-sm text-[#D8F3E5] shadow-lg"
+              className={`pointer-events-auto flex flex-wrap items-center justify-center gap-2.5 rounded-lg border px-4 py-2 text-xs sm:text-sm shadow-lg ${
+                allowRebuy
+                  ? 'border-[#34D399]/40 bg-[#0C1D16]/94 text-[#D8F3E5]'
+                  : 'border-[#F59E0B]/35 bg-[#1B150B]/94 text-[#FDE68A]'
+              }`}
             >
-              <span>筹码不足无法参与本局，可立即补充筹码并在下局继续上桌</span>
-              <button
-                type="button"
-                data-testid="rebuy-chips-btn"
-                disabled={isReconnecting}
-                onClick={onRebuy}
-                className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
-              >
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>立即补充筹码 ({table.startingChips.toLocaleString()})</span>
-              </button>
+              <span>
+                {allowRebuy
+                  ? '筹码不足无法参与本局，可立即补充筹码并在下局继续上桌'
+                  : '筹码已归零出局，本牌桌未开启补充筹码，可继续观战或复盘本场牌局'}
+              </span>
+              {allowRebuy && (
+                <button
+                  type="button"
+                  data-testid="rebuy-chips-btn"
+                  disabled={isReconnecting}
+                  onClick={onRebuy}
+                  className="touch-manipulation inline-flex h-9 sm:h-8 items-center gap-1.5 rounded bg-[#10B981] px-3.5 text-xs font-bold text-[#071510] hover:bg-[#34D399] transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>立即补充筹码 ({table.startingChips.toLocaleString()})</span>
+                </button>
+              )}
               {hasCompletedHands && (
                 <button
                   type="button"

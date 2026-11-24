@@ -79,7 +79,8 @@ export function createTableState(
   smallBlind: number = DEFAULT_SMALL_BLIND,
   bigBlind: number = DEFAULT_BIG_BLIND,
   startingChips: number = STARTING_CHIPS,
-  turnTimeoutSec: number = DEFAULT_TURN_TIMEOUT_SEC
+  turnTimeoutSec: number = DEFAULT_TURN_TIMEOUT_SEC,
+  allowRebuy: boolean = true
 ): TableState {
   const safeStarting = Math.max(bigBlind * 5, Math.floor(startingChips || STARTING_CHIPS));
   const safeTurnTimeoutSec = sanitizeTurnTimeoutSec(turnTimeoutSec);
@@ -91,6 +92,7 @@ export function createTableState(
     smallBlind,
     bigBlind,
     startingChips: safeStarting,
+    allowRebuy: allowRebuy !== false,
     dealerSeatIndex: -1,
     smallBlindSeatIndex: null,
     bigBlindSeatIndex: null,
@@ -485,6 +487,7 @@ export function removePlayerFromTable(state: TableState, playerId: string): void
 }
 
 export function rebuyPlayerChips(state: TableState, playerId: string): boolean {
+  if (state.allowRebuy === false) return false;
   const player = state.players.find((p) => p.id === playerId);
   if (!player) return false;
   if (player.inHand && !player.folded && state.phase !== 'waiting' && state.phase !== 'showdown') {
@@ -1561,6 +1564,7 @@ export function sanitizeTableForPlayer(state: TableState, viewerId: string): Cli
     smallBlind: state.smallBlind,
     bigBlind: state.bigBlind,
     startingChips: state.startingChips,
+    allowRebuy: state.allowRebuy,
     dealerSeatIndex: state.dealerSeatIndex,
     smallBlindSeatIndex: state.smallBlindSeatIndex,
     bigBlindSeatIndex: state.bigBlindSeatIndex,

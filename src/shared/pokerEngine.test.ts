@@ -558,6 +558,25 @@ test('rebuyPlayerChips allows top-up below startingChips and mid-hand rebuy when
   assert.equal(rebuyPlayerChips(table, 'p1'), false);
 });
 
+test('allowRebuy=false blocks mid-stack top-up and busted rebuy and exposes flag in client view', () => {
+  const defaultTable = createTableState('ROOM_REBUY_DEFAULT', 10, 20, 2000);
+  assert.equal(defaultTable.allowRebuy, true);
+
+  const freezeoutTable = createTableState('ROOM_NO_REBUY', 10, 20, 2000, 30, false);
+  assert.equal(freezeoutTable.allowRebuy, false);
+  addPlayerToTable(freezeoutTable, { id: 'p1', name: 'ShortStack', chips: 1200 });
+  addPlayerToTable(freezeoutTable, { id: 'p2', name: 'Busted', chips: 0 });
+  addPlayerToTable(freezeoutTable, { id: 'p3', name: 'FullStack', chips: 2000 });
+
+  assert.equal(rebuyPlayerChips(freezeoutTable, 'p1'), false);
+  assert.equal(rebuyPlayerChips(freezeoutTable, 'p2'), false);
+  assert.equal(freezeoutTable.players.find((p) => p.id === 'p1')?.chips, 1200);
+  assert.equal(freezeoutTable.players.find((p) => p.id === 'p2')?.chips, 0);
+
+  const view = sanitizeTableForPlayer(freezeoutTable, 'p1');
+  assert.equal(view.allowRebuy, false);
+});
+
 test('sanitizeTurnTimeoutSec clamps finite values and treats <=0 as unlimited (0)', () => {
   assert.equal(sanitizeTurnTimeoutSec(undefined), DEFAULT_TURN_TIMEOUT_SEC);
   assert.equal(sanitizeTurnTimeoutSec(Number.NaN), DEFAULT_TURN_TIMEOUT_SEC);
