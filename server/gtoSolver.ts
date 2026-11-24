@@ -394,20 +394,23 @@ function synthesizeReportFromSpotRequest(req: GtoSpotAnalysisRequest): HandRevie
   return {
     handNumber: req.handNumber,
     timestamp: Date.now(),
+    outcome: 'split',
+    wonByFold: false,
+    netChips: 0,
+    netBB: 0,
+    pot: req.potBeforeChips,
+    smallBlind: Math.max(1, Math.floor(req.bigBlind / 2)),
+    bigBlind: req.bigBlind,
     heroId: 'hero',
     heroName: 'Hero',
     heroPosition: req.heroPosition,
     heroHoleCards: req.heroHoleCards.length === 2 ? req.heroHoleCards : null,
     canonicalHand,
+    heroFinalHandName: null,
     communityCards: visibleBoard,
-    bigBlind: req.bigBlind,
-    pot: req.potBeforeChips,
-    netDelta: 0,
-    outcome: 'split',
-    overallScore: 80,
-    grade: 'B',
+    showdownOpponents: [],
     headline: 'GTO 服务端节点求解',
-    summary: '',
+    overallSummary: '',
     streets: [
       {
         street: req.street,
@@ -453,14 +456,14 @@ function synthesizeReportFromSpotRequest(req: GtoSpotAnalysisRequest): HandRevie
         ],
       },
     ],
-    keyMoments: [],
+    strengthsFound: [],
+    lessonsLearned: [],
     teaching: {
       topic: 'GTO 均衡与范围几何',
       principle: '',
       formulaOrRule: '',
       nextHandDrill: '',
     },
-    handTypeLabel: '单节点复盘',
   };
 }
 
