@@ -1302,6 +1302,10 @@ async function startServer() {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=()",
+    );
 
     const reqOrigin = req.headers.origin;
     if (!ALLOWED_CORS_ORIGINS) {
@@ -1506,7 +1510,7 @@ async function startServer() {
 
     const storedSecret = ctx.seatSecrets.get(playerId) ?? null;
     const isVerifiedOwner =
-      !storedSecret || secretsMatch(storedSecret, providedSecret);
+      Boolean(storedSecret) && secretsMatch(storedSecret, providedSecret);
 
     // Strictly sanitize unrevealed opponent cards and protect private hero cards if secret mismatch
     const safeRecord = {
@@ -1602,7 +1606,7 @@ async function startServer() {
 
     const storedSecret = ctx.seatSecrets.get(playerId) ?? null;
     const isVerifiedOwner =
-      !storedSecret || secretsMatch(storedSecret, providedSecret);
+      Boolean(storedSecret) && secretsMatch(storedSecret, providedSecret);
 
     const reports: Array<NonNullable<ReturnType<typeof generateHandReview>>> =
       [];
@@ -1761,6 +1765,15 @@ async function startServer() {
   });
 
   app.post("/api/rooms/:roomId/bot-chat/config", async (req, res) => {
+    const ip = getClientIp(req);
+    const rate = gtoEvalLimiter.consume(ip);
+    if (!rate.allowed) {
+      runtimeMetrics.rateLimitRejections += 1;
+      res
+        .status(429)
+        .json({ error: `操作过于频繁，请 ${rate.retryAfterSec} 秒后再试` });
+      return;
+    }
     const id = normalizeRoomId(req.params.roomId);
     const ctx = rooms.get(id);
     if (!ctx) {
@@ -1881,6 +1894,18 @@ async function startServer() {
     server,
     path: "/ws",
     maxPayload: 64 * 1024,
+    verifyClient: (info, done) => {
+      if (!ALLOWED_CORS_ORIGINS) {
+        done(true);
+        return;
+      }
+      const origin = info.origin || info.req.headers.origin;
+      if (origin && ALLOWED_CORS_ORIGINS.has(origin)) {
+        done(true);
+        return;
+      }
+      done(false, 403, "Forbidden Origin");
+    },
   });
 
   wss.on("connection", (ws) => {

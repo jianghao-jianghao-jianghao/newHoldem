@@ -6,6 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+firebase-applet-config.json
+firebase-blueprint.json
 data/
 *.mp4
 !docs/media/promo.mp4

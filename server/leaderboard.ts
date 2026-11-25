@@ -535,6 +535,38 @@ export class LeaderboardStore {
     return true;
   }
 
+  public getPlayerProfileByUid(uid?: string | null): ReturnType<LeaderboardStore['getPlayerProfile']> | null {
+    const cleanUid = uid?.trim();
+    if (!cleanUid) return null;
+    const existing = this.entries.get(`uid:${cleanUid}`);
+    if (!existing) return null;
+    const achievements = existing.achievements ?? [];
+    const level = computePlayerLevel({
+      achievements,
+      handsPlayed: existing.handsPlayed,
+      handsWon: existing.handsWon,
+      points: existing.points,
+      explicitLevel: existing.level,
+    }).level;
+    return {
+      avatar: existing.avatar,
+      equippedAchievement: existing.equippedAchievement,
+      level,
+      points: existing.points,
+      netChips: existing.netChips,
+      handsPlayed: existing.handsPlayed,
+      handsWon: existing.handsWon,
+      bestHandName: existing.bestHandName,
+      bestHandScore: existing.bestHandScore,
+      achievements: [...achievements],
+      achievementDates: sanitizeAchievementDates(existing.achievementDates),
+      currentWinStreak: existing.currentWinStreak ?? 0,
+      maxWinStreak: existing.maxWinStreak ?? 0,
+      stats: existing.stats ?? createEmptyAchievementStats(),
+      behaviorStats: sanitizeBehaviorStats(existing.behaviorStats),
+    };
+  }
+
   public getPlayerProfile(
     playerName: string,
     uid?: string | null

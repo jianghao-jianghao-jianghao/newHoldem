@@ -197,7 +197,7 @@ export function registerGtoAndPersonaRoutes(deps: RegisterGtoRoutesDeps): void {
     }
 
     const storedSecret = ctx.seatSecrets.get(playerId) ?? null;
-    const isVerifiedOwner = !storedSecret || secretsMatch(storedSecret, seatSecret);
+    const isVerifiedOwner = Boolean(storedSecret) && secretsMatch(storedSecret, seatSecret);
 
     const reports: Array<NonNullable<ReturnType<typeof generateHandReview>>> = [];
     for (const record of heroHands) {

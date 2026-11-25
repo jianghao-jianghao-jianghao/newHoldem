@@ -2,11 +2,7 @@ import type express from 'express';
 import type { EmailAuthStore } from '../authStore';
 import type { LeaderboardStore } from '../leaderboard';
 import type { SlidingWindowRateLimiter } from '../rateLimiter';
-import {
-  sanitizeAchievementDates,
-  sanitizeAchievementIds,
-  sanitizeEquippedAchievement,
-} from '../../src/shared/achievements';
+import { sanitizeEquippedAchievement } from '../../src/shared/achievements';
 
 export interface RegisterAuthRoutesDeps {
   app: express.Express;
@@ -31,40 +27,30 @@ export function registerAuthRoutes(deps: RegisterAuthRoutesDeps): void {
     onRateLimitRejected,
   } = deps;
 
-  const buildLinkedProfile = (
-    lookupName: string | undefined,
-    localAchievements?: unknown,
-    localAchievementDates?: unknown
-  ) => {
-    const cleanName = (lookupName ?? '').trim();
-    const lbProfile = cleanName ? leaderboard.getPlayerProfile(cleanName) : null;
+  /**
+   * Resolves authoritative leaderboard stats strictly by verified account UID
+   * (never trusts client-submitted achievement arrays or arbitrary nickname lookups).
+   */
+  const buildLinkedProfileByUid = (uid: string) => {
+    const lbProfile = leaderboard.getPlayerProfileByUid(uid);
+    if (!lbProfile) return undefined;
     const hasLbRecord = Boolean(
-      lbProfile && (lbProfile.handsPlayed > 0 || lbProfile.achievements.length > 0 || lbProfile.avatar)
+      lbProfile.handsPlayed > 0 || lbProfile.achievements.length > 0 || lbProfile.avatar
     );
-    const extraAchievements = sanitizeAchievementIds(localAchievements);
-    const extraDates = sanitizeAchievementDates(localAchievementDates);
-    const mergedAch = sanitizeAchievementIds([
-      ...(hasLbRecord && lbProfile ? lbProfile.achievements : []),
-      ...extraAchievements,
-    ]);
-    const mergedDates = {
-      ...(hasLbRecord && lbProfile ? lbProfile.achievementDates : {}),
-      ...extraDates,
-    };
-    if (!hasLbRecord && mergedAch.length === 0) return undefined;
+    if (!hasLbRecord) return undefined;
     return {
-      avatar: hasLbRecord ? lbProfile?.avatar : undefined,
-      equippedAchievement: hasLbRecord ? lbProfile?.equippedAchievement : undefined,
-      points: hasLbRecord ? lbProfile?.points : undefined,
-      netChips: hasLbRecord ? lbProfile?.netChips : undefined,
-      handsPlayed: hasLbRecord ? lbProfile?.handsPlayed : undefined,
-      handsWon: hasLbRecord ? lbProfile?.handsWon : undefined,
-      bestHandName: hasLbRecord ? lbProfile?.bestHandName : undefined,
-      bestHandScore: hasLbRecord ? lbProfile?.bestHandScore : undefined,
-      achievements: mergedAch,
-      achievementDates: mergedDates,
-      currentWinStreak: hasLbRecord ? lbProfile?.currentWinStreak : undefined,
-      maxWinStreak: hasLbRecord ? lbProfile?.maxWinStreak : undefined,
+      avatar: lbProfile.avatar,
+      equippedAchievement: lbProfile.equippedAchievement,
+      points: lbProfile.points,
+      netChips: lbProfile.netChips,
+      handsPlayed: lbProfile.handsPlayed,
+      handsWon: lbProfile.handsWon,
+      bestHandName: lbProfile.bestHandName,
+      bestHandScore: lbProfile.bestHandScore,
+      achievements: lbProfile.achievements,
+      achievementDates: lbProfile.achievementDates,
+      currentWinStreak: lbProfile.currentWinStreak,
+      maxWinStreak: lbProfile.maxWinStreak,
     };
   };
 
@@ -107,14 +93,8 @@ export function registerAuthRoutes(deps: RegisterAuthRoutesDeps): void {
       });
       return;
     }
-    const { email, code, displayName, avatar, localAchievements, localAchievementDates } =
-      req.body ?? {};
+    const { email, code, displayName, avatar } = req.body ?? {};
     const rawEmail = typeof email === 'string' ? email : '';
-    const lookupName =
-      typeof displayName === 'string' && displayName.trim()
-        ? displayName.trim()
-        : rawEmail.split('@')[0];
-    const linked = buildLinkedProfile(lookupName, localAchievements, localAchievementDates);
     const result = authStore.verifyOtp(
       rawEmail,
       typeof code === 'string' ? code : '',
@@ -122,12 +102,17 @@ export function registerAuthRoutes(deps: RegisterAuthRoutesDeps): void {
         displayName: typeof displayName === 'string' ? displayName : undefined,
         avatar: typeof avatar === 'string' ? avatar : undefined,
       },
-      Date.now(),
-      linked
+      Date.now()
     );
     if (!result.ok) {
       res.status(400).json(result);
       return;
+    }
+    if (result.profile) {
+      const linked = buildLinkedProfileByUid(result.profile.uid);
+      if (linked) {
+        result.profile = authStore.mergeLinkedProfile(result.profile.uid, linked) ?? result.profile;
+      }
     }
     res.json(result);
   });
@@ -139,7 +124,7 @@ export function registerAuthRoutes(deps: RegisterAuthRoutesDeps): void {
       res.status(401).json({ error: '登录状态已失效，请重新登录' });
       return;
     }
-    const linked = buildLinkedProfile(profile.displayName);
+    const linked = buildLinkedProfileByUid(profile.uid);
     const hydrated = linked
       ? (authStore.mergeLinkedProfile(profile.uid, linked) ?? profile)
       : profile;
