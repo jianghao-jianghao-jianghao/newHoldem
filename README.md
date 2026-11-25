@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/Poker_AI-GTO_%2B_Safe_Exploit-1E6B4B?style=flat-square&labelColor=0B0E10" alt="GTO + Safe Exploit" />
   <img src="https://img.shields.io/badge/Runtime-CPU_Only_(No_GPU)-2A332E?style=flat-square&labelColor=0B0E10" alt="CPU Only" />
   <img src="https://img.shields.io/badge/Docker-One_Click_Deploy-2496ED?style=flat-square&labelColor=0B0E10" alt="Docker Ready" />
-  <img src="https://img.shields.io/badge/License-MIT-2A332E?style=flat-square&labelColor=0B0E10" alt="MIT" />
+  <img src="https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-2A332E?style=flat-square&labelColor=0B0E10" alt="PolyForm Noncommercial 1.0.0" />
 </p>
 
 <br />
@@ -297,15 +297,12 @@ npm run dev</pre>
 
 ## 合规说明
 
-本项目仅用于软件工程学习与亲友间的免费休闲娱乐：
+本项目采用 [PolyForm Noncommercial License 1.0.0](LICENSE)（**仅限非商业用途**），专为软件工程学习、博弈算法研究与亲友免费娱乐打造。所有筹码与积分均为无货币价值的虚拟演练数值，不含任何支付、充值、提现或抽水通道；**严禁用于任何商业营利、赌博或违法用途**，违规部署与使用后果自负。
 
-- **纯虚拟积分**：桌面显示的筹码、盲注、底池、盈亏与排行均为无任何货币价值的虚拟演练积分，不具备兑换或财产属性。
-- **无资金通道**：不包含且不支持任何形式的充值、提现、抽水（Rake）或支付结算功能，严禁用于开设赌场、组织网络赌博或任何违反当地法律法规的活动。
-- **责任自负**：代码按 MIT 协议以「现状（AS IS）」开源提供；任何第三方二次开发、公网部署或运营行为的合规义务及相应法律责任，均由实际部署方自行承担。
-- **密钥隐私**：外部大模型与邮件服务均为可选项；玩家在页面手动填入的密钥仅驻留于当前房间内存，不落盘、不回显，离桌或关闭房间即清除。
+完整条款请参阅 [合规与免责声明（DISCLAIMER.md）](DISCLAIMER.md)。
 
 <br />
 
 <div align="center">
-  <sub>Released under the <a href="LICENSE">MIT License</a> · Velvet Hold'em</sub>
+  <sub>Licensed under <a href="LICENSE">PolyForm Noncommercial 1.0.0</a> · <a href="DISCLAIMER.md">合规与免责声明</a> · Velvet Hold'em</sub>
 </div>

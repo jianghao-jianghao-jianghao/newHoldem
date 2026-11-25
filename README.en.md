@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/Poker_AI-GTO_%2B_Safe_Exploit-1E6B4B?style=flat-square&labelColor=0B0E10" alt="GTO + Safe Exploit" />
   <img src="https://img.shields.io/badge/Runtime-CPU_Only_(No_GPU)-2A332E?style=flat-square&labelColor=0B0E10" alt="CPU Only" />
   <img src="https://img.shields.io/badge/Docker-One_Click_Deploy-2496ED?style=flat-square&labelColor=0B0E10" alt="Docker Ready" />
-  <img src="https://img.shields.io/badge/License-MIT-2A332E?style=flat-square&labelColor=0B0E10" alt="MIT" />
+  <img src="https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-2A332E?style=flat-square&labelColor=0B0E10" alt="PolyForm Noncommercial 1.0.0" />
 </p>
 
 <br />
@@ -277,15 +277,12 @@ No external API keys are required to play, host rooms, or use the GTO review wor
 
 ## Compliance
 
-This project is built strictly for software engineering education and free casual play among friends:
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) (**noncommercial use only**) for software engineering education, game-theory research, and free casual play among friends. All chips and scores are valueless practice points with zero payment, deposit, withdrawal, or rake rails. **Commercial exploitation, gambling, and any unlawful use are strictly prohibited**, and deployers bear sole legal responsibility.
 
-- **Virtual Points Only**: All chips, blinds, pots, PnL curves, and leaderboards represent valueless practice points with zero monetary or redeemable value.
-- **No Real-Money Flows**: Contains no deposits, withdrawals, rake, or payment rails. Do not use this codebase for real-money gambling or any unlawful activity.
-- **Deployer Responsibility**: Provided "AS IS" under the MIT License; any third-party deployment or modification is solely responsible for local legal compliance.
-- **API Key Privacy**: External LLM and email services are strictly optional; room-scoped keys entered in the UI live in volatile room memory only and are purged when the room closes.
+See the full [Legal Disclaimer & Compliance Statement (DISCLAIMER.md)](DISCLAIMER.md).
 
 <br />
 
 <div align="center">
-  <sub>Released under the <a href="LICENSE">MIT License</a> · Velvet Hold'em</sub>
+  <sub>Licensed under <a href="LICENSE">PolyForm Noncommercial 1.0.0</a> · <a href="DISCLAIMER.md">Legal Disclaimer</a> · Velvet Hold'em</sub>
 </div>
